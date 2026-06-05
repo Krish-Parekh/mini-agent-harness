@@ -1,0 +1,7 @@
+docs/
+codebase/
+.venv/
+__pycache__/
+*.pyc
+.env
+workspace/
