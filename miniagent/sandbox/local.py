@@ -12,11 +12,11 @@ class LocalSandbox(Sandbox):
         self.workspace_dir = str(Path(workspace_dir or Path.cwd()).resolve())
         Path(self.workspace_dir).mkdir(parents=True, exist_ok=True)
     
-    def _resolve(self, path: str) -> str:
+    def _resolve(self, path: str) -> Path:
         p = Path(path)
         if p.is_absolute():
-            return str(p)
-        return str(Path(self.workspace_dir).joinpath(p))
+            return p
+        return Path(self.workspace_dir).joinpath(p)
     
     def run_command(self, command: str, timeout: int = 30) -> CommandResult:
         try:
