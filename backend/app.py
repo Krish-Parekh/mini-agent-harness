@@ -4,16 +4,18 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.github_auth import GitHubAuth, router as github_router
 from backend.manager import ConversationManager
 from backend.router import router
 from miniagent.config import Settings
 
+settings = Settings()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = Settings()
     app.state.settings = settings
     app.state.github = GitHubAuth()
     app.state.manager = ConversationManager(settings, Path("data/events"))
@@ -21,5 +23,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="MiniAgent Server", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_url],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(router)
 app.include_router(github_router)

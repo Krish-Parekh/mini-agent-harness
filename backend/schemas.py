@@ -6,6 +6,8 @@ from miniagent.confirm import ConfirmMode
 
 
 class CreateConversationRequest(BaseModel):
+    repo: str | None = None
+    branch: str | None = None
     workspace_dir: str | None = None
     initial_message: str | None = None
     confirm_mode: ConfirmMode = "risky"
@@ -25,3 +27,5 @@ class ConversationInfo(BaseModel):
     status: str
     workspace_dir: str
     num_events: int
+    repo: str | None = None
+    branch: str | None = None

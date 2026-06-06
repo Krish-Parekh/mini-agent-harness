@@ -4,7 +4,7 @@ import secrets
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
 from miniagent.config import Settings
 
@@ -94,9 +94,36 @@ async def github_callback(request: Request, code: str, state: str):
 
     auth.token = token
     auth.login = login
-    return HTMLResponse(
-        f"<p>Connected to GitHub as <b>{login}</b>. You can close this tab.</p>"
-    )
+    return RedirectResponse(f"{settings.frontend_url}/repos?connected=1")
+
+
+@router.get("/repos")
+async def github_repos(request: Request):
+    auth = _auth(request)
+    if not auth.token:
+        raise HTTPException(status_code=401, detail="not connected to github")
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(
+            "https://api.github.com/user/repos",
+            headers={
+                "Authorization": f"Bearer {auth.token}",
+                "Accept": "application/vnd.github+json",
+            },
+            params={"per_page": 100, "sort": "updated"},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="failed to list repositories")
+    return [
+        {
+            "full_name": r["full_name"],
+            "name": r["name"],
+            "private": r["private"],
+            "default_branch": r["default_branch"],
+            "description": r.get("description"),
+            "updated_at": r["updated_at"],
+        }
+        for r in resp.json()
+    ]
 
 
 @router.get("/status")

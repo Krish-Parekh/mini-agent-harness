@@ -34,19 +34,24 @@ def _info(managed: ManagedConversation) -> ConversationInfo:
         status=conv.status.value,
         workspace_dir=managed.sandbox.workspace_dir,
         num_events=len(conv.events),
+        repo=managed.repo,
+        branch=managed.branch,
     )
 
 
 @router.post("/conversations", response_model=ConversationInfo)
 async def create_conversation(body: CreateConversationRequest, request: Request):
     manager = _manager(request)
+    token = request.app.state.github.token
     managed = manager.create(
+        repo=body.repo,
+        branch=body.branch,
         workspace_dir=body.workspace_dir,
         confirm_mode=body.confirm_mode,
+        token=token,
     )
-    if body.initial_message:
-        managed.conversation.send_message(body.initial_message)
-        manager.run_in_background(managed, managed.conversation.run)
+    if body.repo or body.initial_message:
+        manager.start(managed, body.initial_message)
     return _info(managed)
 
 
