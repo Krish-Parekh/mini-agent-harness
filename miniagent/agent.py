@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from pydantic import ValidationError
 
@@ -12,20 +12,49 @@ if TYPE_CHECKING:
     from miniagent.conversation import Conversation
     from miniagent.sandbox.base import Sandbox
 
+ToolOutcome: TypeAlias = Literal["ok", "finished", "paused"]
 
-DEFAULT_SYSTEM_PROMPT = """You are a coding agent working inside a sandboxed workspace.
 
-You act only through tools. Each turn, either call a tool or, when the task is
-complete, call the `finish` tool with a short summary. Do not stop by just
-writing a message.
+DEFAULT_SYSTEM_PROMPT = """You are MiniAgent, a coding agent that works on a software project inside an \
+isolated sandbox workspace. The code lives at the working directory and all your tools run there.
 
-How to work:
-- Explore before editing: read files to understand the code first.
-- Make minimal, targeted changes. Prefer small str_replace edits over rewriting files.
-- Verify your work by running commands (e.g. run the file or its tests).
-- Keep tool output small: read the parts you need, not whole large files.
+You act only through tools — you never touch the world directly. Each turn you either call a tool \
+or, when the task is fully complete and verified, call the `finish` tool. Do not end a turn with a \
+plain message assuming the work is done; the loop only stops when you call `finish`.
 
-When the task is done and verified, call `finish`.
+# Tools
+- `bash`: run a shell command in the workspace — build, run code, run tests, search, inspect git. \
+Use it for anything other than reading or writing a single file.
+- `file_edit`:
+  - `view` — read a file before changing it.
+  - `create` — write a new file (provide the full `content`).
+  - `str_replace` — make a targeted edit; `old_str` must match exactly and appear exactly once, so \
+include enough surrounding context to be unique.
+- `finish`: end the task with a short summary of what you did.
+
+# How to work
+- Treat instructions as software-engineering tasks against the actual code. If asked to rename \
+`methodName`, find it in the code and change it — don't just answer in chat.
+- Explore before editing: read the relevant files and follow the existing conventions, then make \
+the smallest change that satisfies the task. Match the surrounding code's style.
+- Don't add features, refactors, abstractions, error handling, or compatibility shims beyond what \
+the task requires. Three similar lines beat a premature abstraction. Only validate at real \
+boundaries (user input, external APIs); trust internal code. No half-finished work.
+- Verify your change by running the code or its tests with `bash`. Don't assume it works — confirm it.
+- Keep tool use efficient: read the parts of a file you need rather than dumping whole files, and \
+prefer small `str_replace` edits over rewriting entire files.
+
+# Acting with care
+- Local, reversible actions (editing files, running tests) are fine to take freely. Be careful with \
+destructive or hard-to-reverse commands (rm -rf, git reset --hard, force-push, dropping data).
+- Don't use destructive shortcuts to get past an obstacle. Find and fix the root cause instead of \
+bypassing safety checks (e.g. --no-verify). If you find unexpected files or state, investigate \
+before deleting or overwriting — it may be the user's in-progress work.
+
+# Finishing
+- When the task is done and verified, call `finish` with a brief, truthful summary of what changed.
+- Report outcomes honestly: if tests fail or a step was skipped, say so. State what is done plainly, \
+without hedging or overclaiming. Reference code as `path:line` when useful.
 """
 
 
@@ -41,6 +70,16 @@ class Agent:
         self.system_prompt = system_prompt
 
     def step(self, conversation: Conversation, sandbox: Sandbox) -> None:
+        pending = conversation.pending_action()
+        if pending is not None:
+            call = ToolCall(
+                id=pending.tool_call_id,
+                name=pending.tool_name,
+                arguments=pending.arguments,
+            )
+            self._run_tool(call, conversation, sandbox)
+            return
+
         messages = self._build_messages(conversation)
         response = self.llm.complete(messages, self.tools.all())
 
@@ -49,8 +88,8 @@ class Agent:
 
         if response.tool_calls:
             for call in response.tool_calls:
-                finished = self._handle_tool_call(call, conversation, sandbox)
-                if finished:
+                outcome = self._handle_tool_call(call, conversation, sandbox)
+                if outcome in ("finished", "paused"):
                     break
         elif not response.text:
             conversation.add_event(ErrorEvent(message="empty model response"))
@@ -65,16 +104,24 @@ class Agent:
 
     def _handle_tool_call(
         self, call: ToolCall, conversation: Conversation, sandbox: Sandbox
-    ) -> bool:
-        # Always log the intent, so every tool_call is paired with a result.
-        conversation.add_event(
-            ActionEvent(
-                tool_name=call.name,
-                arguments=call.arguments,
-                tool_call_id=call.id,
-            )
+    ) -> ToolOutcome:
+        action_event = ActionEvent(
+            tool_name=call.name,
+            arguments=call.arguments,
+            tool_call_id=call.id,
         )
+        conversation.add_event(action_event)
 
+        if conversation.needs_confirmation(action_event):
+            conversation.set_waiting_for_confirmation()
+            return "paused"
+
+        finished = self._run_tool(call, conversation, sandbox)
+        return "finished" if finished else "ok"
+
+    def _run_tool(
+        self, call: ToolCall, conversation: Conversation, sandbox: Sandbox
+    ) -> bool:
         if call.name not in self.tools:
             available = ", ".join(t.name for t in self.tools.all())
             self._observe(
