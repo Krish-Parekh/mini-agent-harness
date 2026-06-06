@@ -56,7 +56,9 @@ class FileEditTool(Tool):
         sandbox.write_file(action.path, action.content)
         return FileEditObservation(output=f"Created {action.path}")
 
-    def _str_replace(self, action: FileEditAction, sandbox: Sandbox) -> FileEditObservation:
+    def _str_replace(
+        self, action: FileEditAction, sandbox: Sandbox
+    ) -> FileEditObservation:
         if action.old_str is None:
             return self._fail("str_replace requires 'old_str'")
         try:
@@ -68,7 +70,9 @@ class FileEditTool(Tool):
         if count == 0:
             return self._fail("old_str not found in file")
         if count > 1:
-            return self._fail(f"old_str is not unique ({count} matches); add more context")
+            return self._fail(
+                f"old_str is not unique ({count} matches); add more context"
+            )
 
         new_content = content.replace(action.old_str, action.new_str or "")
         sandbox.write_file(action.path, new_content)

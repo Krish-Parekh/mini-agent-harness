@@ -8,7 +8,6 @@ from miniagent.schema import Action, Observation
 
 
 class Tool(ABC):
-
     name: str
     description: str
     action_type: type[Action]
@@ -31,7 +30,6 @@ def to_openai_schema(tool: Tool) -> dict[str, Any]:
 
 
 class ToolRegistry:
-
     def __init__(self, tools: list[Tool] | None = None) -> None:
         self._tools: dict[str, Tool] = {}
         for tool in tools or []:

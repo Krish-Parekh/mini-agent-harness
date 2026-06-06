@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from typing import Annotated, Any, Literal, Union, TypeAlias
@@ -21,12 +22,18 @@ class Event(BaseModel):
     source: Source
     kind: str
 
+    def to_chat_message(self) -> dict | None:
+        return None
+
 
 class MessageEvent(Event):
     kind: Literal["message"] = "message"
     source: Source = "user"
     role: Literal["user", "assistant", "system"]
     text: str
+
+    def to_chat_message(self) -> dict:
+        return {"role": self.role, "content": self.text}
 
 
 class ActionEvent(Event):
@@ -36,6 +43,22 @@ class ActionEvent(Event):
     arguments: dict[str, Any]
     tool_call_id: str
 
+    def to_chat_message(self) -> dict:
+        return {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": self.tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": self.tool_name,
+                        "arguments": json.dumps(self.arguments),
+                    },
+                }
+            ],
+        }
+
 
 class ObservationEvent(Event):
     kind: Literal["observation"] = "observation"
@@ -44,6 +67,13 @@ class ObservationEvent(Event):
     tool_call_id: str
     content: str
     error: bool = False
+
+    def to_chat_message(self) -> dict:
+        return {
+            "role": "tool",
+            "tool_call_id": self.tool_call_id,
+            "content": self.content,
+        }
 
 
 class CondensationEvent(Event):
