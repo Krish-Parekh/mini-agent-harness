@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.github_auth import GitHubAuth, router as github_router
-from backend.manager import ConversationManager
-from backend.router import router
+from backend import models  # noqa: F401 — register ORM tables on Base.metadata
+from backend.api.conversations import router
+from backend.api.github import router as github_router
+from backend.core.db import Base, make_engine, make_sessionmaker
+from backend.repository import ConversationRepository
+from backend.runtime import ConversationManager, GitHubAuth
+from backend.service import ConversationService
 from miniagent.config import Settings
 
 settings = Settings()
@@ -18,8 +21,20 @@ settings = Settings()
 async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.github = GitHubAuth()
-    app.state.manager = ConversationManager(settings, Path("data/events"))
+
+    engine = make_engine(settings.database_url)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sessionmaker = make_sessionmaker(engine)
+
+    repository = ConversationRepository(sessionmaker)
+    manager = ConversationManager(settings)
+    service = ConversationService(manager, repository)
+    service.start()
+    app.state.service = service
+
     yield
+    await engine.dispose()
 
 
 app = FastAPI(title="MiniAgent Server", lifespan=lifespan)

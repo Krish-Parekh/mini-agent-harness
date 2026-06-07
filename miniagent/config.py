@@ -26,3 +26,8 @@ class Settings(BaseSettings):
     )
     public_base_url: str = "http://127.0.0.1:8000"
     frontend_url: str = "http://localhost:3000"
+
+    database_url: str = Field(
+        "postgresql+psycopg://miniagent:miniagent@localhost:5432/miniagent",
+        validation_alias=AliasChoices("DATABASE_URL"),
+    )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from pathlib import Path
+from typing import Callable
 
 from miniagent.agent import Agent
 from miniagent.config import Settings
@@ -16,6 +17,8 @@ from miniagent.tools.bash import BashTool
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
+
+PersistHook = Callable[["ManagedConversation", Event, int], None]
 
 
 def _build_agent(settings: Settings) -> Agent:
@@ -47,12 +50,17 @@ class EventBroker:
 
 
 class ManagedConversation:
+    """A live conversation: the agent loop's Conversation + sandbox + broker.
+
+    `on_event` fans each event out to live subscribers and to the persistence
+    hook the service installs; it carries no knowledge of how persistence works.
+    """
+
     def __init__(
         self,
         conversation: Conversation,
         sandbox: LocalSandbox,
         broker: EventBroker,
-        events_path: Path,
         repo: str | None = None,
         branch: str | None = None,
         token: str | None = None,
@@ -60,16 +68,30 @@ class ManagedConversation:
         self.conversation = conversation
         self.sandbox = sandbox
         self.broker = broker
-        self.events_path = events_path
         self.repo = repo
         self.branch = branch
         self._token = token
+        self.title: str | None = None
+        self._seq = 0
         self.lock = asyncio.Lock()
+        self.persist_hook: PersistHook = lambda *_: None
 
     def on_event(self, event: Event) -> None:
-        with self.events_path.open("a") as fh:
-            fh.write(event.model_dump_json() + "\n")
+        self._seq += 1
+        self._maybe_set_title(event)
+        self.persist_hook(self, event, self._seq)
         self.broker.publish(event)
+
+    def _maybe_set_title(self, event: Event) -> None:
+        if self.title is not None:
+            return
+        if not (isinstance(event, MessageEvent) and event.role == "user"):
+            return
+        text = event.text.strip()
+        snippet = text.splitlines()[0][:60] if text else ""
+        base = self.repo.split("/")[-1] if self.repo else None
+        title = f"{base}: {snippet}".strip(": ") if base else snippet
+        self.title = title or None
 
     def bootstrap(self) -> None:
         """Clone the repo (if any) before the agent runs. Runs in a worker thread."""
@@ -91,13 +113,19 @@ class ManagedConversation:
 
 
 class ConversationManager:
-    def __init__(self, settings: Settings, events_dir: Path) -> None:
+    """In-memory registry and factory of live conversations. No persistence."""
+
+    def __init__(
+        self, settings: Settings, data_dir: Path = Path("data")
+    ) -> None:
         self._settings = settings
-        self._events_dir = events_dir
-        self._events_dir.mkdir(parents=True, exist_ok=True)
-        self._workspaces_dir = events_dir.parent / "workspaces"
+        self._workspaces_dir = data_dir / "workspaces"
+        self._workspaces_dir.mkdir(parents=True, exist_ok=True)
         self._conversations: dict[str, ManagedConversation] = {}
-        self._tasks: set[asyncio.Task] = set()
+        self._persist_hook: PersistHook = lambda *_: None
+
+    def set_persist_hook(self, hook: PersistHook) -> None:
+        self._persist_hook = hook
 
     def create(
         self,
@@ -107,25 +135,57 @@ class ConversationManager:
         confirm_mode: ConfirmMode = "risky",
         token: str | None = None,
     ) -> ManagedConversation:
-        loop = asyncio.get_running_loop()
         cid = uuid.uuid4().hex[:8]
         if repo:
-            repo_name = repo.split("/")[-1]
-            ws = str(self._workspaces_dir / cid / repo_name)
+            ws = str(self._workspaces_dir / cid / repo.split("/")[-1])
         else:
             ws = workspace_dir or self._settings.workspace_dir
-        sandbox = LocalSandbox(ws)
+        managed = self._build(cid, ws, confirm_mode, repo, branch, token)
+        return managed
+
+    def register_revived(
+        self,
+        *,
+        cid: str,
+        repo: str | None,
+        branch: str | None,
+        workspace_dir: str | None,
+        status: str,
+        title: str | None,
+        events: list[Event],
+    ) -> ManagedConversation:
+        ws = workspace_dir or self._settings.workspace_dir
+        managed = self._build(cid, ws, "risky", repo, branch, None)
+        managed.conversation.events = events
+        managed.title = title
+        managed._seq = len(events)
+        try:
+            managed.conversation.status = Status(status)
+        except ValueError:
+            managed.conversation.status = Status.IDLE
+        return managed
+
+    def _build(
+        self,
+        cid: str,
+        workspace_dir: str,
+        confirm_mode: ConfirmMode,
+        repo: str | None,
+        branch: str | None,
+        token: str | None,
+    ) -> ManagedConversation:
+        loop = asyncio.get_running_loop()
+        sandbox = LocalSandbox(workspace_dir)
         conversation = Conversation(
             agent=_build_agent(self._settings),
             sandbox=sandbox,
             confirm_policy=ConfirmPolicy(confirm_mode),
             id=cid,
         )
-        broker = EventBroker(loop)
-        events_path = self._events_dir / f"{cid}.jsonl"
         managed = ManagedConversation(
-            conversation, sandbox, broker, events_path, repo, branch, token
+            conversation, sandbox, EventBroker(loop), repo, branch, token
         )
+        managed.persist_hook = self._persist_hook
         conversation.on_event = managed.on_event
         self._conversations[cid] = managed
         return managed
@@ -133,40 +193,5 @@ class ConversationManager:
     def get(self, cid: str) -> ManagedConversation | None:
         return self._conversations.get(cid)
 
-    def list(self) -> list[ManagedConversation]:
-        return list(self._conversations.values())
-
-    async def delete(self, cid: str) -> bool:
-        managed = self._conversations.pop(cid, None)
-        if managed is None:
-            return False
-        managed.conversation.set_finished()
-        await asyncio.to_thread(managed.sandbox.close)
-        return True
-
-    def run_in_background(self, managed: ManagedConversation, trigger) -> None:
-        self._spawn(self._run(managed, trigger))
-
-    def start(self, managed: ManagedConversation, initial_message: str | None) -> None:
-        """Clone the workspace (if any), then run the agent on the first message."""
-        self._spawn(self._start(managed, initial_message))
-
-    def _spawn(self, coro) -> None:
-        task = asyncio.create_task(coro)
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-
-    async def _run(self, managed: ManagedConversation, trigger) -> None:
-        async with managed.lock:
-            await asyncio.to_thread(trigger)
-
-    async def _start(
-        self, managed: ManagedConversation, initial_message: str | None
-    ) -> None:
-        async with managed.lock:
-            await asyncio.to_thread(managed.bootstrap)
-            if managed.conversation.status == Status.ERROR:
-                return
-            if initial_message:
-                managed.conversation.send_message(initial_message)
-                await asyncio.to_thread(managed.conversation.run)
+    def remove(self, cid: str) -> ManagedConversation | None:
+        return self._conversations.pop(cid, None)

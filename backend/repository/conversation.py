@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from backend.models import ConversationRow, EventRow
+
+
+class ConversationRepository:
+    """All database access for conversations and their events lives here."""
+
+    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+        self._sessionmaker = sessionmaker
+
+    async def record_event(
+        self,
+        *,
+        cid: str,
+        repo: str | None,
+        branch: str | None,
+        status: str,
+        title: str | None,
+        workspace_dir: str | None,
+        event_id: str,
+        seq: int,
+        source: str,
+        kind: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Append an event and refresh its conversation row in one transaction."""
+        async with self._sessionmaker() as sess:
+            await self._upsert(
+                sess,
+                cid=cid,
+                repo=repo,
+                branch=branch,
+                status=status,
+                title=title,
+                workspace_dir=workspace_dir,
+            )
+            await sess.execute(
+                pg_insert(EventRow)
+                .values(
+                    id=event_id,
+                    conversation_id=cid,
+                    seq=seq,
+                    source=source,
+                    kind=kind,
+                    payload=payload,
+                )
+                .on_conflict_do_nothing(index_elements=[EventRow.id])
+            )
+            await sess.commit()
+
+    async def upsert_conversation(
+        self,
+        *,
+        cid: str,
+        repo: str | None,
+        branch: str | None,
+        status: str,
+        title: str | None,
+        workspace_dir: str | None,
+    ) -> None:
+        async with self._sessionmaker() as sess:
+            await self._upsert(
+                sess,
+                cid=cid,
+                repo=repo,
+                branch=branch,
+                status=status,
+                title=title,
+                workspace_dir=workspace_dir,
+            )
+            await sess.commit()
+
+    @staticmethod
+    async def _upsert(
+        sess: AsyncSession,
+        *,
+        cid: str,
+        repo: str | None,
+        branch: str | None,
+        status: str,
+        title: str | None,
+        workspace_dir: str | None,
+    ) -> None:
+        await sess.execute(
+            pg_insert(ConversationRow)
+            .values(
+                id=cid,
+                repo=repo,
+                branch=branch,
+                status=status,
+                title=title,
+                workspace_dir=workspace_dir,
+            )
+            .on_conflict_do_update(
+                index_elements=[ConversationRow.id],
+                set_=dict(status=status, title=title, updated_at=func.now()),
+            )
+        )
+
+    async def get(self, cid: str) -> ConversationRow | None:
+        async with self._sessionmaker() as sess:
+            return await sess.get(ConversationRow, cid)
+
+    async def list_events(self, cid: str) -> list[EventRow]:
+        async with self._sessionmaker() as sess:
+            result = await sess.execute(
+                select(EventRow)
+                .where(EventRow.conversation_id == cid)
+                .order_by(EventRow.seq)
+            )
+            return list(result.scalars().all())
+
+    async def list_summaries(self) -> list[tuple[ConversationRow, int]]:
+        async with self._sessionmaker() as sess:
+            stmt = (
+                select(ConversationRow, func.count(EventRow.id))
+                .outerjoin(EventRow, EventRow.conversation_id == ConversationRow.id)
+                .group_by(ConversationRow.id)
+                .order_by(ConversationRow.updated_at.desc())
+            )
+            result = await sess.execute(stmt)
+            return [(row, count) for row, count in result.all()]
+
+    async def delete(self, cid: str) -> bool:
+        async with self._sessionmaker() as sess:
+            row = await sess.get(ConversationRow, cid)
+            if row is None:
+                return False
+            await sess.delete(row)
+            await sess.commit()
+            return True

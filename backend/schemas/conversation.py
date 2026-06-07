@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 from miniagent.confirm import ConfirmMode
@@ -29,3 +31,5 @@ class ConversationInfo(BaseModel):
     num_events: int
     repo: str | None = None
     branch: str | None = None
+    title: str | None = None
+    updated_at: datetime | None = None
