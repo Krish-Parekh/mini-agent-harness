@@ -101,11 +101,11 @@ export const api = {
   events: (id: string) =>
     fetch(`${API}/conversations/${id}/events`).then((r) => json<AgentEvent[]>(r)),
 
-  sendMessage: (id: string, text: string) =>
+  sendMessage: (id: string, text: string, model?: string) =>
     fetch(`${API}/conversations/${id}/messages`, {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, ...(model ? { model } : {}) }),
     }).then((r) => json<ConversationInfo>(r)),
 
   confirm: (id: string, approve: boolean, reason?: string) =>

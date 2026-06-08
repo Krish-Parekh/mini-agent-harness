@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from miniagent.events import ActionEvent, ErrorEvent, MessageEvent, ObservationEvent
 from miniagent.llm import LLM, ToolCall
+from miniagent.text import clip
 from miniagent.tools.base import ToolRegistry
 
 if TYPE_CHECKING:
@@ -13,6 +14,9 @@ if TYPE_CHECKING:
     from miniagent.sandbox.base import Sandbox
 
 ToolOutcome: TypeAlias = Literal["ok", "finished", "paused"]
+
+# Per-message ceiling sent to the LLM; long tool output is head+tail clipped.
+_MAX_MESSAGE_CHARS = 12_000
 
 
 DEFAULT_SYSTEM_PROMPT = """You are MiniAgent, a coding agent that works on a software project inside an \
@@ -98,8 +102,15 @@ class Agent:
         messages: list[dict] = [{"role": "system", "content": self.system_prompt}]
         for event in conversation.events:
             message = event.to_chat_message()
-            if message is not None:
-                messages.append(message)
+            if message is None:
+                continue
+            # Clip oversized content so one giant observation can't exhaust the
+            # context window; truncating (not dropping events) keeps tool_call
+            # pairing intact, and clipping at send-time also rescues stored events.
+            content = message.get("content")
+            if isinstance(content, str):
+                message = {**message, "content": clip(content, _MAX_MESSAGE_CHARS)}
+            messages.append(message)
         return messages
 
     def _handle_tool_call(

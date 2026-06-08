@@ -110,7 +110,11 @@ class ConversationService:
             self._spawn(self._start(managed, initial_message))
         return managed
 
-    async def send_message(self, managed: ManagedConversation, text: str) -> None:
+    async def send_message(
+        self, managed: ManagedConversation, text: str, model: str | None = None
+    ) -> None:
+        if model:
+            managed.set_model(model)
         managed.conversation.send_message(text)
         self._spawn(self._run(managed, managed.conversation.run))
 

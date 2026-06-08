@@ -85,6 +85,10 @@ class ManagedConversation:
         self.persist_hook(self, event, self._seq)
         self.broker.publish(event)
 
+    def set_model(self, model: str) -> None:
+        """Switch the model for subsequent agent steps (LLM reads it per call)."""
+        self.conversation.agent.llm.model = model
+
     def _maybe_set_title(self, event: Event) -> None:
         if self.title is not None:
             return

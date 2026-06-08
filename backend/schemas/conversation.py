@@ -18,6 +18,7 @@ class CreateConversationRequest(BaseModel):
 
 class SendMessageRequest(BaseModel):
     text: str
+    model: str | None = None
 
 
 class ConfirmRequest(BaseModel):
