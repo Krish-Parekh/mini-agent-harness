@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -34,6 +35,23 @@ class StatusUpdate(BaseModel):
     id: str = Field(default_factory=lambda: f"status-{uuid.uuid4().hex[:8]}")
     kind: str = "status"
     status: str
+
+
+class ChangedFile(BaseModel):
+    path: str
+    additions: int
+    deletions: int
+    status: Literal["added", "modified", "deleted"]
+
+
+class FileDiff(BaseModel):
+    path: str
+    patch: str
+
+
+class FileContent(BaseModel):
+    path: str
+    content: str
 
 
 class ConversationInfo(BaseModel):

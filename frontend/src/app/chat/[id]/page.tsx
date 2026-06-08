@@ -5,9 +5,13 @@ import { use, useEffect, useMemo, useState } from "react";
 import {
   api,
   type AgentEvent,
+  type ChangedFile,
   type ConversationStatus,
 } from "@/lib/api";
-import { EventRow } from "@/components/conversation-stream";
+import { ConversationTimeline } from "@/components/conversation-stream";
+import { ChangesPanel } from "@/components/changes-panel";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { PanelRightIcon } from "@hugeicons/core-free-icons";
 import {
   Conversation,
   ConversationContent,
@@ -36,6 +40,7 @@ import {
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
 import { CheckIcon } from "lucide-react";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const BUSY = new Set(["running", "waiting_for_confirmation"]);
 
@@ -59,6 +64,9 @@ export default function ChatPage({
   const [model, setModel] = useState(MODELS[0].id);
   const [modelOpen, setModelOpen] = useState(false);
   const selectedModel = MODELS.find((m) => m.id === model);
+  const [changes, setChanges] = useState<ChangedFile[]>([]);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(true);
 
   // Live stream: the backend replays the full log on connect, then pushes new
   // events plus `status` updates (running / waiting / finished). Status is push,
@@ -92,6 +100,17 @@ export default function ChatPage({
     return map;
   }, [events]);
 
+  // Git is the source of truth for changed files; refetch whenever a tool
+  // finishes (each observation), since bash can touch files too.
+  useEffect(() => {
+    api.changes(id).then(setChanges).catch(() => {});
+  }, [id, observationByCall.size]);
+
+  function openFile(path: string) {
+    setSelectedPath(path);
+    setPanelOpen(true);
+  }
+
   // Newest action with no observation yet — only the approval target while
   // status is waiting (see call site); mid-run it's the executing action.
   const lastUnresolvedAction = useMemo(() => {
@@ -122,39 +141,48 @@ export default function ChatPage({
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col p-4">
-      <Conversation>
-        <ConversationContent className="space-y-3 px-0">
-          {events.length === 0 && (
-            <p className="text-muted-foreground py-8 text-center text-sm">
-              Preparing workspace…
-            </p>
+    <div className="flex h-full min-h-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b bg-background px-4">
+          <SidebarTrigger />
+          {!panelOpen && (
+            <button
+              type="button"
+              onClick={() => setPanelOpen(true)}
+              aria-label="Show files panel"
+              className="rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            >
+              <HugeiconsIcon icon={PanelRightIcon} className="size-4" />
+            </button>
           )}
-          {events.map((ev) => (
-            <EventRow
-              key={ev.id}
-              ev={ev}
-              observation={
-                ev.kind === "action" && ev.tool_call_id
-                  ? observationByCall.get(ev.tool_call_id)
-                  : undefined
-              }
-              pending={waiting && ev.id === lastUnresolvedAction?.id}
-              onApprove={() => {
-                setStatus("running");
-                api.confirm(id, true).catch(() => {});
-              }}
-              onReject={() => {
-                setStatus("running");
-                api.confirm(id, false).catch(() => {});
-              }}
-            />
-          ))}
-        </ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
+        </header>
+        <div className="mx-auto flex w-full min-h-0 max-w-3xl flex-1 flex-col p-4">
+          <Conversation>
+            <ConversationContent className="space-y-3 px-0">
+              {events.length === 0 && (
+                <p className="text-muted-foreground py-8 text-center text-sm">
+                  Preparing workspace…
+                </p>
+              )}
+              <ConversationTimeline
+                events={events}
+                observationByCall={observationByCall}
+                pendingId={waiting ? lastUnresolvedAction?.id : undefined}
+                onApprove={() => {
+                  setStatus("running");
+                  api.confirm(id, true).catch(() => {});
+                }}
+                onReject={() => {
+                  setStatus("running");
+                  api.confirm(id, false).catch(() => {});
+                }}
+                onSelectFile={openFile}
+              />
+            </ConversationContent>
+            <ConversationScrollButton />
+          </Conversation>
 
-      <PromptInput onSubmit={send} className="mt-3">
+          <PromptInput onSubmit={send} className="mt-3">
         <PromptInputBody>
           <PromptInputTextarea
             value={input}
@@ -211,7 +239,19 @@ export default function ChatPage({
             disabled={busy || !input.trim()}
           />
         </PromptInputFooter>
-      </PromptInput>
-    </main>
+        </PromptInput>
+        </div>
+      </div>
+
+      {panelOpen && (
+        <ChangesPanel
+          conversationId={id}
+          changes={changes}
+          selectedPath={selectedPath}
+          onSelectPath={setSelectedPath}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
+    </div>
   );
 }

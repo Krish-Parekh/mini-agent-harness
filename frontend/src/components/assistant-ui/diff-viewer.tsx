@@ -1,12 +1,21 @@
 "use client";
 
-import { type ComponentProps, useMemo } from "react";
+import {
+  type ComponentProps,
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { SyntaxHighlighterProps } from "@assistant-ui/react-markdown";
 import { cva, type VariantProps } from "class-variance-authority";
 import { diffLines } from "diff";
 import parseDiff from "parse-diff";
+import type { BundledLanguage, ThemedToken } from "shiki";
 
 import { cn } from "@/lib/utils";
+import { langForPath } from "@/lib/lang";
+import { highlightCode } from "@/components/ai-elements/code-block";
 
 type DiffLineType = "add" | "del" | "normal";
 
@@ -296,13 +305,84 @@ function DiffViewerHeader({
   );
 }
 
+/** Colour-only (no background) so the diff's add/del row colour shows through. */
+function DiffToken({ token }: { token: ThemedToken }) {
+  return (
+    <span
+      className="dark:!text-[var(--shiki-dark)]"
+      style={{ color: token.color, ...token.htmlStyle } as CSSProperties}
+    >
+      {token.content}
+    </span>
+  );
+}
+
+function useDiffTokens(
+  code: string,
+  language: BundledLanguage,
+): ThemedToken[][] | null {
+  const [tokens, setTokens] = useState<ThemedToken[][] | null>(
+    () => highlightCode(code, language)?.tokens ?? null,
+  );
+  useEffect(() => {
+    if (tokens) return;
+    let active = true;
+    highlightCode(code, language, (res) => active && setTokens(res.tokens));
+    return () => {
+      active = false;
+    };
+  }, [code, language, tokens]);
+  return tokens;
+}
+
+function DiffFileLines({
+  file,
+  viewMode,
+  showLineNumbers,
+}: {
+  file: ParsedFile;
+  viewMode: "split" | "unified";
+  showLineNumbers: boolean;
+}) {
+  const language = useMemo(
+    () => langForPath(file.newName ?? file.oldName ?? ""),
+    [file.newName, file.oldName],
+  );
+  const code = useMemo(
+    () => file.lines.map((l) => l.content).join("\n"),
+    [file.lines],
+  );
+  const tokens = useDiffTokens(code, language);
+
+  if (viewMode === "split") {
+    return pairLinesForSplit(file.lines).map((pair, pairIndex) => (
+      <DiffViewerSplitLine
+        key={pairIndex}
+        pair={pair}
+        showLineNumbers={showLineNumbers}
+      />
+    ));
+  }
+
+  return file.lines.map((line, lineIndex) => (
+    <DiffViewerLine
+      key={lineIndex}
+      line={line}
+      tokens={tokens?.[lineIndex]}
+      showLineNumbers={showLineNumbers}
+    />
+  ));
+}
+
 interface DiffViewerLineProps extends ComponentProps<"div"> {
   line: ParsedLine;
+  tokens?: ThemedToken[];
   showLineNumbers?: boolean;
 }
 
 function DiffViewerLine({
   line,
+  tokens,
   showLineNumbers = true,
   className,
   ...props
@@ -341,10 +421,12 @@ function DiffViewerLine({
         data-slot="diff-viewer-content"
         className={cn(
           "flex-1 break-all whitespace-pre-wrap",
-          diffLineTextVariants({ type: line.type }),
+          !tokens && diffLineTextVariants({ type: line.type }),
         )}
       >
-        {line.content}
+        {tokens
+          ? tokens.map((token, i) => <DiffToken key={i} token={token} />)
+          : line.content}
       </span>
     </div>
   );
@@ -512,21 +594,11 @@ function DiffViewer({
             showStats={showStats}
           />
           <div data-slot="diff-viewer-content" className="overflow-x-auto">
-            {viewMode === "split"
-              ? pairLinesForSplit(file.lines).map((pair, pairIndex) => (
-                  <DiffViewerSplitLine
-                    key={pairIndex}
-                    pair={pair}
-                    showLineNumbers={showLineNumbers}
-                  />
-                ))
-              : file.lines.map((line, lineIndex) => (
-                  <DiffViewerLine
-                    key={lineIndex}
-                    line={line}
-                    showLineNumbers={showLineNumbers}
-                  />
-                ))}
+            <DiffFileLines
+              file={file}
+              viewMode={viewMode}
+              showLineNumbers={showLineNumbers}
+            />
           </div>
         </div>
       ))}

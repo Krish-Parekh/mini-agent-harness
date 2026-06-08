@@ -95,8 +95,12 @@ class Agent:
                 outcome = self._handle_tool_call(call, conversation, sandbox)
                 if outcome in ("finished", "paused"):
                     break
-        elif not response.text:
+            return
+
+        # No tool call ends the turn; re-prompting here would loop to the cap.
+        if not response.text:
             conversation.add_event(ErrorEvent(message="empty model response"))
+        conversation.set_idle()
 
     def _build_messages(self, conversation: Conversation) -> list[dict]:
         messages: list[dict] = [{"role": "system", "content": self.system_prompt}]

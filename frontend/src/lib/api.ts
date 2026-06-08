@@ -49,6 +49,17 @@ export type AgentEvent = {
   message?: string;
 };
 
+export type ChangedFile = {
+  path: string;
+  additions: number;
+  deletions: number;
+  status: "added" | "modified" | "deleted";
+};
+
+export type FileDiff = { path: string; patch: string };
+
+export type FileContent = { path: string; content: string };
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -114,6 +125,24 @@ export const api = {
       headers: jsonHeaders,
       body: JSON.stringify({ approve, ...(reason ? { reason } : {}) }),
     }).then((r) => json<ConversationInfo>(r)),
+
+  changes: (id: string) =>
+    fetch(`${API}/conversations/${id}/changes`).then((r) =>
+      json<ChangedFile[]>(r),
+    ),
+
+  fileDiff: (id: string, path: string) =>
+    fetch(
+      `${API}/conversations/${id}/changes/diff?path=${encodeURIComponent(path)}`,
+    ).then((r) => json<FileDiff>(r)),
+
+  files: (id: string) =>
+    fetch(`${API}/conversations/${id}/files`).then((r) => json<string[]>(r)),
+
+  fileContent: (id: string, path: string) =>
+    fetch(
+      `${API}/conversations/${id}/files/content?path=${encodeURIComponent(path)}`,
+    ).then((r) => json<FileContent>(r)),
 
   wsUrl: (id: string) =>
     `${API.replace(/^http/, "ws")}/conversations/${id}/ws`,

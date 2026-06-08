@@ -3,11 +3,15 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from backend.api.deps import GitHubDep, ServiceDep, get_service
+from backend.runtime import changes
 from backend.runtime.manager import ManagedConversation
 from backend.schemas import (
+    ChangedFile,
     ConfirmRequest,
     ConversationInfo,
     CreateConversationRequest,
+    FileContent,
+    FileDiff,
     SendMessageRequest,
     StatusUpdate,
 )
@@ -53,6 +57,36 @@ async def get_conversation(cid: str, service: ServiceDep):
 async def get_events(cid: str, service: ServiceDep):
     managed = await _require(service, cid)
     return [event.model_dump() for event in managed.conversation.events]
+
+
+@router.get("/conversations/{cid}/changes", response_model=list[ChangedFile])
+async def get_changes(cid: str, service: ServiceDep):
+    managed = await _require(service, cid)
+    if managed.repo is None:
+        return []
+    return changes.list_changes(managed.sandbox)
+
+
+@router.get("/conversations/{cid}/changes/diff", response_model=FileDiff)
+async def get_file_diff(cid: str, path: str, service: ServiceDep):
+    managed = await _require(service, cid)
+    if managed.repo is None:
+        return FileDiff(path=path, patch="")
+    return changes.file_diff(managed.sandbox, path)
+
+
+@router.get("/conversations/{cid}/files", response_model=list[str])
+async def get_files(cid: str, service: ServiceDep):
+    managed = await _require(service, cid)
+    if managed.repo is None:
+        return []
+    return changes.list_files(managed.sandbox)
+
+
+@router.get("/conversations/{cid}/files/content", response_model=FileContent)
+async def get_file_content(cid: str, path: str, service: ServiceDep):
+    managed = await _require(service, cid)
+    return changes.file_content(managed.sandbox, path)
 
 
 @router.post("/conversations/{cid}/messages", response_model=ConversationInfo)

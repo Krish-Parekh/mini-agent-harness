@@ -59,6 +59,9 @@ class Conversation:
     def set_finished(self) -> None:
         self.status = Status.FINISHED
 
+    def set_idle(self) -> None:
+        self.status = Status.IDLE
+
     def needs_confirmation(self, action_event: ActionEvent) -> bool:
         return self.confirm_policy.needs_confirmation(action_event)
 
@@ -96,17 +99,12 @@ class Conversation:
     def run(self) -> None:
         self.status = Status.RUNNING
         for _ in range(self.max_iterations):
-            if self.status in (Status.FINISHED, Status.ERROR):
-                break
             try:
                 self.agent.step(self, self.sandbox)
             except Exception as exc:
                 self.add_event(ErrorEvent(message=f"agent step failed: {exc}"))
                 self.status = Status.ERROR
-                break
-            if self.status == Status.WAITING_FOR_CONFIRMATION:
-                break
-        else:
-            # Loop exhausted its iteration budget without finishing.
-            if self.status == Status.RUNNING:
-                self.status = Status.IDLE
+                return
+            if self.status != Status.RUNNING:
+                return
+        self.status = Status.IDLE
