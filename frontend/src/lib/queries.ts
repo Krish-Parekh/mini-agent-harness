@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import {
   api,
@@ -73,6 +73,25 @@ export function useConversations() {
   return useQuery<ConversationInfo[]>({
     queryKey: queryKeys.conversations,
     queryFn: api.conversations,
+  });
+}
+
+export function useDeleteConversation() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteConversation(id),
+    onSuccess: (_, id) => {
+      // Drop it from the sidebar immediately, then refetch for canonical state.
+      queryClient.setQueryData<ConversationInfo[]>(
+        queryKeys.conversations,
+        (prev) => prev?.filter((c) => c.id !== id),
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+      // If we were viewing the chat we just deleted, leave its dead page.
+      if (pathname === `/chat/${id}`) router.push("/");
+    },
   });
 }
 

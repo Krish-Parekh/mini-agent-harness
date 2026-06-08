@@ -106,6 +106,11 @@ export const api = {
   conversations: () =>
     fetch(`${API}/conversations`).then((r) => json<ConversationInfo[]>(r)),
 
+  deleteConversation: (id: string) =>
+    fetch(`${API}/conversations/${id}`, { method: "DELETE" }).then((r) =>
+      json<{ deleted: string }>(r),
+    ),
+
   conversation: (id: string) =>
     fetch(`${API}/conversations/${id}`).then((r) => json<ConversationInfo>(r)),
 
