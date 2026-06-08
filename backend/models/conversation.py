@@ -17,6 +17,9 @@ class ConversationRow(Base):
     repo: Mapped[str | None] = mapped_column(Text)
     branch: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
+    # Board workflow lane (todo/working/review/done), independent of the runtime
+    # `status` above. Driven by run state, with the final `done` move manual.
+    lane: Mapped[str] = mapped_column(Text, server_default="todo")
     title: Mapped[str | None] = mapped_column(Text)
     workspace_dir: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

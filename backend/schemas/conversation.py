@@ -27,6 +27,15 @@ class ConfirmRequest(BaseModel):
     reason: str = "Action rejected by the user."
 
 
+Lane = Literal["todo", "working", "review", "done"]
+
+
+class LaneUpdate(BaseModel):
+    """Manual board move, e.g. In Review -> Done, or requeue back to Todo."""
+
+    lane: Lane
+
+
 class StatusUpdate(BaseModel):
     """Pushed over the conversation WebSocket so clients track status without
     polling. Shares the `id`/`kind` shape of agent events so the same socket
@@ -57,6 +66,7 @@ class FileContent(BaseModel):
 class ConversationInfo(BaseModel):
     id: str
     status: str
+    lane: Lane = "todo"
     workspace_dir: str
     num_events: int
     repo: str | None = None

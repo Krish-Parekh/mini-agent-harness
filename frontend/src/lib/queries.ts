@@ -9,6 +9,7 @@ import {
   api,
   type ConversationInfo,
   type GitHubStatus,
+  type Lane,
   type Repo,
 } from "@/lib/api";
 
@@ -69,10 +70,39 @@ export function useImportRepo() {
   });
 }
 
-export function useConversations() {
+export function useConversations(options?: { refetchInterval?: number }) {
   return useQuery<ConversationInfo[]>({
     queryKey: queryKeys.conversations,
     queryFn: api.conversations,
+    refetchInterval: options?.refetchInterval,
+  });
+}
+
+export function useSetLane() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, lane }: { id: string; lane: Lane }) =>
+      api.setLane(id, lane),
+    // Move the card to its new lane instantly; reconcile on settle.
+    onMutate: async ({ id, lane }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.conversations });
+      const prev = queryClient.getQueryData<ConversationInfo[]>(
+        queryKeys.conversations,
+      );
+      queryClient.setQueryData<ConversationInfo[]>(
+        queryKeys.conversations,
+        (cs) => cs?.map((c) => (c.id === id ? { ...c, lane } : c)),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        queryClient.setQueryData(queryKeys.conversations, ctx.prev);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+    },
   });
 }
 

@@ -5,6 +5,8 @@ from backend.schemas.conversation import (
     CreateConversationRequest,
     FileContent,
     FileDiff,
+    Lane,
+    LaneUpdate,
     SendMessageRequest,
     StatusUpdate,
 )
@@ -18,6 +20,8 @@ __all__ = [
     "FileContent",
     "FileDiff",
     "ImportRepoRequest",
+    "Lane",
+    "LaneUpdate",
     "RepoOut",
     "SendMessageRequest",
     "StatusUpdate",

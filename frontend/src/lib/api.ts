@@ -20,9 +20,12 @@ export type ConversationStatus =
   | "finished"
   | "error";
 
+export type Lane = "todo" | "working" | "review" | "done";
+
 export type ConversationInfo = {
   id: string;
   status: ConversationStatus;
+  lane: Lane;
   workspace_dir: string;
   num_events: number;
   repo: string | null;
@@ -110,6 +113,13 @@ export const api = {
     fetch(`${API}/conversations/${id}`, { method: "DELETE" }).then((r) =>
       json<{ deleted: string }>(r),
     ),
+
+  setLane: (id: string, lane: Lane) =>
+    fetch(`${API}/conversations/${id}/lane`, {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ lane }),
+    }).then((r) => json<ConversationInfo>(r)),
 
   conversation: (id: string) =>
     fetch(`${API}/conversations/${id}`).then((r) => json<ConversationInfo>(r)),

@@ -12,6 +12,7 @@ from backend.schemas import (
     CreateConversationRequest,
     FileContent,
     FileDiff,
+    LaneUpdate,
     SendMessageRequest,
     StatusUpdate,
 )
@@ -109,6 +110,13 @@ async def confirm(cid: str, body: ConfirmRequest, service: ServiceDep):
             status_code=409, detail="conversation is not waiting for confirmation"
         )
     await service.confirm(managed, body.approve, body.reason)
+    return service.info(managed)
+
+
+@router.patch("/conversations/{cid}/lane", response_model=ConversationInfo)
+async def update_lane(cid: str, body: LaneUpdate, service: ServiceDep):
+    managed = await _require(service, cid)
+    await service.set_lane(managed, body.lane)
     return service.info(managed)
 
 

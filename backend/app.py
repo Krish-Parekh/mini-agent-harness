@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from backend import models  # noqa: F401 — register ORM tables on Base.metadata
 from backend.api.conversations import router
@@ -25,6 +26,14 @@ async def lifespan(app: FastAPI):
     engine = make_engine(settings.database_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Lightweight migration for DBs created before the board `lane` column.
+        # Existing conversations have all run, so backfill them into Review.
+        await conn.execute(
+            text(
+                "ALTER TABLE conversations "
+                "ADD COLUMN IF NOT EXISTS lane TEXT NOT NULL DEFAULT 'review'"
+            )
+        )
     sessionmaker = make_sessionmaker(engine)
 
     repository = ConversationRepository(sessionmaker)

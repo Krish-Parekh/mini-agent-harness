@@ -64,6 +64,7 @@ class ConversationRepository:
         status: str,
         title: str | None,
         workspace_dir: str | None,
+        lane: str | None = None,
     ) -> None:
         async with self._sessionmaker() as sess:
             await self._upsert(
@@ -74,6 +75,7 @@ class ConversationRepository:
                 status=status,
                 title=title,
                 workspace_dir=workspace_dir,
+                lane=lane,
             )
             await sess.commit()
 
@@ -87,20 +89,28 @@ class ConversationRepository:
         status: str,
         title: str | None,
         workspace_dir: str | None,
+        lane: str | None = None,
     ) -> None:
+        # `lane` is only written when explicitly provided, so event persistence
+        # (which doesn't know the board lane) never clobbers it.
+        values: dict[str, Any] = dict(
+            id=cid,
+            repo=repo,
+            branch=branch,
+            status=status,
+            title=title,
+            workspace_dir=workspace_dir,
+        )
+        set_: dict[str, Any] = dict(status=status, title=title, updated_at=func.now())
+        if lane is not None:
+            values["lane"] = lane
+            set_["lane"] = lane
         await sess.execute(
             pg_insert(ConversationRow)
-            .values(
-                id=cid,
-                repo=repo,
-                branch=branch,
-                status=status,
-                title=title,
-                workspace_dir=workspace_dir,
-            )
+            .values(**values)
             .on_conflict_do_update(
                 index_elements=[ConversationRow.id],
-                set_=dict(status=status, title=title, updated_at=func.now()),
+                set_=set_,
             )
         )
 

@@ -75,6 +75,7 @@ class ManagedConversation:
         self.branch = branch
         self._token = token
         self.title: str | None = None
+        self.lane: str = "todo"
         self._seq = 0
         self.lock = asyncio.Lock()
         self.persist_hook: PersistHook = lambda *_: None
@@ -167,12 +168,14 @@ class ConversationManager:
         workspace_dir: str | None,
         status: str,
         title: str | None,
+        lane: str,
         events: list[Event],
     ) -> ManagedConversation:
         ws = workspace_dir or self._settings.workspace_dir
         managed = self._build(cid, ws, "risky", repo, branch, None)
         managed.conversation.events = events
         managed.title = title
+        managed.lane = lane
         managed._seq = len(events)
         try:
             managed.conversation.status = Status(status)
