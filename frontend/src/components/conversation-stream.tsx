@@ -2,6 +2,14 @@
 
 import { useMemo } from "react";
 import type { AgentEvent } from "@/lib/api";
+import {
+  type ActionEvent,
+  type MessageEvent,
+  isAction,
+  isErrorEvent,
+  isObservation,
+} from "@/lib/events";
+import { type ToolView, toolView } from "@/lib/tool-views";
 import { cn } from "@/lib/utils";
 import {
   Message,
@@ -19,109 +27,53 @@ import {
 import { DotmSquare1 } from "@/components/ui/dotm-square-1";
 import { ConfirmationAction } from "@/components/ai-elements/confirmation";
 import { DiffViewer } from "@/components/assistant-ui/diff-viewer";
-import type { LucideIcon } from "lucide-react";
-import {
-  CircleAlertIcon,
-  CircleCheckIcon,
-  CopyIcon,
-  FileIcon,
-  FilePenIcon,
-  FilePlusIcon,
-  TerminalIcon,
-} from "lucide-react";
+import { CircleAlertIcon, CopyIcon } from "lucide-react";
 
-type FileChange = { path: string; oldContent: string; newContent: string };
-
-function fileChange(ev: AgentEvent): FileChange | null {
-  if (ev.kind !== "action" || ev.tool_name !== "file_edit") return null;
-  const a = (ev.arguments ?? {}) as Record<string, unknown>;
-  const path = String(a.path ?? "file");
-  if (a.command === "create") {
-    return { path, oldContent: "", newContent: String(a.content ?? "") };
-  }
-  if (a.command === "str_replace") {
-    return {
-      path,
-      oldContent: String(a.old_str ?? ""),
-      newContent: String(a.new_str ?? ""),
-    };
-  }
-  return null;
-}
-
-type ActionInfo = {
-  icon: LucideIcon;
-  verb: string;
-  target?: string;
-  path?: string;
-};
-
-function describeAction(ev: AgentEvent): ActionInfo {
-  const a = (ev.arguments ?? {}) as Record<string, unknown>;
-  if (ev.tool_name === "bash") {
-    return { icon: TerminalIcon, verb: "Bash", target: String(a.command ?? "") };
-  }
-  if (ev.tool_name === "file_edit") {
-    const path = String(a.path ?? "file");
-    if (a.command === "view") return { icon: FileIcon, verb: "Read", target: path };
-    if (a.command === "create")
-      return { icon: FilePlusIcon, verb: "Create", target: path, path };
-    return { icon: FilePenIcon, verb: "Update", target: path, path };
-  }
-  if (ev.tool_name === "finish") {
-    return { icon: CircleCheckIcon, verb: "Finished" };
-  }
-  return { icon: FileIcon, verb: ev.tool_name ?? "Tool" };
-}
-
-function ApprovalDetail({ ev }: { ev: AgentEvent }) {
-  const change = fileChange(ev);
-  if (change) {
+function ApprovalDetail({ view }: { view: ToolView }) {
+  if (view.fileChange) {
     return (
       <DiffViewer
-        oldFile={{ content: change.oldContent, name: change.path }}
-        newFile={{ content: change.newContent, name: change.path }}
+        oldFile={{
+          content: view.fileChange.oldContent,
+          name: view.fileChange.path,
+        }}
+        newFile={{
+          content: view.fileChange.newContent,
+          name: view.fileChange.path,
+        }}
         viewMode="unified"
       />
     );
   }
-  if (ev.tool_name === "bash") {
-    const command = String((ev.arguments ?? {}).command ?? "");
-    return (
-      <pre className="overflow-x-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-xs">
-        {command}
-      </pre>
-    );
-  }
-  return null;
+  return <>{view.preview ?? null}</>;
 }
 
 function StepLabel({
-  info,
+  view,
   error,
   onSelectFile,
 }: {
-  info: ActionInfo;
+  view: ToolView;
   error?: boolean;
   onSelectFile?: (path: string) => void;
 }) {
   return (
     <span className="flex items-center gap-2">
       <span className={cn("font-medium", error && "text-destructive")}>
-        {info.verb}
+        {view.verb}
       </span>
-      {info.target &&
-        (info.path && onSelectFile ? (
+      {view.target &&
+        (view.filePath && onSelectFile ? (
           <button
             type="button"
-            onClick={() => onSelectFile(info.path as string)}
+            onClick={() => onSelectFile(view.filePath as string)}
             className="truncate font-mono text-muted-foreground text-xs hover:underline"
           >
-            {info.target}
+            {view.target}
           </button>
         ) : (
           <span className="truncate font-mono text-muted-foreground text-xs">
-            {info.target}
+            {view.target}
           </span>
         ))}
     </span>
@@ -136,14 +88,14 @@ function ActionChain({
   onReject,
   onSelectFile,
 }: {
-  actions: AgentEvent[];
+  actions: ActionEvent[];
   observationByCall: Map<string, AgentEvent>;
   pendingId?: string;
   onApprove: () => void;
   onReject: () => void;
   onSelectFile?: (path: string) => void;
 }) {
-  const obsFor = (a: AgentEvent) =>
+  const obsFor = (a: ActionEvent) =>
     a.tool_call_id ? observationByCall.get(a.tool_call_id) : undefined;
   const active = actions.some((a) => !obsFor(a));
 
@@ -152,7 +104,7 @@ function ActionChain({
       <ChainOfThoughtHeader>
         {active ? (
           <span className="flex items-center gap-2">
-            <DotmSquare1 size={16} muted />
+            <DotmSquare1 size={14} dotSize={2} muted />
             Working…
           </span>
         ) : (
@@ -162,17 +114,17 @@ function ActionChain({
       <ChainOfThoughtContent>
         {actions.map((a) => {
           const obs = obsFor(a);
-          const info = describeAction(a);
+          const view = toolView(a);
           const isPending = pendingId != null && a.id === pendingId;
           const running = !obs && !isPending;
           return (
             <ChainOfThoughtStep
               key={a.id}
-              icon={obs?.error ? CircleAlertIcon : info.icon}
+              icon={obs?.error ? CircleAlertIcon : view.icon}
               status={running || isPending ? "active" : "complete"}
               label={
                 <StepLabel
-                  info={info}
+                  view={view}
                   error={obs?.error}
                   onSelectFile={onSelectFile}
                 />
@@ -180,7 +132,7 @@ function ActionChain({
             >
               {isPending && (
                 <div className="space-y-2">
-                  <ApprovalDetail ev={a} />
+                  <ApprovalDetail view={view} />
                   <div className="flex items-center justify-end gap-2">
                     <ConfirmationAction variant="outline" onClick={onReject}>
                       Reject
@@ -204,7 +156,7 @@ function ActionChain({
   );
 }
 
-function MessageRow({ ev }: { ev: AgentEvent }) {
+function MessageRow({ ev }: { ev: MessageEvent }) {
   if (ev.role === "system") {
     return (
       <p className="text-muted-foreground text-center text-xs">{ev.text}</p>
@@ -235,23 +187,27 @@ function MessageRow({ ev }: { ev: AgentEvent }) {
 }
 
 type Group =
-  | { kind: "event"; event: AgentEvent }
-  | { kind: "actions"; actions: AgentEvent[] };
+  | { kind: "message"; event: MessageEvent }
+  | { kind: "error"; event: AgentEvent }
+  | { kind: "actions"; actions: ActionEvent[] };
 
 function groupEvents(events: AgentEvent[]): Group[] {
   const groups: Group[] = [];
-  let chain: AgentEvent[] | null = null;
+  let chain: ActionEvent[] | null = null;
   for (const ev of events) {
-    if (ev.kind === "observation") continue;
-    if (ev.kind === "action") {
+    if (isObservation(ev)) continue;
+    if (isAction(ev)) {
       if (!chain) {
         chain = [];
         groups.push({ kind: "actions", actions: chain });
       }
       chain.push(ev);
+    } else if (isErrorEvent(ev)) {
+      chain = null;
+      groups.push({ kind: "error", event: ev });
     } else {
       chain = null;
-      groups.push({ kind: "event", event: ev });
+      groups.push({ kind: "message", event: ev as MessageEvent });
     }
   }
   return groups;
@@ -292,7 +248,7 @@ export function ConversationTimeline({
             />
           );
         }
-        if (group.event.kind === "error") {
+        if (group.kind === "error") {
           return (
             <p key={group.event.id} className="text-destructive text-sm">
               ⚠ {group.event.message}

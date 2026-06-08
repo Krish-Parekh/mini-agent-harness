@@ -156,9 +156,9 @@ export default function ChatPage({
             </button>
           )}
         </header>
-        <div className="mx-auto flex w-full min-h-0 max-w-3xl flex-1 flex-col p-4">
+        <div className="mx-auto flex w-full min-h-0 max-w-3xl flex-1 flex-col px-4 py-2">
           <Conversation>
-            <ConversationContent className="space-y-3 px-0">
+            <ConversationContent className="space-y-2 px-0 py-0">
               {events.length === 0 && (
                 <p className="text-muted-foreground py-8 text-center text-sm">
                   Preparing workspace…
