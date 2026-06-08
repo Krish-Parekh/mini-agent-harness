@@ -2,10 +2,21 @@
 
 import { use, useEffect, useMemo, useRef, useState } from "react";
 
-import { api, type AgentEvent, type ConversationInfo } from "@/lib/api";
+import {
+  api,
+  type AgentEvent,
+  type ConversationStatus,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+  type PromptInputMessage,
+} from "@/components/ai-elements/prompt-input";
 
 const BUSY = new Set(["running", "waiting_for_confirmation"]);
 
@@ -16,16 +27,23 @@ export default function ChatPage({
 }) {
   const { id } = use(params);
   const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [info, setInfo] = useState<ConversationInfo | null>(null);
+  const [status, setStatus] = useState<ConversationStatus>("idle");
   const [input, setInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Live event stream: backend replays the full log on connect, then pushes
-  // new events. Dedupe by id so replay + reconnect never double-renders.
+  // Live stream: the backend replays the full log on connect, then pushes new
+  // events plus `status` updates (running / waiting / finished). Status is push,
+  // not poll — we never hit the REST endpoint on a timer. Dedupe events by id so
+  // replay + reconnect never double-renders.
   useEffect(() => {
     const ws = new WebSocket(api.wsUrl(id));
     ws.onmessage = (msg) => {
-      const ev = JSON.parse(msg.data) as AgentEvent;
+      const data = JSON.parse(msg.data);
+      if (data.kind === "status") {
+        setStatus(data.status as ConversationStatus);
+        return;
+      }
+      const ev = data as AgentEvent;
       setEvents((prev) =>
         prev.some((e) => e.id === ev.id) ? prev : [...prev, ev],
       );
@@ -33,28 +51,12 @@ export default function ChatPage({
     return () => ws.close();
   }, [id]);
 
-  // Poll status (running / waiting / finished) — the WS carries events, not state.
-  useEffect(() => {
-    let alive = true;
-    const tick = () =>
-      api
-        .conversation(id)
-        .then((i) => alive && setInfo(i))
-        .catch(() => {});
-    tick();
-    const t = setInterval(tick, 1500);
-    return () => {
-      alive = false;
-      clearInterval(t);
-    };
-  }, [id]);
+  const busy = BUSY.has(status);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events]);
 
-  const status = info?.status ?? "idle";
-  const busy = BUSY.has(status);
   const waiting = status === "waiting_for_confirmation";
 
   const pendingAction = useMemo(() => {
@@ -66,29 +68,21 @@ export default function ChatPage({
       .find((e) => e.kind === "action" && !observed.has(e.tool_call_id));
   }, [events]);
 
-  async function send() {
-    const text = input.trim();
+  async function send(message: PromptInputMessage) {
+    const text = message.text.trim();
     if (!text || busy) return;
     setInput("");
+    setStatus("running"); // optimistic; the socket confirms and later settles it
     try {
       await api.sendMessage(id, text);
     } catch {
       setInput(text);
+      setStatus("idle");
     }
   }
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col p-4">
-      <header className="mb-3 flex items-center justify-between border-b pb-3">
-        <div>
-          <h1 className="font-medium">{info?.repo ?? "Conversation"}</h1>
-          {info?.branch && (
-            <p className="text-muted-foreground text-xs">branch: {info.branch}</p>
-          )}
-        </div>
-        <StatusBadge status={status} />
-      </header>
-
       <div className="flex-1 space-y-3 overflow-y-auto pr-1">
         {events.length === 0 && (
           <p className="text-muted-foreground py-8 text-center text-sm">
@@ -104,44 +98,38 @@ export default function ChatPage({
       {waiting && pendingAction && (
         <ConfirmBar
           action={pendingAction}
-          onApprove={() => api.confirm(id, true)}
-          onReject={() => api.confirm(id, false)}
+          onApprove={() => {
+            setStatus("running");
+            api.confirm(id, true).catch(() => {});
+          }}
+          onReject={() => {
+            setStatus("running");
+            api.confirm(id, false).catch(() => {});
+          }}
         />
       )}
 
-      <div className="mt-3 flex items-end gap-2 border-t pt-3">
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
+      <PromptInput onSubmit={send} className="mt-3">
+        <PromptInputBody>
+          <PromptInputTextarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={
+              waiting ? "Approve or reject the action above…" : "Send a message…"
             }
-          }}
-          placeholder={
-            waiting ? "Approve or reject the action above…" : "Send a message…"
-          }
-          disabled={busy}
-          rows={2}
-          className="resize-none"
-        />
-        <Button onClick={send} disabled={busy || !input.trim()}>
-          Send
-        </Button>
-      </div>
+            disabled={busy}
+          />
+        </PromptInputBody>
+        <PromptInputFooter>
+          <PromptInputTools />
+          <PromptInputSubmit
+            status={status === "error" ? "error" : busy ? "submitted" : undefined}
+            disabled={busy || !input.trim()}
+          />
+        </PromptInputFooter>
+      </PromptInput>
     </main>
   );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const variant =
-    status === "error"
-      ? "destructive"
-      : status === "waiting_for_confirmation"
-        ? "secondary"
-        : "outline";
-  return <Badge variant={variant}>{status.replace(/_/g, " ")}</Badge>;
 }
 
 function ConfirmBar({

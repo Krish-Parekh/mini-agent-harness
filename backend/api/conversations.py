@@ -9,6 +9,7 @@ from backend.schemas import (
     ConversationInfo,
     CreateConversationRequest,
     SendMessageRequest,
+    StatusUpdate,
 )
 from backend.service import ConversationService
 from miniagent.conversation import Status
@@ -101,6 +102,10 @@ async def conversation_ws(websocket: WebSocket, cid: str):
         for event in list(managed.conversation.events):
             replayed.add(event.id)
             await websocket.send_text(event.model_dump_json())
+        # Seed current status so the client starts correct without polling.
+        await websocket.send_text(
+            StatusUpdate(status=managed.conversation.status.value).model_dump_json()
+        )
         while True:
             event = await queue.get()
             if event.id in replayed:

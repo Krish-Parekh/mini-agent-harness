@@ -12,7 +12,8 @@ from miniagent.conversation import Conversation, Status
 from miniagent.events import ErrorEvent, Event, MessageEvent
 from miniagent.llm import LLM
 from miniagent.sandbox.local import LocalSandbox
-from miniagent.sandbox.workspace import WorkspaceError, clone_repo
+from miniagent.sandbox.workspace import WorkspaceError
+from backend.runtime.workspaces import WorkspaceManager
 from miniagent.tools.bash import BashTool
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.file_edit import FileEditTool
@@ -61,6 +62,7 @@ class ManagedConversation:
         conversation: Conversation,
         sandbox: LocalSandbox,
         broker: EventBroker,
+        workspaces: WorkspaceManager,
         repo: str | None = None,
         branch: str | None = None,
         token: str | None = None,
@@ -68,6 +70,7 @@ class ManagedConversation:
         self.conversation = conversation
         self.sandbox = sandbox
         self.broker = broker
+        self._workspaces = workspaces
         self.repo = repo
         self.branch = branch
         self._token = token
@@ -94,20 +97,26 @@ class ManagedConversation:
         self.title = title or None
 
     def bootstrap(self) -> None:
-        """Clone the repo (if any) before the agent runs. Runs in a worker thread."""
+        """Set up this conversation's isolated worktree (cloning the repo once
+        if needed) before the agent runs. Runs in a worker thread."""
         if not self.repo:
             return
         try:
-            clone_repo(self.sandbox, self.repo, self.branch, self._token)
+            worktree = self._workspaces.prepare(
+                self.conversation.id, self.repo, self.branch, self._token
+            )
         except WorkspaceError as exc:
-            self.conversation.add_event(ErrorEvent(message=f"clone failed: {exc}"))
+            self.conversation.add_event(
+                ErrorEvent(message=f"workspace setup failed: {exc}")
+            )
             self.conversation.status = Status.ERROR
             return
+        self.sandbox.set_working_dir(worktree)
         label = self.repo + (f" (branch {self.branch})" if self.branch else "")
         self.conversation.add_event(
             MessageEvent(
                 role="system",
-                text=f"Workspace ready: cloned {label} into {self.sandbox.workspace_dir}.",
+                text=f"Workspace ready: {label} checked out into an isolated worktree.",
             )
         )
 
@@ -119,8 +128,7 @@ class ConversationManager:
         self, settings: Settings, data_dir: Path = Path("data")
     ) -> None:
         self._settings = settings
-        self._workspaces_dir = data_dir / "workspaces"
-        self._workspaces_dir.mkdir(parents=True, exist_ok=True)
+        self._workspaces = WorkspaceManager(data_dir)
         self._conversations: dict[str, ManagedConversation] = {}
         self._persist_hook: PersistHook = lambda *_: None
 
@@ -137,11 +145,14 @@ class ConversationManager:
     ) -> ManagedConversation:
         cid = uuid.uuid4().hex[:8]
         if repo:
-            ws = str(self._workspaces_dir / cid / repo.split("/")[-1])
+            ws = str(self._workspaces.worktree_dir(cid))
         else:
             ws = workspace_dir or self._settings.workspace_dir
         managed = self._build(cid, ws, confirm_mode, repo, branch, token)
         return managed
+
+    def release_workspace(self, cid: str, repo: str | None) -> None:
+        self._workspaces.release(cid, repo)
 
     def register_revived(
         self,
@@ -183,7 +194,7 @@ class ConversationManager:
             id=cid,
         )
         managed = ManagedConversation(
-            conversation, sandbox, EventBroker(loop), repo, branch, token
+            conversation, sandbox, EventBroker(loop), self._workspaces, repo, branch, token
         )
         managed.persist_hook = self._persist_hook
         conversation.on_event = managed.on_event

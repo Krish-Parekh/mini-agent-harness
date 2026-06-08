@@ -8,7 +8,7 @@ from pydantic import TypeAdapter
 
 from backend.runtime.manager import ConversationManager, ManagedConversation
 from backend.repository import ConversationRepository
-from backend.schemas import ConversationInfo
+from backend.schemas import ConversationInfo, StatusUpdate
 from miniagent.conversation import Status
 from miniagent.events import Event, Events
 
@@ -70,6 +70,12 @@ class ConversationService:
                 print(f"[persist] failed to write event {event.id}: {exc}")
             finally:
                 self._persist_queue.task_done()
+
+    def _emit_status(self, managed: ManagedConversation, status: str | None = None) -> None:
+        """Push the conversation's status to live WS subscribers (push, not poll)."""
+        managed.broker.publish(
+            StatusUpdate(status=status or managed.conversation.status.value)
+        )
 
     async def _persist_status(self, managed: ManagedConversation) -> None:
         await self._repo.upsert_conversation(
@@ -156,10 +162,13 @@ class ConversationService:
         ]
 
     async def delete(self, cid: str) -> bool:
+        row = await self._repo.get(cid)
         managed = self._manager.remove(cid)
         if managed is not None:
             managed.conversation.set_finished()
             await asyncio.to_thread(managed.sandbox.close)
+        repo = (managed.repo if managed else None) or (row.repo if row else None)
+        await asyncio.to_thread(self._manager.release_workspace, cid, repo)
         deleted = await self._repo.delete(cid)
         return deleted or managed is not None
 
@@ -183,19 +192,24 @@ class ConversationService:
         task.add_done_callback(self._tasks.discard)
 
     async def _run(self, managed: ManagedConversation, trigger) -> None:
+        self._emit_status(managed, "running")
         async with managed.lock:
             await asyncio.to_thread(trigger)
+        self._emit_status(managed)
         await self._persist_status(managed)
 
     async def _start(
         self, managed: ManagedConversation, initial_message: str | None
     ) -> None:
+        self._emit_status(managed, "running")
         async with managed.lock:
             await asyncio.to_thread(managed.bootstrap)
             if managed.conversation.status == Status.ERROR:
+                self._emit_status(managed)
                 await self._persist_status(managed)
                 return
             if initial_message:
                 managed.conversation.send_message(initial_message)
                 await asyncio.to_thread(managed.conversation.run)
+        self._emit_status(managed)
         await self._persist_status(managed)

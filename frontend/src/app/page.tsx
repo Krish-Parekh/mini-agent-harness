@@ -1,64 +1,91 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Github01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 
-import { api } from "@/lib/api";
+import { RepoBrowser } from "@/components/repo-browser";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
+import { api } from "@/lib/api";
+import { useGitHubStatus } from "@/lib/queries";
 
-function GitHubMark() {
+function Brand() {
   return (
-    <svg viewBox="0 0 24 24" className="size-5" fill="currentColor" aria-hidden>
-      <path d="M12 .5C5.73.5.5 5.73.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.53-1.34-1.3-1.7-1.3-1.7-1.06-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.79 2.74 1.27 3.41.97.11-.76.41-1.27.74-1.56-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .98-.31 3.2 1.18a11.1 11.1 0 0 1 5.82 0c2.22-1.49 3.2-1.18 3.2-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.39-5.25 5.68.42.36.79 1.07.79 2.16v3.2c0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.73 18.27.5 12 .5Z" />
-    </svg>
+    <div className="flex items-center gap-2">
+      <span className="grid size-7 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
+        M
+      </span>
+      <span className="text-lg font-semibold tracking-tight">MiniAgent</span>
+    </div>
+  );
+}
+
+function Account({ login }: { login: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Avatar className="size-7">
+        <AvatarImage src={`https://github.com/${login}.png`} alt={login} />
+        <AvatarFallback className="text-xs">
+          {login.slice(0, 2).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <span className="text-sm font-medium">{login}</span>
+    </div>
   );
 }
 
 export default function Home() {
-  const router = useRouter();
-  const [checking, setChecking] = useState(true);
-
-  useEffect(() => {
-    api
-      .githubStatus()
-      .then((s) => {
-        if (s.connected) router.replace("/repos");
-        else setChecking(false);
-      })
-      .catch(() => setChecking(false));
-  }, [router]);
+  const { data, isPending } = useGitHubStatus();
+  const connected = data?.connected;
 
   return (
-    <main className="flex flex-1 items-center justify-center p-6">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">MiniAgent</CardTitle>
-          <CardDescription>
-            Connect your GitHub account to pick a repository and start a coding
-            session with the agent.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button
-            size="lg"
-            className="w-full"
-            disabled={checking}
-            onClick={() => {
-              window.location.href = api.loginUrl();
-            }}
-          >
-            <GitHubMark />
-            {checking ? "Checking…" : "Connect GitHub"}
-          </Button>
-        </CardContent>
-      </Card>
+    <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col px-6">
+      <header className="flex h-16 items-center justify-between">
+        <Brand />
+        {connected && data?.login && <Account login={data.login} />}
+      </header>
+
+      {isPending ? (
+        <div className="grid flex-1 gap-4 py-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-44 rounded-xl" />
+          ))}
+        </div>
+      ) : connected ? (
+        <div className="flex-1 py-4">
+          <RepoBrowser />
+        </div>
+      ) : (
+        <div className="flex flex-1 items-center justify-center pb-16">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <HugeiconsIcon icon={Github01Icon} />
+              </EmptyMedia>
+              <EmptyTitle>Connect your GitHub</EmptyTitle>
+              <EmptyDescription>
+                Connect your GitHub account to browse your repositories and start
+                a coding session with the agent.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button nativeButton={false} render={<a href={api.loginUrl()} />}>
+                <HugeiconsIcon icon={Github01Icon} data-icon="inline-start" />
+                Connect GitHub
+              </Button>
+            </EmptyContent>
+          </Empty>
+        </div>
+      )}
     </main>
   );
 }

@@ -5,19 +5,30 @@ export type GitHubStatus = { connected: boolean; login: string | null };
 export type Repo = {
   full_name: string;
   name: string;
+  owner: string;
   private: boolean;
   default_branch: string;
   description: string | null;
+  language: string | null;
   updated_at: string;
 };
 
+export type ConversationStatus =
+  | "idle"
+  | "running"
+  | "waiting_for_confirmation"
+  | "finished"
+  | "error";
+
 export type ConversationInfo = {
   id: string;
-  status: string;
+  status: ConversationStatus;
   workspace_dir: string;
   num_events: number;
   repo: string | null;
   branch: string | null;
+  title: string | null;
+  updated_at: string | null;
 };
 
 export type AgentEvent = {
@@ -60,7 +71,19 @@ export const api = {
   githubStatus: () =>
     fetch(`${API}/auth/github/status`).then((r) => json<GitHubStatus>(r)),
 
+  logout: () =>
+    fetch(`${API}/auth/github/logout`, { method: "POST" }).then((r) =>
+      json<{ connected: boolean }>(r),
+    ),
+
   repos: () => fetch(`${API}/auth/github/repos`).then((r) => json<Repo[]>(r)),
+
+  importRepo: (repo: string) =>
+    fetch(`${API}/auth/github/import`, {
+      method: "POST",
+      headers: jsonHeaders,
+      body: JSON.stringify({ repo }),
+    }).then((r) => json<Repo>(r)),
 
   createConversation: (body: { repo: string; branch: string }) =>
     fetch(`${API}/conversations`, {
@@ -68,6 +91,9 @@ export const api = {
       headers: jsonHeaders,
       body: JSON.stringify(body),
     }).then((r) => json<ConversationInfo>(r)),
+
+  conversations: () =>
+    fetch(`${API}/conversations`).then((r) => json<ConversationInfo[]>(r)),
 
   conversation: (id: string) =>
     fetch(`${API}/conversations/${id}`).then((r) => json<ConversationInfo>(r)),
