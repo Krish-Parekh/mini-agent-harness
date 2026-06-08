@@ -16,17 +16,26 @@ import {
 import {
   PromptInput,
   PromptInputBody,
+  PromptInputButton,
   PromptInputFooter,
-  PromptInputSelect,
-  PromptInputSelectContent,
-  PromptInputSelectItem,
-  PromptInputSelectTrigger,
-  PromptInputSelectValue,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
+import {
+  ModelSelector,
+  ModelSelectorContent,
+  ModelSelectorEmpty,
+  ModelSelectorGroup,
+  ModelSelectorInput,
+  ModelSelectorItem,
+  ModelSelectorList,
+  ModelSelectorLogo,
+  ModelSelectorName,
+  ModelSelectorTrigger,
+} from "@/components/ai-elements/model-selector";
+import { CheckIcon } from "lucide-react";
 
 const BUSY = new Set(["running", "waiting_for_confirmation"]);
 
@@ -48,6 +57,8 @@ export default function ChatPage({
   const [status, setStatus] = useState<ConversationStatus>("idle");
   const [input, setInput] = useState("");
   const [model, setModel] = useState(MODELS[0].id);
+  const [modelOpen, setModelOpen] = useState(false);
+  const selectedModel = MODELS.find((m) => m.id === model);
 
   // Live stream: the backend replays the full log on connect, then pushes new
   // events plus `status` updates (running / waiting / finished). Status is push,
@@ -156,21 +167,44 @@ export default function ChatPage({
         </PromptInputBody>
         <PromptInputFooter>
           <PromptInputTools>
-            <PromptInputSelect
-              value={model}
-              onValueChange={(value) => setModel(value as string)}
-            >
-              <PromptInputSelectTrigger>
-                <PromptInputSelectValue />
-              </PromptInputSelectTrigger>
-              <PromptInputSelectContent>
-                {MODELS.map((m) => (
-                  <PromptInputSelectItem key={m.id} value={m.id}>
-                    {m.name}
-                  </PromptInputSelectItem>
-                ))}
-              </PromptInputSelectContent>
-            </PromptInputSelect>
+            <ModelSelector open={modelOpen} onOpenChange={setModelOpen}>
+              <ModelSelectorTrigger
+                render={
+                  <PromptInputButton>
+                    <ModelSelectorLogo provider="openai" />
+                    <ModelSelectorName>
+                      {selectedModel?.name ?? "Model"}
+                    </ModelSelectorName>
+                  </PromptInputButton>
+                }
+              />
+              <ModelSelectorContent className="[&_[data-slot=dialog-close]]:top-2.5 [&_[data-slot=dialog-close]]:right-2.5 [&_[data-slot=command-input-wrapper]]:pr-12">
+                <ModelSelectorInput placeholder="Search models…" />
+                <ModelSelectorList>
+                  <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+                  <ModelSelectorGroup heading="OpenAI">
+                    {MODELS.map((m) => (
+                      <ModelSelectorItem
+                        key={m.id}
+                        value={m.id}
+                        onSelect={() => {
+                          setModel(m.id);
+                          setModelOpen(false);
+                        }}
+                      >
+                        <ModelSelectorLogo provider="openai" />
+                        <ModelSelectorName>{m.name}</ModelSelectorName>
+                        {model === m.id ? (
+                          <CheckIcon className="ml-auto size-4" />
+                        ) : (
+                          <div className="ml-auto size-4" />
+                        )}
+                      </ModelSelectorItem>
+                    ))}
+                  </ModelSelectorGroup>
+                </ModelSelectorList>
+              </ModelSelectorContent>
+            </ModelSelector>
           </PromptInputTools>
           <PromptInputSubmit
             status={status === "error" ? "error" : busy ? "submitted" : undefined}
