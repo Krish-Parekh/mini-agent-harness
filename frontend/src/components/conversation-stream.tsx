@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { AgentEvent, ConversationStatus } from "@/lib/api";
 import {
   type ActionEvent,
@@ -28,7 +28,9 @@ import {
 import { DotmSquare1 } from "@/components/ui/dotm-square-1";
 import { ConfirmationAction } from "@/components/ai-elements/confirmation";
 import { DiffViewer } from "@/components/assistant-ui/diff-viewer";
-import { CircleAlertIcon, CopyIcon } from "lucide-react";
+import { CircleAlertIcon } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { CopyCheckIcon, CopyIcon } from "@hugeicons/core-free-icons";
 
 function ApprovalDetail({ view }: { view: ToolView }) {
   if (view.fileChange) {
@@ -81,10 +83,6 @@ function StepLabel({
   );
 }
 
-// Timing label for a step. Bash measures its own wall-clock (`duration_ms`);
-// other tools fall back to the gap between the action and its observation. While
-// a step is still running we tick a live elapsed counter, since no observation
-// has arrived to read a final duration from.
 function stepTiming(
   action: ActionEvent,
   obs: AgentEvent | undefined,
@@ -119,9 +117,6 @@ function ChainStep({
   onSelectFile?: (path: string) => void;
 }) {
   const view = toolView(action);
-  // An action with no observation is only genuinely "running" while the
-  // conversation is still live; once it's idle/finished/errored, such an action
-  // was interrupted and must not keep spinning forever.
   const unresolved = !obs && !isPending;
   const running = unresolved && live;
   const orphaned = unresolved && !live;
@@ -211,25 +206,18 @@ function ActionChain({
   );
 }
 
-// Standalone pulse shown while the agent is running but isn't mid-tool-call.
-// The action chain renders its own "Working…" header, so this only fills the
-// gaps: right after the user sends (before the first event), and between an
-// assistant message / finished chain and the next step.
 export function ThinkingIndicator({ label = "Working…" }: { label?: string }) {
   return (
     <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
-      <DotmSquare1 size={14} dotSize={2} muted />
+      <DotmSquare1 size={16} dotSize={2} muted />
       <span>{label}</span>
     </div>
   );
 }
 
 function MessageRow({ ev }: { ev: MessageEvent }) {
-  if (ev.role === "system") {
-    return (
-      <p className="text-muted-foreground text-center text-xs">{ev.text}</p>
-    );
-  }
+  const [copied, setCopied] = useState(false);
+
   if (ev.role === "user") {
     return (
       <Message from="user">
@@ -237,17 +225,42 @@ function MessageRow({ ev }: { ev: MessageEvent }) {
       </Message>
     );
   }
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(ev.text ?? "");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <Message from="assistant">
       <MessageContent>
         <MessageResponse>{ev.text ?? ""}</MessageResponse>
       </MessageContent>
       <MessageActions className="opacity-0 transition-opacity group-hover:opacity-100">
-        <MessageAction
-          label="Copy"
-          onClick={() => navigator.clipboard.writeText(ev.text ?? "")}
-        >
-          <CopyIcon className="size-3" />
+        <MessageAction label={copied ? "Copied" : "Copy"} onClick={handleCopy}>
+          <span className="relative inline-flex size-3 items-center justify-center">
+            <HugeiconsIcon
+              icon={CopyIcon}
+              size={42}
+              className={cn(
+                "absolute size-3 transition-all duration-200 ease-out",
+                copied
+                  ? "scale-50 rotate-12 opacity-0"
+                  : "scale-100 rotate-0 opacity-100",
+              )}
+            />
+            <HugeiconsIcon
+              icon={CopyCheckIcon}
+              size={42}
+              className={cn(
+                "absolute size-3 transition-all duration-200 ease-out",
+                copied
+                  ? "scale-100 rotate-0 opacity-100"
+                  : "scale-50 -rotate-12 opacity-0",
+              )}
+            />
+          </span>
         </MessageAction>
       </MessageActions>
     </Message>
@@ -264,6 +277,10 @@ function groupEvents(events: AgentEvent[]): Group[] {
   let chain: ActionEvent[] | null = null;
   for (const ev of events) {
     if (isObservation(ev)) continue;
+    // System messages (e.g. the legacy "Workspace ready" banner) are noise in
+    // the timeline; skip them so old persisted logs stop rendering them too.
+    if (!isAction(ev) && !isErrorEvent(ev) && (ev as MessageEvent).role === "system")
+      continue;
     if (isAction(ev)) {
       if (!chain) {
         chain = [];
@@ -303,18 +320,6 @@ export function ConversationTimeline({
   const groups = useMemo(() => groupEvents(events), [events]);
   const live = status === "running" || status === "waiting_for_confirmation";
 
-  // The trailing tool chain already shows its own animated header while it has
-  // an unresolved action, so suppress the standalone pulse in that case to avoid
-  // two spinners. Otherwise, show the pulse whenever the agent is running.
-  const lastGroup = groups[groups.length - 1];
-  const trailingChainActive =
-    lastGroup?.kind === "actions" &&
-    lastGroup.actions.some(
-      (a) => !(a.tool_call_id && observationByCall.has(a.tool_call_id)),
-    );
-  const thinking =
-    status === "running" && groups.length > 0 && !trailingChainActive;
-
   return (
     <>
       {groups.map((group, i) => {
@@ -341,7 +346,6 @@ export function ConversationTimeline({
         }
         return <MessageRow key={group.event.id} ev={group.event} />;
       })}
-      {thinking && <ThinkingIndicator />}
     </>
   );
 }

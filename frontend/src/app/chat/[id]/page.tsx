@@ -2,12 +2,16 @@
 
 import { use, useEffect, useMemo, useState } from "react";
 
+import Link from "next/link";
+
 import {
   api,
+  ApiError,
   type AgentEvent,
   type ChangedFile,
   type ConversationStatus,
 } from "@/lib/api";
+import { useConversation } from "@/lib/queries";
 import {
   ConversationTimeline,
   ThinkingIndicator,
@@ -71,6 +75,15 @@ export default function ChatPage({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
 
+  // The conversation resource is the source of truth for existence; the socket
+  // below is only a live event stream, opened once we know the conversation is
+  // real. `wsGone` flips if it's deleted mid-session (socket closes with 4404).
+  const { data: conversation, error } = useConversation(id);
+  const [wsGone, setWsGone] = useState(false);
+  const exists = !!conversation;
+  const missing =
+    wsGone || (error instanceof ApiError && error.status === 404);
+
   // Live stream: the backend replays the full log on connect, then pushes new
   // events plus `status` updates (running / waiting / finished). Status is push,
   // not poll — we never hit the REST endpoint on a timer. Dedupe events by id so
@@ -81,6 +94,7 @@ export default function ChatPage({
   // The backend re-replays the full log and re-seeds status on each connect, so
   // reconnecting self-heals any state missed while disconnected.
   useEffect(() => {
+    if (!exists) return; // don't open a socket until the conversation is known to exist
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let unmounted = false;
@@ -98,7 +112,13 @@ export default function ChatPage({
           prev.some((e) => e.id === ev.id) ? prev : [...prev, ev],
         );
       };
-      ws.onclose = () => {
+      ws.onclose = (e) => {
+        // 4404: deleted mid-session. Stop reconnecting and fall through to the
+        // not-found screen rather than looping against a gone conversation.
+        if (e.code === 4404) {
+          setWsGone(true);
+          return;
+        }
         if (unmounted) return;
         reconnectTimer = setTimeout(connect, 1000);
       };
@@ -110,7 +130,7 @@ export default function ChatPage({
       if (reconnectTimer) clearTimeout(reconnectTimer);
       ws?.close();
     };
-  }, [id]);
+  }, [id, exists]);
 
   const busy = BUSY.has(status);
 
@@ -164,6 +184,19 @@ export default function ChatPage({
     }
   }
 
+  if (missing) {
+    return (
+      <div className="flex h-full flex-1 flex-col items-center justify-center gap-3 text-center">
+        <p className="text-sm font-medium">This conversation no longer exists.</p>
+        <Link href="/" className="text-sm text-muted-foreground underline">
+          Back to home
+        </Link>
+      </div>
+    );
+  }
+
+  console.log("status", status);
+
   return (
     <div className="flex h-full min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -183,11 +216,6 @@ export default function ChatPage({
         <div className="mx-auto flex w-full min-h-0 max-w-3xl flex-1 flex-col px-4 py-2">
           <Conversation>
             <ConversationContent className="space-y-6 px-0 py-0">
-              {events.length === 0 && (
-                <div className="flex justify-center py-8">
-                  <ThinkingIndicator label="Preparing workspace…" />
-                </div>
-              )}
               <ConversationTimeline
                 events={events}
                 observationByCall={observationByCall}
@@ -203,6 +231,7 @@ export default function ChatPage({
                 }}
                 onSelectFile={openFile}
               />
+              {status === "running" && <ThinkingIndicator label="Working…" />}
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>

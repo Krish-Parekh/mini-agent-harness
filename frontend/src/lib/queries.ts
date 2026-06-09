@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import {
   api,
+  ApiError,
   type ConversationInfo,
   type GitHubStatus,
   type Lane,
@@ -75,6 +76,18 @@ export function useConversations(options?: { refetchInterval?: number }) {
     queryKey: queryKeys.conversations,
     queryFn: api.conversations,
     refetchInterval: options?.refetchInterval,
+  });
+}
+
+// Existence + metadata for a single conversation. This is the source of truth
+// for "does this conversation exist" — the chat page gates its event socket on
+// it. A 404 is terminal (the conversation is gone), so don't retry it.
+export function useConversation(id: string) {
+  return useQuery<ConversationInfo>({
+    queryKey: queryKeys.conversation(id),
+    queryFn: () => api.conversation(id),
+    retry: (count, err) =>
+      !(err instanceof ApiError && err.status === 404) && count < 3,
   });
 }
 

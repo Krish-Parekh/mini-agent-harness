@@ -7,7 +7,11 @@ from typing import Any, Callable
 from pydantic import TypeAdapter
 from sqlalchemy import func
 
-from backend.runtime.manager import ConversationManager, ManagedConversation
+from backend.runtime.manager import (
+    AI_TITLE_AFTER_TURNS,
+    ConversationManager,
+    ManagedConversation,
+)
 from backend.repository import ConversationRepository
 from backend.schemas import ConversationInfo, StatusUpdate
 from miniagent.conversation import Status
@@ -235,10 +239,25 @@ class ConversationService:
         await self._persist_status(managed, lane="working", run_started=True)
         async with managed.lock:
             await asyncio.to_thread(trigger)
+        await self._maybe_ai_title(managed)
         self._emit_status(managed)
         await self._persist_status(
             managed, lane=self._settled_lane(managed), run_started=False
         )
+
+    async def _maybe_ai_title(self, managed: ManagedConversation) -> None:
+        """Upgrade the heuristic title to an AI one once there are enough turns.
+        Best-effort: on failure we keep the heuristic title and retry next run."""
+        if managed._ai_titled or managed.user_turns() < AI_TITLE_AFTER_TURNS:
+            return
+        try:
+            title = await asyncio.to_thread(managed.build_title)
+        except Exception as exc:  # title is cosmetic — never fail the run
+            print(f"[title] generation failed for {managed.conversation.id}: {exc}")
+            return
+        if title:
+            managed.title = title
+            managed._ai_titled = True
 
     async def _start(
         self, managed: ManagedConversation, initial_message: str | None

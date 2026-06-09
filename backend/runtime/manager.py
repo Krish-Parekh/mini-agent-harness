@@ -21,6 +21,14 @@ from miniagent.tools.finish import FinishTool
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
 
+AI_TITLE_AFTER_TURNS = 4
+
+_TITLE_SYSTEM = (
+    "You write a short, specific title for a coding conversation. "
+    "Reply with the title only: 3 to 6 words, no quotes, no trailing "
+    "punctuation."
+)
+
 
 def _build_agent(settings: Settings) -> Agent:
     llm = LLM(
@@ -75,6 +83,7 @@ class ManagedConversation:
         self.branch = branch
         self._token = token
         self.title: str | None = None
+        self._ai_titled = False
         self.lane: str = "todo"
         self._seq = 0
         self.lock = asyncio.Lock()
@@ -101,6 +110,41 @@ class ManagedConversation:
         title = f"{base}: {snippet}".strip(": ") if base else snippet
         self.title = title or None
 
+    def user_turns(self) -> int:
+        return sum(
+            1
+            for e in self.conversation.events
+            if isinstance(e, MessageEvent) and e.role == "user"
+        )
+
+    def build_title(self) -> str | None:
+        """Concise title from the transcript. Blocking (litellm) — call in a
+        worker thread."""
+        transcript = self._title_transcript()
+        if not transcript:
+            return None
+        response = self.conversation.agent.llm.complete(
+            [
+                {"role": "system", "content": _TITLE_SYSTEM},
+                {"role": "user", "content": transcript},
+            ]
+        )
+        text = (response.text or "").strip().strip('"').strip()
+        snippet = text.splitlines()[0][:60] if text else ""
+        if not snippet:
+            return None
+        base = self.repo.split("/")[-1] if self.repo else None
+        return f"{base}: {snippet}" if base else snippet
+
+    def _title_transcript(self) -> str:
+        lines: list[str] = []
+        for e in self.conversation.events:
+            if isinstance(e, MessageEvent) and e.role in ("user", "assistant"):
+                text = e.text.strip()
+                if text:
+                    lines.append(f"{e.role}: {text[:500]}")
+        return "\n".join(lines[:12])
+
     def bootstrap(self) -> None:
         """Set up this conversation's isolated worktree (cloning the repo once
         if needed) before the agent runs. Runs in a worker thread."""
@@ -117,13 +161,6 @@ class ManagedConversation:
             self.conversation.status = Status.ERROR
             return
         self.sandbox.set_working_dir(worktree)
-        label = self.repo + (f" (branch {self.branch})" if self.branch else "")
-        self.conversation.add_event(
-            MessageEvent(
-                role="system",
-                text=f"Workspace ready: {label} checked out into an isolated worktree.",
-            )
-        )
 
 
 class ConversationManager:
@@ -175,6 +212,7 @@ class ConversationManager:
         managed = self._build(cid, ws, "risky", repo, branch, None)
         managed.conversation.events = events
         managed.title = title
+        managed._ai_titled = managed.user_turns() >= AI_TITLE_AFTER_TURNS
         managed.lane = lane
         managed._seq = len(events)
         try:
