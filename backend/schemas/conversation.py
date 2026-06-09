@@ -20,6 +20,7 @@ class CreateConversationRequest(BaseModel):
 class SendMessageRequest(BaseModel):
     text: str
     model: str | None = None
+    plan_mode: bool = False
 
 
 class ConfirmRequest(BaseModel):

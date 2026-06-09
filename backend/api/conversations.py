@@ -98,7 +98,7 @@ async def send_message(cid: str, body: SendMessageRequest, service: ServiceDep):
             status_code=409,
             detail="conversation is waiting for confirmation; use /confirm",
         )
-    await service.send_message(managed, body.text, body.model)
+    await service.send_message(managed, body.text, body.model, body.plan_mode)
     return service.info(managed)
 
 

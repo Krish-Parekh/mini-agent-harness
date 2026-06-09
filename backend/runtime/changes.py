@@ -7,16 +7,27 @@ from miniagent.sandbox.local import LocalSandbox
 
 _STATUS = {"A": "added", "M": "modified", "D": "deleted"}
 
+# Heavy or vendored directories that should never surface in the changes view,
+# even when the target repo neglects to .gitignore them. Excluded from every git
+# call below so we never intent-to-add or diff thousands of dependency files.
+_EXCLUDE_DIRS = ("node_modules", ".next", "dist", "build", ".venv", "__pycache__")
+_EXCLUDE = " ".join(
+    shlex.quote(f":(exclude,glob)**/{d}/**") for d in _EXCLUDE_DIRS
+)
+
 
 def _intent_to_add(sandbox: LocalSandbox) -> None:
-    """Mark untracked files intent-to-add so they show up in `git diff HEAD`."""
-    sandbox.run_command("git add -A -N")
+    """Mark untracked files intent-to-add so they show up in `git diff HEAD`,
+    skipping vendored dirs like node_modules."""
+    sandbox.run_command(f"git add -A -N -- . {_EXCLUDE}")
 
 
 def list_changes(sandbox: LocalSandbox) -> list[ChangedFile]:
     _intent_to_add(sandbox)
-    numstat = sandbox.run_command("git diff HEAD --numstat").stdout
-    name_status = sandbox.run_command("git diff HEAD --name-status").stdout
+    numstat = sandbox.run_command(f"git diff HEAD --numstat -- . {_EXCLUDE}").stdout
+    name_status = sandbox.run_command(
+        f"git diff HEAD --name-status -- . {_EXCLUDE}"
+    ).stdout
 
     counts: dict[str, tuple[int, int]] = {}
     for line in numstat.splitlines():
@@ -55,7 +66,7 @@ def file_diff(sandbox: LocalSandbox, path: str) -> FileDiff:
 
 def list_files(sandbox: LocalSandbox) -> list[str]:
     out = sandbox.run_command(
-        "git ls-files --cached --others --exclude-standard"
+        f"git ls-files --cached --others --exclude-standard -- . {_EXCLUDE}"
     ).stdout
     return sorted(line for line in out.splitlines() if line)
 

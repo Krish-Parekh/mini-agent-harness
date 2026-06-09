@@ -63,6 +63,23 @@ without hedging or overclaiming. Reference code as `path:line` when useful.
 """
 
 
+# Appended to the system prompt for a turn when the user has planning mode on.
+PLAN_MODE_DIRECTIVE = """
+
+# Planning mode is ON
+The user wants a plan before any changes are made. For this turn only:
+- Explore the relevant code read-only — read files, search, inspect git — to ground the \
+plan in how things actually work. Do NOT create, edit, or delete files, and do NOT run \
+commands that modify the workspace.
+- If the task is ambiguous or could reasonably go more than one way, call `ask_user` with \
+a few multiple-choice questions to settle the key decisions before you write the plan.
+- Then call `present_plan` with a concise markdown plan: the goal, the files you'll touch, \
+and the steps in order. Keep it tight — no full code dumps.
+- Calling `present_plan` ends your turn. Do not call `finish` and do not start implementing; \
+wait for the user's go-ahead, which will arrive as their next message.
+"""
+
+
 class Agent:
     def __init__(
         self,
@@ -104,7 +121,10 @@ class Agent:
         conversation.set_idle()
 
     def _build_messages(self, conversation: Conversation) -> list[dict]:
-        messages: list[dict] = [{"role": "system", "content": self.system_prompt}]
+        system_prompt = self.system_prompt
+        if conversation.plan_mode:
+            system_prompt += PLAN_MODE_DIRECTIVE
+        messages: list[dict] = [{"role": "system", "content": system_prompt}]
         pending: dict | None = None  # assistant turn being assembled
 
         def flush() -> None:
@@ -209,6 +229,16 @@ class Agent:
 
         if call.name == "finish":
             conversation.set_finished()
+            return True
+        if call.name == "present_plan":
+            # Plan delivered: leave plan mode so the user's go-ahead implements.
+            conversation.plan_mode = False
+            conversation.set_idle()
+            return True
+        if call.name == "ask_user":
+            # Soft pause for the user's answer; stay in plan mode if we were in it
+            # so the planning flow resumes after they reply.
+            conversation.set_idle()
             return True
         return False
 

@@ -28,7 +28,18 @@ import {
 import { DotmSquare1 } from "@/components/ui/dotm-square-1";
 import { ConfirmationAction } from "@/components/ai-elements/confirmation";
 import { DiffViewer } from "@/components/assistant-ui/diff-viewer";
-import { CircleAlertIcon } from "lucide-react";
+import {
+  Plan,
+  PlanAction,
+  PlanContent,
+  PlanDescription,
+  PlanFooter,
+  PlanHeader,
+  PlanTitle,
+  PlanTrigger,
+} from "@/components/ai-elements/plan";
+import { Button } from "@/components/ui/button";
+import { CircleAlertIcon, ClipboardListIcon, HammerIcon } from "lucide-react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CopyCheckIcon, CopyIcon } from "@hugeicons/core-free-icons";
 
@@ -206,6 +217,63 @@ function ActionChain({
   );
 }
 
+function PlanCard({
+  ev,
+  isPending,
+  onBuild,
+}: {
+  ev: ActionEvent;
+  isPending?: boolean;
+  onBuild?: () => void;
+}) {
+  const plan = String((ev.arguments?.plan as string) ?? "");
+  return (
+    <Plan defaultOpen>
+      <PlanHeader>
+        <div className="space-y-1">
+          <PlanTitle>Plan</PlanTitle>
+          <PlanDescription>
+            {isPending
+              ? "Review, then build — or reply to refine"
+              : "Send a message to approve or refine"}
+          </PlanDescription>
+        </div>
+        <PlanAction>
+          <PlanTrigger />
+        </PlanAction>
+      </PlanHeader>
+      <PlanContent>
+        <MessageResponse>{plan}</MessageResponse>
+      </PlanContent>
+      {isPending && onBuild && (
+        <PlanFooter className="justify-end">
+          <Button size="sm" onClick={onBuild}>
+            <HammerIcon className="size-4" />
+            Build
+          </Button>
+        </PlanFooter>
+      )}
+    </Plan>
+  );
+}
+
+function QuestionsSummary({ ev }: { ev: ActionEvent }) {
+  const questions = (ev.arguments?.questions as { question: string }[]) ?? [];
+  return (
+    <div className="rounded-lg border border-border bg-muted/30 p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+        <ClipboardListIcon className="size-4 text-muted-foreground" />
+        Asked you {questions.length === 1 ? "a question" : `${questions.length} questions`}
+      </div>
+      <ul className="space-y-1 text-muted-foreground text-sm">
+        {questions.map((q, i) => (
+          <li key={i}>• {q.question}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function ThinkingIndicator({ label = "Working…" }: { label?: string }) {
   return (
     <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
@@ -270,6 +338,8 @@ function MessageRow({ ev }: { ev: MessageEvent }) {
 type Group =
   | { kind: "message"; event: MessageEvent }
   | { kind: "error"; event: AgentEvent }
+  | { kind: "plan"; event: ActionEvent }
+  | { kind: "questions"; event: ActionEvent }
   | { kind: "actions"; actions: ActionEvent[] };
 
 function groupEvents(events: AgentEvent[]): Group[] {
@@ -281,7 +351,15 @@ function groupEvents(events: AgentEvent[]): Group[] {
     // the timeline; skip them so old persisted logs stop rendering them too.
     if (!isAction(ev) && !isErrorEvent(ev) && (ev as MessageEvent).role === "system")
       continue;
-    if (isAction(ev)) {
+    // A presented plan is the turn's headline, not a tool-call detail — break
+    // the chain and render it as its own card.
+    if (isAction(ev) && ev.tool_name === "present_plan") {
+      chain = null;
+      groups.push({ kind: "plan", event: ev as ActionEvent });
+    } else if (isAction(ev) && ev.tool_name === "ask_user") {
+      chain = null;
+      groups.push({ kind: "questions", event: ev as ActionEvent });
+    } else if (isAction(ev)) {
       if (!chain) {
         chain = [];
         groups.push({ kind: "actions", actions: chain });
@@ -303,8 +381,11 @@ export type ConversationTimelineProps = {
   observationByCall: Map<string, AgentEvent>;
   status: ConversationStatus;
   pendingId?: string;
+  pendingQuestionId?: string;
+  pendingPlanId?: string;
   onApprove: () => void;
   onReject: () => void;
+  onBuild?: () => void;
   onSelectFile?: (path: string) => void;
 };
 
@@ -313,8 +394,11 @@ export function ConversationTimeline({
   observationByCall,
   status,
   pendingId,
+  pendingQuestionId,
+  pendingPlanId,
   onApprove,
   onReject,
+  onBuild,
   onSelectFile,
 }: ConversationTimelineProps) {
   const groups = useMemo(() => groupEvents(events), [events]);
@@ -336,6 +420,22 @@ export function ConversationTimeline({
               onSelectFile={onSelectFile}
             />
           );
+        }
+        if (group.kind === "plan") {
+          return (
+            <PlanCard
+              key={group.event.id}
+              ev={group.event}
+              isPending={group.event.id === pendingPlanId}
+              onBuild={onBuild}
+            />
+          );
+        }
+        if (group.kind === "questions") {
+          // The pending question is shown interactively above the composer;
+          // skip it here so it isn't duplicated.
+          if (group.event.id === pendingQuestionId) return null;
+          return <QuestionsSummary key={group.event.id} ev={group.event} />;
         }
         if (group.kind === "error") {
           return (

@@ -18,6 +18,8 @@ from miniagent.tools.bash import BashTool
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.ask import AskUserTool
+from miniagent.tools.plan import PresentPlanTool
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
 
@@ -36,7 +38,15 @@ def _build_agent(settings: Settings) -> Agent:
         temperature=settings.temperature,
         max_tokens=settings.max_tokens,
     )
-    tools = ToolRegistry([BashTool(), FileEditTool(), FinishTool()])
+    tools = ToolRegistry(
+        [
+            BashTool(),
+            FileEditTool(),
+            FinishTool(),
+            PresentPlanTool(),
+            AskUserTool(),
+        ]
+    )
     return Agent(llm=llm, tools=tools)
 
 

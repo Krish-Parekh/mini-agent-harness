@@ -136,11 +136,15 @@ class ConversationService:
         return managed
 
     async def send_message(
-        self, managed: ManagedConversation, text: str, model: str | None = None
+        self,
+        managed: ManagedConversation,
+        text: str,
+        model: str | None = None,
+        plan_mode: bool = False,
     ) -> None:
         if model:
             managed.set_model(model)
-        managed.conversation.send_message(text)
+        managed.conversation.send_message(text, plan_mode=plan_mode)
         self._spawn(self._run(managed, managed.conversation.run))
 
     async def confirm(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { api, type ChangedFile } from "@/lib/api";
@@ -16,13 +16,16 @@ import {
 } from "@/components/ai-elements/file-tree";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowExpand01Icon,
   ArrowLeft01Icon,
-  ArrowShrink01Icon,
-  PanelRightIcon,
+  EyeIcon,
+  GitPullRequestIcon,
 } from "@hugeicons/core-free-icons";
 
 type Tab = "all" | "changes";
+
+const MIN_WIDTH = 320;
+const DEFAULT_WIDTH = 384; 
+const WIDTH_KEY = "changesPanelWidth";
 
 type TreeNode = { name: string; path: string; dir: boolean; children: TreeNode[] };
 
@@ -89,14 +92,33 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded px-2 py-1 text-sm",
+        "rounded-md px-2.5 py-1 text-sm transition-colors",
         active
-          ? "bg-muted text-foreground"
+          ? "bg-muted/80 text-foreground"
           : "text-muted-foreground hover:text-foreground",
       )}
     >
       {children}
     </button>
+  );
+}
+
+function FileStatusIcon({ status }: { status: ChangedFile["status"] }) {
+  const color =
+    status === "added"
+      ? "bg-emerald-500/20 ring-emerald-500/50 [&>span]:bg-emerald-500"
+      : status === "deleted"
+        ? "bg-red-500/20 ring-red-500/50 [&>span]:bg-red-500"
+        : "bg-yellow-500/20 ring-yellow-500/50 [&>span]:bg-yellow-500";
+  return (
+    <span
+      className={cn(
+        "flex size-3.5 shrink-0 items-center justify-center rounded-[3px] ring-1",
+        color,
+      )}
+    >
+      <span className="size-1 rounded-full" />
+    </span>
   );
 }
 
@@ -189,10 +211,14 @@ function FileContentView({
 
 function FileRow({
   path,
+  status,
+  selected,
   onClick,
   trailing,
 }: {
   path: string;
+  status: ChangedFile["status"];
+  selected?: boolean;
   onClick: () => void;
   trailing?: React.ReactNode;
 }) {
@@ -200,10 +226,16 @@ function FileRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/50"
+      className={cn(
+        "mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+        selected ? "bg-[#2a2624]" : "hover:bg-[#2a2624]/70",
+      )}
     >
       <PathLabel path={path} />
-      {trailing && <span className="ml-auto shrink-0">{trailing}</span>}
+      <span className="ml-auto flex shrink-0 items-center gap-2">
+        {trailing}
+        <FileStatusIcon status={status} />
+      </span>
     </button>
   );
 }
@@ -222,8 +254,49 @@ export function ChangesPanel({
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("changes");
-  const [expanded, setExpanded] = useState(false);
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [allFiles, setAllFiles] = useState<string[] | null>(null);
+
+  const widthRef = useRef(DEFAULT_WIDTH);
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    const saved = Number(localStorage.getItem(WIDTH_KEY));
+    if (saved) {
+      widthRef.current = saved;
+      setWidth(saved);
+    }
+  }, []);
+
+  const onHandleDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      if (!dragging.current) return;
+      const max = window.innerWidth * 0.7;
+      const next = Math.min(Math.max(window.innerWidth - e.clientX, MIN_WIDTH), max);
+      widthRef.current = next;
+      setWidth(next);
+    }
+    function onUp() {
+      if (!dragging.current) return;
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      localStorage.setItem(WIDTH_KEY, String(Math.round(widthRef.current)));
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
 
   useEffect(() => {
     if (tab !== "all") return;
@@ -250,20 +323,35 @@ export function ChangesPanel({
 
   return (
     <aside
-      className={cn(
-        "flex shrink-0 flex-col border-l bg-background",
-        expanded ? "w-[42rem] max-w-[60vw]" : "w-96",
-      )}
+      style={{ width }}
+      className="relative flex shrink-0 flex-col border-l bg-background"
     >
-      <div className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize files panel"
+        onPointerDown={onHandleDown}
+        className="absolute top-0 left-0 z-10 h-full w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-primary/30 active:bg-primary/40"
+      />
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-emerald-900/40 bg-[#1b2b1e] px-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="shrink-0 rounded-md border border-emerald-500/35 px-2 py-0.5 text-xs font-medium text-emerald-400">
+            PR #126
+          </span>
+          <div className="flex min-w-0 items-center gap-1.5 text-emerald-400">
+            <HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
+            <span className="truncate text-sm">Ready for review</span>
+          </div>
+        </div>
         <button
           type="button"
-          onClick={onClose}
-          aria-label="Hide files panel"
-          className="rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          className="shrink-0 rounded-md bg-black/45 px-3 py-1 text-sm text-white transition-colors hover:bg-black/60"
         >
-          <HugeiconsIcon icon={PanelRightIcon} className="size-4" />
+          Create PR
         </button>
+      </div>
+
+      <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
         <div className="flex items-center gap-1">
           <TabButton active={tab === "all"} onClick={() => setTab("all")}>
             All files
@@ -271,23 +359,19 @@ export function ChangesPanel({
           <TabButton active={tab === "changes"} onClick={() => setTab("changes")}>
             Changes
             {changes.length > 0 && (
-              <span className="ml-1 text-muted-foreground">{changes.length}</span>
+              <span
+                className={cn(
+                  "ml-1",
+                  tab === "changes" ? "text-muted-foreground" : "text-muted-foreground/70",
+                )}
+              >
+                {changes.length}
+              </span>
             )}
           </TabButton>
+          
         </div>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={expanded ? "Shrink panel" : "Expand panel"}
-          className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-        >
-          <HugeiconsIcon
-            icon={expanded ? ArrowShrink01Icon : ArrowExpand01Icon}
-            className="size-4"
-          />
-        </button>
       </div>
-
       {selectedPath ? (
         changed ? (
           <FileDiffView
@@ -309,7 +393,7 @@ export function ChangesPanel({
           {allFiles === null ? (
             <p className="text-muted-foreground p-3 text-xs">Loading…</p>
           ) : allFiles.length === 0 ? (
-            <p className="text-muted-foreground p-3 text-xs">No files.</p>
+            <p className="text-muted-foreground p-5 text-xs">No files.</p>
           ) : (
             <FileTree
               className="rounded-none border-0 text-xs"
@@ -322,7 +406,7 @@ export function ChangesPanel({
           )}
         </ScrollArea>
       ) : changes.length === 0 ? (
-        <p className="text-muted-foreground p-3 text-xs">No changes yet.</p>
+        <p className="text-muted-foreground p-5 text-xs">No changes yet.</p>
       ) : (
         <ScrollArea className="min-h-0 flex-1">
           <div className="py-1">
@@ -330,11 +414,13 @@ export function ChangesPanel({
               <FileRow
                 key={file.path}
                 path={file.path}
+                status={file.status}
+                selected={selectedPath === file.path}
                 onClick={() => onSelectPath(file.path)}
                 trailing={
                   <span className="font-mono text-xs">
                     {file.additions > 0 && (
-                      <span className="text-emerald-600">+{file.additions}</span>
+                      <span className="text-emerald-500">+{file.additions}</span>
                     )}
                     {file.deletions > 0 && (
                       <span className="text-destructive"> −{file.deletions}</span>

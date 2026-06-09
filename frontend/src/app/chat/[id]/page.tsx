@@ -17,6 +17,7 @@ import {
   ThinkingIndicator,
 } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
+import { QuestionCard, type Question } from "@/components/question-card";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { PanelRightIcon } from "@hugeicons/core-free-icons";
 import {
@@ -46,7 +47,7 @@ import {
   ModelSelectorName,
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, ClipboardListIcon } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const BUSY = new Set(["running", "waiting_for_confirmation"]);
@@ -70,31 +71,24 @@ export default function ChatPage({
   const [input, setInput] = useState("");
   const [model, setModel] = useState(MODELS[0].id);
   const [modelOpen, setModelOpen] = useState(false);
+  const [planMode, setPlanMode] = useState(false);
+  const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
+    null,
+  );
   const selectedModel = MODELS.find((m) => m.id === model);
   const [changes, setChanges] = useState<ChangedFile[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
 
-  // The conversation resource is the source of truth for existence; the socket
-  // below is only a live event stream, opened once we know the conversation is
-  // real. `wsGone` flips if it's deleted mid-session (socket closes with 4404).
+
   const { data: conversation, error } = useConversation(id);
   const [wsGone, setWsGone] = useState(false);
   const exists = !!conversation;
   const missing =
     wsGone || (error instanceof ApiError && error.status === 404);
 
-  // Live stream: the backend replays the full log on connect, then pushes new
-  // events plus `status` updates (running / waiting / finished). Status is push,
-  // not poll — we never hit the REST endpoint on a timer. Dedupe events by id so
-  // replay + reconnect never double-renders.
-  //
-  // Reconnect on drop: a dev backend restart (or any network blip) closes the
-  // socket, and without this the chat silently freezes until a manual refresh.
-  // The backend re-replays the full log and re-seeds status on each connect, so
-  // reconnecting self-heals any state missed while disconnected.
   useEffect(() => {
-    if (!exists) return; // don't open a socket until the conversation is known to exist
+    if (!exists) return; 
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let unmounted = false;
@@ -155,8 +149,6 @@ export default function ChatPage({
     setPanelOpen(true);
   }
 
-  // Newest action with no observation yet — only the approval target while
-  // status is waiting (see call site); mid-run it's the executing action.
   const lastUnresolvedAction = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
@@ -171,15 +163,55 @@ export default function ChatPage({
     return undefined;
   }, [events, observationByCall]);
 
+  // The agent's last `ask_user` that the user hasn't replied to yet.
+  const pendingQuestion = useMemo(() => {
+    let candidate: AgentEvent | undefined;
+    for (const e of events) {
+      if (e.kind === "action" && e.tool_name === "ask_user") candidate = e;
+      else if (e.kind === "message" && e.role === "user") candidate = undefined;
+    }
+    return candidate;
+  }, [events]);
+
+  const showQuestion =
+    !!pendingQuestion &&
+    pendingQuestion.id !== dismissedQuestionId &&
+    status !== "running";
+
+  // The agent's last presented plan that the user hasn't responded to yet.
+  const pendingPlan = useMemo(() => {
+    let candidate: AgentEvent | undefined;
+    for (const e of events) {
+      if (e.kind === "action" && e.tool_name === "present_plan") candidate = e;
+      else if (e.kind === "message" && e.role === "user") candidate = undefined;
+    }
+    return candidate;
+  }, [events]);
+
+  const showBuild = !!pendingPlan && status !== "running";
+
+  async function sendAnswer(text: string) {
+    if (busy) return;
+    setStatus("running");
+    try {
+      await api.sendMessage(id, text, model);
+    } catch {
+      setStatus("idle");
+    }
+  }
+
   async function send(message: PromptInputMessage) {
     const text = message.text.trim();
     if (!text || busy) return;
     setInput("");
-    setStatus("running"); // optimistic; the socket confirms and later settles it
+    setStatus("running");
+    const wasPlanMode = planMode;
+    setPlanMode(false);
     try {
-      await api.sendMessage(id, text, model);
+      await api.sendMessage(id, text, model, wasPlanMode);
     } catch {
       setInput(text);
+      setPlanMode(wasPlanMode);
       setStatus("idle");
     }
   }
@@ -195,13 +227,18 @@ export default function ChatPage({
     );
   }
 
-  console.log("status", status);
-
   return (
     <div className="flex h-full min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b bg-background px-4">
-          <SidebarTrigger />
+          <div className="flex min-w-0 items-center gap-2">
+            <SidebarTrigger />
+            {conversation?.repo && (
+              <span className="truncate text-sm font-medium">
+                {conversation.repo}
+              </span>
+            )}
+          </div>
           {!panelOpen && (
             <button
               type="button"
@@ -212,6 +249,17 @@ export default function ChatPage({
               <HugeiconsIcon icon={PanelRightIcon} className="size-4" />
             </button>
           )}
+
+          {panelOpen && (
+            <button
+            type="button"
+            onClick={() => setPanelOpen(false)}
+            aria-label="Hide files panel"
+            className="rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          >
+            <HugeiconsIcon icon={PanelRightIcon} className="size-4" />
+          </button>
+          )}
         </header>
         <div className="mx-auto flex w-full min-h-0 max-w-3xl flex-1 flex-col px-4 py-2">
           <Conversation>
@@ -221,6 +269,9 @@ export default function ChatPage({
                 observationByCall={observationByCall}
                 status={status}
                 pendingId={waiting ? lastUnresolvedAction?.id : undefined}
+                pendingQuestionId={showQuestion ? pendingQuestion?.id : undefined}
+                pendingPlanId={showBuild ? pendingPlan?.id : undefined}
+                onBuild={() => sendAnswer("Go ahead and implement the plan.")}
                 onApprove={() => {
                   setStatus("running");
                   api.confirm(id, true).catch(() => {});
@@ -236,13 +287,32 @@ export default function ChatPage({
             <ConversationScrollButton />
           </Conversation>
 
+          {showQuestion && pendingQuestion && (
+            <div className="mt-3">
+              <QuestionCard
+                key={pendingQuestion.id}
+                questions={
+                  (pendingQuestion.arguments?.questions as Question[]) ?? []
+                }
+                onSubmit={sendAnswer}
+                onDismiss={() => setDismissedQuestionId(pendingQuestion.id)}
+              />
+            </div>
+          )}
+
           <PromptInput onSubmit={send} className="mt-3">
         <PromptInputBody>
           <PromptInputTextarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              waiting ? "Approve or reject the action above…" : "Send a message…"
+              waiting
+                ? "Approve or reject the action above…"
+                : showQuestion
+                  ? "Or reply directly…"
+                  : planMode
+                    ? "Describe what to plan…"
+                    : "Send a message…"
             }
             disabled={busy}
           />
@@ -287,6 +357,16 @@ export default function ChatPage({
                 </ModelSelectorList>
               </ModelSelectorContent>
             </ModelSelector>
+            <PromptInputButton
+              variant={planMode ? "default" : "ghost"}
+              onClick={() => setPlanMode((on) => !on)}
+              aria-pressed={planMode}
+              disabled={waiting}
+              title="Plan first: explore and propose a plan before making changes"
+            >
+              <ClipboardListIcon className="size-4" />
+              Plan
+            </PromptInputButton>
           </PromptInputTools>
           <PromptInputSubmit
             status={status === "error" ? "error" : busy ? "submitted" : undefined}

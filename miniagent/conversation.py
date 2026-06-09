@@ -48,8 +48,17 @@ class Conversation:
         self.confirm_policy = confirm_policy or ConfirmPolicy()
         self.events: list[Event] = []
         self.status = Status.IDLE
+        # When set, the agent plans (read-only) and pauses via `present_plan`
+        # instead of implementing. Sticky: it stays on across clarifying
+        # `ask_user` rounds and only clears once a plan is presented, so the
+        # whole planning conversation runs in plan mode.
+        self.plan_mode = False
 
-    def send_message(self, text: str) -> None:
+    def send_message(self, text: str, plan_mode: bool = False) -> None:
+        # Only ever turn it on here; `present_plan` clears it. A plain reply
+        # (e.g. answering a clarifying question) keeps the existing mode.
+        if plan_mode:
+            self.plan_mode = True
         self.add_event(MessageEvent(role="user", text=text))
 
     def add_event(self, event: Event) -> None:
