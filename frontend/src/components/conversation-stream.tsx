@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { AgentEvent } from "@/lib/api";
+import type { AgentEvent, ConversationStatus } from "@/lib/api";
 import {
   type ActionEvent,
   type MessageEvent,
@@ -10,6 +10,7 @@ import {
   isObservation,
 } from "@/lib/events";
 import { type ToolView, toolView } from "@/lib/tool-views";
+import { formatDuration, formatElapsed, useElapsed } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import {
   Message,
@@ -80,10 +81,88 @@ function StepLabel({
   );
 }
 
+// Timing label for a step. Bash measures its own wall-clock (`duration_ms`);
+// other tools fall back to the gap between the action and its observation. While
+// a step is still running we tick a live elapsed counter, since no observation
+// has arrived to read a final duration from.
+function stepTiming(
+  action: ActionEvent,
+  obs: AgentEvent | undefined,
+  running: boolean,
+  elapsedMs: number,
+): string | undefined {
+  if (action.tool_name !== "bash") return undefined;
+  if (running) return `Running ${formatElapsed(elapsedMs)}`;
+  if (!obs) return undefined;
+  const ms =
+    obs.duration_ms != null
+      ? obs.duration_ms
+      : (obs.timestamp - action.timestamp) * 1000;
+  return formatDuration(ms);
+}
+
+function ChainStep({
+  action,
+  obs,
+  isPending,
+  live,
+  onApprove,
+  onReject,
+  onSelectFile,
+}: {
+  action: ActionEvent;
+  obs?: AgentEvent;
+  isPending: boolean;
+  live: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+  onSelectFile?: (path: string) => void;
+}) {
+  const view = toolView(action);
+  // An action with no observation is only genuinely "running" while the
+  // conversation is still live; once it's idle/finished/errored, such an action
+  // was interrupted and must not keep spinning forever.
+  const unresolved = !obs && !isPending;
+  const running = unresolved && live;
+  const orphaned = unresolved && !live;
+  const elapsed = useElapsed(running ? action.timestamp * 1000 : null, running);
+  const timing = stepTiming(action, obs, running, elapsed);
+  const isError = obs?.error || orphaned;
+
+  return (
+    <ChainOfThoughtStep
+      icon={isError ? CircleAlertIcon : view.icon}
+      status={running || isPending ? "active" : "complete"}
+      label={
+        <StepLabel view={view} error={isError} onSelectFile={onSelectFile} />
+      }
+      description={orphaned ? "Interrupted" : timing}
+    >
+      {isPending && (
+        <div className="space-y-2">
+          <ApprovalDetail view={view} />
+          <div className="flex items-center justify-end gap-2">
+            <ConfirmationAction variant="outline" onClick={onReject}>
+              Reject
+            </ConfirmationAction>
+            <ConfirmationAction onClick={onApprove}>Approve</ConfirmationAction>
+          </div>
+        </div>
+      )}
+      {obs?.error && (
+        <p className="text-destructive text-xs">
+          {(obs.content ?? "").slice(0, 300)}
+        </p>
+      )}
+    </ChainOfThoughtStep>
+  );
+}
+
 function ActionChain({
   actions,
   observationByCall,
   pendingId,
+  live,
   onApprove,
   onReject,
   onSelectFile,
@@ -91,13 +170,16 @@ function ActionChain({
   actions: ActionEvent[];
   observationByCall: Map<string, AgentEvent>;
   pendingId?: string;
+  live: boolean;
   onApprove: () => void;
   onReject: () => void;
   onSelectFile?: (path: string) => void;
 }) {
   const obsFor = (a: ActionEvent) =>
     a.tool_call_id ? observationByCall.get(a.tool_call_id) : undefined;
-  const active = actions.some((a) => !obsFor(a));
+  // Only show the live "Working…" header while the conversation is actually
+  // running; a leftover unobserved action on a stopped chat isn't working.
+  const active = live && actions.some((a) => !obsFor(a));
 
   return (
     <ChainOfThought defaultOpen>
@@ -112,47 +194,33 @@ function ActionChain({
         )}
       </ChainOfThoughtHeader>
       <ChainOfThoughtContent>
-        {actions.map((a) => {
-          const obs = obsFor(a);
-          const view = toolView(a);
-          const isPending = pendingId != null && a.id === pendingId;
-          const running = !obs && !isPending;
-          return (
-            <ChainOfThoughtStep
-              key={a.id}
-              icon={obs?.error ? CircleAlertIcon : view.icon}
-              status={running || isPending ? "active" : "complete"}
-              label={
-                <StepLabel
-                  view={view}
-                  error={obs?.error}
-                  onSelectFile={onSelectFile}
-                />
-              }
-            >
-              {isPending && (
-                <div className="space-y-2">
-                  <ApprovalDetail view={view} />
-                  <div className="flex items-center justify-end gap-2">
-                    <ConfirmationAction variant="outline" onClick={onReject}>
-                      Reject
-                    </ConfirmationAction>
-                    <ConfirmationAction onClick={onApprove}>
-                      Approve
-                    </ConfirmationAction>
-                  </div>
-                </div>
-              )}
-              {obs?.error && (
-                <p className="text-destructive text-xs">
-                  {(obs.content ?? "").slice(0, 300)}
-                </p>
-              )}
-            </ChainOfThoughtStep>
-          );
-        })}
+        {actions.map((a) => (
+          <ChainStep
+            key={a.id}
+            action={a}
+            obs={obsFor(a)}
+            isPending={pendingId != null && a.id === pendingId}
+            live={live}
+            onApprove={onApprove}
+            onReject={onReject}
+            onSelectFile={onSelectFile}
+          />
+        ))}
       </ChainOfThoughtContent>
     </ChainOfThought>
+  );
+}
+
+// Standalone pulse shown while the agent is running but isn't mid-tool-call.
+// The action chain renders its own "Working…" header, so this only fills the
+// gaps: right after the user sends (before the first event), and between an
+// assistant message / finished chain and the next step.
+export function ThinkingIndicator({ label = "Working…" }: { label?: string }) {
+  return (
+    <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
+      <DotmSquare1 size={14} dotSize={2} muted />
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -216,6 +284,7 @@ function groupEvents(events: AgentEvent[]): Group[] {
 export type ConversationTimelineProps = {
   events: AgentEvent[];
   observationByCall: Map<string, AgentEvent>;
+  status: ConversationStatus;
   pendingId?: string;
   onApprove: () => void;
   onReject: () => void;
@@ -225,12 +294,26 @@ export type ConversationTimelineProps = {
 export function ConversationTimeline({
   events,
   observationByCall,
+  status,
   pendingId,
   onApprove,
   onReject,
   onSelectFile,
 }: ConversationTimelineProps) {
   const groups = useMemo(() => groupEvents(events), [events]);
+  const live = status === "running" || status === "waiting_for_confirmation";
+
+  // The trailing tool chain already shows its own animated header while it has
+  // an unresolved action, so suppress the standalone pulse in that case to avoid
+  // two spinners. Otherwise, show the pulse whenever the agent is running.
+  const lastGroup = groups[groups.length - 1];
+  const trailingChainActive =
+    lastGroup?.kind === "actions" &&
+    lastGroup.actions.some(
+      (a) => !(a.tool_call_id && observationByCall.has(a.tool_call_id)),
+    );
+  const thinking =
+    status === "running" && groups.length > 0 && !trailingChainActive;
 
   return (
     <>
@@ -242,6 +325,7 @@ export function ConversationTimeline({
               actions={group.actions}
               observationByCall={observationByCall}
               pendingId={pendingId}
+              live={live}
               onApprove={onApprove}
               onReject={onReject}
               onSelectFile={onSelectFile}
@@ -257,6 +341,7 @@ export function ConversationTimeline({
         }
         return <MessageRow key={group.event.id} ev={group.event} />;
       })}
+      {thinking && <ThinkingIndicator />}
     </>
   );
 }

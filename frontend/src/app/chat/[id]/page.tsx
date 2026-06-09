@@ -8,7 +8,10 @@ import {
   type ChangedFile,
   type ConversationStatus,
 } from "@/lib/api";
-import { ConversationTimeline } from "@/components/conversation-stream";
+import {
+  ConversationTimeline,
+  ThinkingIndicator,
+} from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { PanelRightIcon } from "@hugeicons/core-free-icons";
@@ -72,20 +75,41 @@ export default function ChatPage({
   // events plus `status` updates (running / waiting / finished). Status is push,
   // not poll — we never hit the REST endpoint on a timer. Dedupe events by id so
   // replay + reconnect never double-renders.
+  //
+  // Reconnect on drop: a dev backend restart (or any network blip) closes the
+  // socket, and without this the chat silently freezes until a manual refresh.
+  // The backend re-replays the full log and re-seeds status on each connect, so
+  // reconnecting self-heals any state missed while disconnected.
   useEffect(() => {
-    const ws = new WebSocket(api.wsUrl(id));
-    ws.onmessage = (msg) => {
-      const data = JSON.parse(msg.data);
-      if (data.kind === "status") {
-        setStatus(data.status as ConversationStatus);
-        return;
-      }
-      const ev = data as AgentEvent;
-      setEvents((prev) =>
-        prev.some((e) => e.id === ev.id) ? prev : [...prev, ev],
-      );
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let unmounted = false;
+
+    function connect() {
+      ws = new WebSocket(api.wsUrl(id));
+      ws.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+        if (data.kind === "status") {
+          setStatus(data.status as ConversationStatus);
+          return;
+        }
+        const ev = data as AgentEvent;
+        setEvents((prev) =>
+          prev.some((e) => e.id === ev.id) ? prev : [...prev, ev],
+        );
+      };
+      ws.onclose = () => {
+        if (unmounted) return;
+        reconnectTimer = setTimeout(connect, 1000);
+      };
+    }
+    connect();
+
+    return () => {
+      unmounted = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws?.close();
     };
-    return () => ws.close();
   }, [id]);
 
   const busy = BUSY.has(status);
@@ -158,15 +182,16 @@ export default function ChatPage({
         </header>
         <div className="mx-auto flex w-full min-h-0 max-w-3xl flex-1 flex-col px-4 py-2">
           <Conversation>
-            <ConversationContent className="space-y-2 px-0 py-0">
+            <ConversationContent className="space-y-6 px-0 py-0">
               {events.length === 0 && (
-                <p className="text-muted-foreground py-8 text-center text-sm">
-                  Preparing workspace…
-                </p>
+                <div className="flex justify-center py-8">
+                  <ThinkingIndicator label="Preparing workspace…" />
+                </div>
               )}
               <ConversationTimeline
                 events={events}
                 observationByCall={observationByCall}
+                status={status}
                 pendingId={waiting ? lastUnresolvedAction?.id : undefined}
                 onApprove={() => {
                   setStatus("running");

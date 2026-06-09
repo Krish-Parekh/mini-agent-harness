@@ -72,4 +72,6 @@ class ConversationInfo(BaseModel):
     repo: str | None = None
     branch: str | None = None
     title: str | None = None
+    created_at: datetime | None = None
+    run_started_at: datetime | None = None
     updated_at: datetime | None = None

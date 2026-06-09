@@ -67,6 +67,9 @@ class ObservationEvent(Event):
     tool_call_id: str
     content: str
     error: bool = False
+    # Wall-clock the tool took to run, when the tool measures it (e.g. bash).
+    # Surfaced structurally so the UI can show timing without parsing `content`.
+    duration_ms: int | None = None
 
     def to_chat_message(self) -> dict:
         return {

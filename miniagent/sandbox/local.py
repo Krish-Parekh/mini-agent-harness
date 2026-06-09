@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import time
 
 from miniagent.sandbox.base import Sandbox, CommandResult
 
@@ -18,6 +19,7 @@ class LocalSandbox(Sandbox):
         return Path(self.workspace_dir).joinpath(p)
 
     def run_command(self, command: str, timeout: int = 30) -> CommandResult:
+        start = time.perf_counter()
         try:
             process = subprocess.run(
                 command,
@@ -31,12 +33,14 @@ class LocalSandbox(Sandbox):
                 stdout=process.stdout,
                 stderr=process.stderr,
                 exit_code=process.returncode,
+                duration_ms=round((time.perf_counter() - start) * 1000),
             )
         except subprocess.TimeoutExpired:
             return CommandResult(
                 stdout="",
                 stderr="Command timed out",
                 exit_code=1,
+                duration_ms=round((time.perf_counter() - start) * 1000),
             )
 
     def write_file(self, path: str, content: str) -> None:

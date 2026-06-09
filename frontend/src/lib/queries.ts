@@ -129,11 +129,15 @@ export function useStartChat() {
   const router = useRouter();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (repo: Repo) =>
-      api.createConversation({
-        repo: repo.full_name,
-        branch: repo.default_branch,
-      }),
+    // Accepts a full Repo (home/repo picker) or a bare repo+branch pair (the
+    // sidebar's "new chat in the same repo", which only has those two fields).
+    mutationFn: (source: Repo | { repo: string; branch: string | null }) => {
+      const body =
+        "full_name" in source
+          ? { repo: source.full_name, branch: source.default_branch }
+          : { repo: source.repo, branch: source.branch };
+      return api.createConversation(body);
+    },
     onSuccess: (conversation) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       router.push(`/chat/${conversation.id}`);

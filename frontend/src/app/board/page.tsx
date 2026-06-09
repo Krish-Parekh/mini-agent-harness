@@ -19,6 +19,7 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 import { type ConversationInfo, type Lane } from "@/lib/api";
+import { formatElapsed, relativeTime, useElapsed } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { useConversations, useSetLane } from "@/lib/queries";
 
@@ -32,22 +33,15 @@ function cardLabel(c: ConversationInfo): string {
   return c.title ?? `Chat ${c.id.slice(0, 6)}`;
 }
 
-function relativeTime(iso: string | null): string {
-  if (!iso) return "";
-  const then = new Date(iso).getTime();
-  const secs = Math.round((Date.now() - then) / 1000);
-  if (secs < 60) return "just now";
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
-
 function BoardCard({ c }: { c: ConversationInfo }) {
   const setLane = useSetLane();
   const running = c.status === "running" || c.status === "waiting_for_confirmation";
   const repoName = c.repo?.split("/").pop();
+
+  // While a run is live, tick elapsed from the server-stamped start so it stays
+  // correct across refreshes; idle cards just show how long ago they last moved.
+  const runStart = running && c.run_started_at ? new Date(c.run_started_at).getTime() : null;
+  const runElapsed = useElapsed(runStart, runStart != null);
 
   return (
     <div className="group relative rounded-lg border bg-card p-3 shadow-xs transition-colors hover:border-foreground/20">
@@ -62,9 +56,20 @@ function BoardCard({ c }: { c: ConversationInfo }) {
               <span className="truncate">{repoName}</span>
             </span>
           )}
-          {running && <Spinner className="size-3" />}
-          <span className="ml-auto shrink-0">{relativeTime(c.updated_at)}</span>
+          <span className="ml-auto shrink-0 tabular-nums">
+            {runStart != null ? (
+              <span className="flex items-center gap-1 text-foreground">
+                <Spinner className="size-3" />
+                {formatElapsed(runElapsed)}
+              </span>
+            ) : (
+              relativeTime(c.updated_at)
+            )}
+          </span>
         </div>
+        <p className="mt-1 text-[11px] text-muted-foreground/70">
+          Created {relativeTime(c.created_at)}
+        </p>
       </Link>
 
       <DropdownMenu>

@@ -31,6 +31,8 @@ export type ConversationInfo = {
   repo: string | null;
   branch: string | null;
   title: string | null;
+  created_at: string | null;
+  run_started_at: string | null;
   updated_at: string | null;
 };
 
@@ -48,6 +50,7 @@ export type AgentEvent = {
   tool_call_id?: string;
   content?: string;
   error?: boolean;
+  duration_ms?: number | null;
   // error
   message?: string;
 };
@@ -99,7 +102,7 @@ export const api = {
       body: JSON.stringify({ repo }),
     }).then((r) => json<Repo>(r)),
 
-  createConversation: (body: { repo: string; branch: string }) =>
+  createConversation: (body: { repo: string; branch?: string | null }) =>
     fetch(`${API}/conversations`, {
       method: "POST",
       headers: jsonHeaders,

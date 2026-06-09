@@ -11,6 +11,7 @@ class CommandResult(BaseModel):
     stdout: str
     stderr: str
     exit_code: int
+    duration_ms: int = 0
 
 
 class Sandbox(ABC):

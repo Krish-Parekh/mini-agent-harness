@@ -107,4 +107,11 @@ class Conversation:
                 return
             if self.status != Status.RUNNING:
                 return
-        self.status = Status.IDLE
+        # Exhausted the loop while still running — surface it instead of going
+        # quietly idle, which looks indistinguishable from a clean finish.
+        self.add_event(
+            ErrorEvent(
+                message=f"reached max iterations ({self.max_iterations}) without finishing"
+            )
+        )
+        self.status = Status.ERROR

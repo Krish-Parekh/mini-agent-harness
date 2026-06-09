@@ -22,6 +22,9 @@ class ConversationRow(Base):
     lane: Mapped[str] = mapped_column(Text, server_default="todo")
     title: Mapped[str | None] = mapped_column(Text)
     workspace_dir: Mapped[str | None] = mapped_column(Text)
+    # When the current run began; NULL while idle. Drives the board's live
+    # "Running 1m 02s" so the elapsed survives a page refresh.
+    run_started_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()

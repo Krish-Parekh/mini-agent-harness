@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from pydantic import ValidationError
@@ -104,7 +105,43 @@ class Agent:
 
     def _build_messages(self, conversation: Conversation) -> list[dict]:
         messages: list[dict] = [{"role": "system", "content": self.system_prompt}]
+        pending: dict | None = None  # assistant turn being assembled
+
+        def flush() -> None:
+            nonlocal pending
+            if pending is not None:
+                messages.append(pending)
+                pending = None
+
         for event in conversation.events:
+            # An assistant turn's text and its tool calls arrive as separate
+            # events, but the LLM expects ONE assistant message carrying both
+            # `content` and `tool_calls`, with parallel calls sharing that single
+            # message. Emitting them as separate assistant messages produces a
+            # malformed history that the next completion rejects, so coalesce here.
+            if isinstance(event, MessageEvent) and event.role == "assistant":
+                if pending is None:
+                    pending = {"role": "assistant", "content": None}
+                pending["content"] = clip(event.text, _MAX_MESSAGE_CHARS)
+                continue
+            if isinstance(event, ActionEvent):
+                if pending is None:
+                    pending = {"role": "assistant", "content": None}
+                pending.setdefault("tool_calls", []).append(
+                    {
+                        "id": event.tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": event.tool_name,
+                            "arguments": json.dumps(event.arguments),
+                        },
+                    }
+                )
+                continue
+
+            # Any other event ends the assistant turn; flush it first so order is
+            # preserved (assistant turn, then its tool observations).
+            flush()
             message = event.to_chat_message()
             if message is None:
                 continue
@@ -115,6 +152,8 @@ class Agent:
             if isinstance(content, str):
                 message = {**message, "content": clip(content, _MAX_MESSAGE_CHARS)}
             messages.append(message)
+
+        flush()
         return messages
 
     def _handle_tool_call(
@@ -165,6 +204,7 @@ class Agent:
             call,
             observation.to_llm_text(),
             getattr(observation, "error", False),
+            getattr(observation, "duration_ms", None),
         )
 
         if call.name == "finish":
@@ -174,7 +214,11 @@ class Agent:
 
     @staticmethod
     def _observe(
-        conversation: Conversation, call: ToolCall, content: str, error: bool
+        conversation: Conversation,
+        call: ToolCall,
+        content: str,
+        error: bool,
+        duration_ms: int | None = None,
     ) -> None:
         conversation.add_event(
             ObservationEvent(
@@ -182,5 +226,6 @@ class Agent:
                 tool_call_id=call.id,
                 content=content,
                 error=error,
+                duration_ms=duration_ms,
             )
         )

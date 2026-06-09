@@ -14,6 +14,7 @@ class BashObservation(Observation):
     stdout: str
     stderr: str
     exit_code: int
+    duration_ms: int = 0
 
     def to_llm_text(self) -> str:
         parts = [f"exit_code: {self.exit_code}"]
@@ -36,4 +37,5 @@ class BashTool(Tool):
             stdout=result.stdout,
             stderr=result.stderr,
             exit_code=result.exit_code,
+            duration_ms=result.duration_ms,
         )

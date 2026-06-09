@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from functools import partial
-from typing import Callable
+from typing import Any, Callable
 
 from pydantic import TypeAdapter
+from sqlalchemy import func
 
 from backend.runtime.manager import ConversationManager, ManagedConversation
 from backend.repository import ConversationRepository
@@ -78,10 +79,19 @@ class ConversationService:
         )
 
     async def _persist_status(
-        self, managed: ManagedConversation, lane: str | None = None
+        self,
+        managed: ManagedConversation,
+        lane: str | None = None,
+        run_started: bool | None = None,
     ) -> None:
         if lane is not None:
             managed.lane = lane
+        # run_started: True stamps the run start, False clears it, None leaves it.
+        run_kwargs: dict[str, Any] = {}
+        if run_started is True:
+            run_kwargs["run_started_at"] = func.now()
+        elif run_started is False:
+            run_kwargs["run_started_at"] = None
         await self._repo.upsert_conversation(
             cid=managed.conversation.id,
             repo=managed.repo,
@@ -90,6 +100,7 @@ class ConversationService:
             title=managed.title,
             workspace_dir=managed.sandbox.workspace_dir,
             lane=lane,
+            **run_kwargs,
         )
 
     # --- use cases ---------------------------------------------------------
@@ -176,6 +187,8 @@ class ConversationService:
                 repo=row.repo,
                 branch=row.branch,
                 title=row.title,
+                created_at=row.created_at,
+                run_started_at=row.run_started_at,
                 updated_at=row.updated_at,
             )
             for row, count in summaries
@@ -219,25 +232,31 @@ class ConversationService:
 
     async def _run(self, managed: ManagedConversation, trigger) -> None:
         self._emit_status(managed, "running")
-        await self._persist_status(managed, lane="working")
+        await self._persist_status(managed, lane="working", run_started=True)
         async with managed.lock:
             await asyncio.to_thread(trigger)
         self._emit_status(managed)
-        await self._persist_status(managed, lane=self._settled_lane(managed))
+        await self._persist_status(
+            managed, lane=self._settled_lane(managed), run_started=False
+        )
 
     async def _start(
         self, managed: ManagedConversation, initial_message: str | None
     ) -> None:
         self._emit_status(managed, "running")
-        await self._persist_status(managed, lane="working")
+        await self._persist_status(managed, lane="working", run_started=True)
         async with managed.lock:
             await asyncio.to_thread(managed.bootstrap)
             if managed.conversation.status == Status.ERROR:
                 self._emit_status(managed)
-                await self._persist_status(managed, lane=self._settled_lane(managed))
+                await self._persist_status(
+                    managed, lane=self._settled_lane(managed), run_started=False
+                )
                 return
             if initial_message:
                 managed.conversation.send_message(initial_message)
                 await asyncio.to_thread(managed.conversation.run)
         self._emit_status(managed)
-        await self._persist_status(managed, lane=self._settled_lane(managed))
+        await self._persist_status(
+            managed, lane=self._settled_lane(managed), run_started=False
+        )

@@ -34,6 +34,15 @@ async def lifespan(app: FastAPI):
                 "ADD COLUMN IF NOT EXISTS lane TEXT NOT NULL DEFAULT 'review'"
             )
         )
+        # Live run-elapsed for the board; NULL means not currently running.
+        # Same naive TIMESTAMP type as created_at/updated_at so the frontend
+        # parses them all consistently.
+        await conn.execute(
+            text(
+                "ALTER TABLE conversations "
+                "ADD COLUMN IF NOT EXISTS run_started_at TIMESTAMP"
+            )
+        )
     sessionmaker = make_sessionmaker(engine)
 
     repository = ConversationRepository(sessionmaker)
