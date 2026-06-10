@@ -2,7 +2,20 @@
 
 This is the backend of the project. It contains the API and core logic for the application.
 
-## Structure
+## Folder Structure
+
+The backend folder structure is as follows:
+
+```
+backend/
+├── api/
+├── core/
+├── models/
+├── repository/
+├── runtime/
+├── schemas/
+└── service/
+```
 
 - **api/**: Contains the API endpoints.
 - **core/**: Core functionalities and business logic.
