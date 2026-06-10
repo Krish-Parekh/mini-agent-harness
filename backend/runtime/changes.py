@@ -7,9 +7,6 @@ from miniagent.sandbox.local import LocalSandbox
 
 _STATUS = {"A": "added", "M": "modified", "D": "deleted"}
 
-# Heavy or vendored directories that should never surface in the changes view,
-# even when the target repo neglects to .gitignore them. Excluded from every git
-# call below so we never intent-to-add or diff thousands of dependency files.
 _EXCLUDE_DIRS = ("node_modules", ".next", "dist", "build", ".venv", "__pycache__")
 _EXCLUDE = " ".join(
     shlex.quote(f":(exclude,glob)**/{d}/**") for d in _EXCLUDE_DIRS

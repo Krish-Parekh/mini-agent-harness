@@ -20,6 +20,31 @@ RISKY_PATTERNS = [
     r":\(\)\s*\{\s*:\|:&\s*\};:",        # fork bomb
 ]
 
+# Commands that modify the workspace without being "risky" — used to keep plan
+# mode read-only at the tool layer. Pure exploration (rg, cat, find, git
+# log/diff/status, sed -n) must NOT match.
+MUTATING_BASH_PATTERNS = [
+    r"(?<![\d&])>>?\s*(?!/dev/null)[\w./~'\"$]",  # write redirect (not 2>, >&, /dev/null)
+    r"\btee\b",
+    r"\b(rm|mv|cp|mkdir|touch|chmod|chown|ln)\b",
+    r"\bsed\b.*\s-i\b",                            # in-place sed
+    r"\bgit\s+(add|commit|push|pull|checkout|switch|restore|merge|rebase|stash|clean|cherry-pick|revert|reset|rm|mv)\b",
+    r"\b(npm|pnpm|yarn|pip3?|uv|poetry|cargo)\s+(install|add|remove|uninstall|update|upgrade)\b",
+]
+
+
+def blocked_in_plan_mode(action_event: ActionEvent) -> bool:
+    """Read-only enforcement while planning: block workspace mutations at the
+    tool layer instead of trusting the prompt. Lean heuristic — the plan-mode
+    directive covers whatever slips through."""
+    if action_event.tool_name == "file_edit":
+        return action_event.arguments.get("command") in ("create", "str_replace")
+    if action_event.tool_name == "bash":
+        command = action_event.arguments.get("command", "")
+        patterns = RISKY_PATTERNS + MUTATING_BASH_PATTERNS
+        return any(re.search(p, command, re.IGNORECASE) for p in patterns)
+    return False
+
 
 class ConfirmPolicy:
     def __init__(self, mode: ConfirmMode = "risky") -> None:

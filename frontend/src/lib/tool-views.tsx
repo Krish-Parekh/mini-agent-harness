@@ -5,15 +5,30 @@ import {
   FileIcon,
   FilePenIcon,
   FilePlusIcon,
+  ListChecksIcon,
   TerminalIcon,
 } from "lucide-react";
 import type { ActionEvent } from "@/lib/events";
+import { cn } from "@/lib/utils";
 
 export type FileChange = {
   path: string;
   oldContent: string;
   newContent: string;
+  kind: "file" | "snippet";
 };
+
+export function ScrollablePreview({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("max-h-64 overflow-y-auto", className)}>{children}</div>
+  );
+}
 
 export type ToolView = {
   icon: LucideIcon;
@@ -35,9 +50,11 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
       verb: "Bash",
       target: command,
       preview: (
-        <pre className="overflow-x-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-xs">
-          {command}
-        </pre>
+        <ScrollablePreview>
+          <pre className="overflow-x-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-xs">
+            {command}
+          </pre>
+        </ScrollablePreview>
       ),
     };
   },
@@ -52,7 +69,12 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
         verb: "Create",
         target: path,
         filePath: path,
-        fileChange: { path, oldContent: "", newContent: String(a.content ?? "") },
+        fileChange: {
+          path,
+          oldContent: "",
+          newContent: String(a.content ?? ""),
+          kind: "file",
+        },
       };
     }
     return {
@@ -64,10 +86,16 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
         path,
         oldContent: String(a.old_str ?? ""),
         newContent: String(a.new_str ?? ""),
+        kind: "snippet",
       },
     };
   },
   finish: () => ({ icon: CircleCheckIcon, verb: "Finished" }),
+  update_plan: (a) => ({
+    icon: ListChecksIcon,
+    verb: a.status === "done" ? "Step done" : "Step started",
+    target: `step ${a.step ?? "?"}`,
+  }),
 };
 
 export function toolView(ev: ActionEvent): ToolView {

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket
 
-from backend.api.deps import GitHubDep, ServiceDep, get_service
-from backend.runtime import changes
-from backend.runtime.manager import ManagedConversation
+from backend.api.deps import GitHubDep, ManagedDep, ServiceDep, get_service
+from backend.api.streaming import stream_conversation
 from backend.schemas import (
     ChangedFile,
     ConfirmRequest,
@@ -14,19 +13,10 @@ from backend.schemas import (
     FileDiff,
     LaneUpdate,
     SendMessageRequest,
-    StatusUpdate,
 )
-from backend.service import ConversationService
 from miniagent.conversation import Status
 
 router = APIRouter()
-
-
-async def _require(service: ConversationService, cid: str) -> ManagedConversation:
-    managed = await service.get_or_revive(cid)
-    if managed is None:
-        raise HTTPException(status_code=404, detail="conversation not found")
-    return managed
 
 
 @router.post("/conversations", response_model=ConversationInfo)
@@ -50,49 +40,39 @@ async def list_conversations(service: ServiceDep):
 
 
 @router.get("/conversations/{cid}", response_model=ConversationInfo)
-async def get_conversation(cid: str, service: ServiceDep):
-    return service.info(await _require(service, cid))
+async def get_conversation(managed: ManagedDep, service: ServiceDep):
+    return service.info(managed)
 
 
 @router.get("/conversations/{cid}/events")
-async def get_events(cid: str, service: ServiceDep):
-    managed = await _require(service, cid)
+async def get_events(managed: ManagedDep):
     return [event.model_dump() for event in managed.conversation.events]
 
 
 @router.get("/conversations/{cid}/changes", response_model=list[ChangedFile])
-async def get_changes(cid: str, service: ServiceDep):
-    managed = await _require(service, cid)
-    if managed.repo is None:
-        return []
-    return changes.list_changes(managed.sandbox)
+async def get_changes(managed: ManagedDep, service: ServiceDep):
+    return service.list_changes(managed)
 
 
 @router.get("/conversations/{cid}/changes/diff", response_model=FileDiff)
-async def get_file_diff(cid: str, path: str, service: ServiceDep):
-    managed = await _require(service, cid)
-    if managed.repo is None:
-        return FileDiff(path=path, patch="")
-    return changes.file_diff(managed.sandbox, path)
+async def get_file_diff(managed: ManagedDep, path: str, service: ServiceDep):
+    return service.file_diff(managed, path)
 
 
 @router.get("/conversations/{cid}/files", response_model=list[str])
-async def get_files(cid: str, service: ServiceDep):
-    managed = await _require(service, cid)
-    if managed.repo is None:
-        return []
-    return changes.list_files(managed.sandbox)
+async def get_files(managed: ManagedDep, service: ServiceDep):
+    return service.list_files(managed)
 
 
 @router.get("/conversations/{cid}/files/content", response_model=FileContent)
-async def get_file_content(cid: str, path: str, service: ServiceDep):
-    managed = await _require(service, cid)
-    return changes.file_content(managed.sandbox, path)
+async def get_file_content(managed: ManagedDep, path: str, service: ServiceDep):
+    return service.file_content(managed, path)
 
 
 @router.post("/conversations/{cid}/messages", response_model=ConversationInfo)
-async def send_message(cid: str, body: SendMessageRequest, service: ServiceDep):
-    managed = await _require(service, cid)
+async def send_message(
+    managed: ManagedDep, body: SendMessageRequest, service: ServiceDep
+):
     if managed.conversation.status == Status.WAITING_FOR_CONFIRMATION:
         raise HTTPException(
             status_code=409,
@@ -102,9 +82,21 @@ async def send_message(cid: str, body: SendMessageRequest, service: ServiceDep):
     return service.info(managed)
 
 
+@router.post("/conversations/{cid}/plan/approve", response_model=ConversationInfo)
+async def approve_plan(managed: ManagedDep, service: ServiceDep):
+    if managed.conversation.plan is None:
+        raise HTTPException(status_code=409, detail="no plan to approve")
+    if managed.conversation.status in (
+        Status.RUNNING,
+        Status.WAITING_FOR_CONFIRMATION,
+    ):
+        raise HTTPException(status_code=409, detail="conversation is busy")
+    await service.approve_plan(managed)
+    return service.info(managed)
+
+
 @router.post("/conversations/{cid}/confirm", response_model=ConversationInfo)
-async def confirm(cid: str, body: ConfirmRequest, service: ServiceDep):
-    managed = await _require(service, cid)
+async def confirm(managed: ManagedDep, body: ConfirmRequest, service: ServiceDep):
     if managed.conversation.status != Status.WAITING_FOR_CONFIRMATION:
         raise HTTPException(
             status_code=409, detail="conversation is not waiting for confirmation"
@@ -113,9 +105,23 @@ async def confirm(cid: str, body: ConfirmRequest, service: ServiceDep):
     return service.info(managed)
 
 
+@router.post("/conversations/{cid}/stop", response_model=ConversationInfo)
+async def stop_conversation(managed: ManagedDep, service: ServiceDep):
+    await service.stop(managed)
+    return service.info(managed)
+
+
+@router.post("/conversations/{cid}/pr", response_model=ConversationInfo)
+async def create_pr(managed: ManagedDep, service: ServiceDep, github: GitHubDep):
+    if managed.repo is None:
+        raise HTTPException(status_code=409, detail="conversation has no repository")
+    if github.token is None:
+        raise HTTPException(status_code=401, detail="GitHub is not connected")
+    return await service.create_pr(managed, github.token)
+
+
 @router.patch("/conversations/{cid}/lane", response_model=ConversationInfo)
-async def update_lane(cid: str, body: LaneUpdate, service: ServiceDep):
-    managed = await _require(service, cid)
+async def update_lane(managed: ManagedDep, body: LaneUpdate, service: ServiceDep):
     await service.set_lane(managed, body.lane)
     return service.info(managed)
 
@@ -134,26 +140,4 @@ async def conversation_ws(websocket: WebSocket, cid: str):
     if managed is None:
         await websocket.close(code=4404)
         return
-
-    # Subscribe before snapshotting so no event slips through the gap; dedupe the
-    # overlap by id when streaming the live tail.
-    queue = managed.broker.subscribe()
-    await websocket.accept()
-    try:
-        replayed: set[str] = set()
-        for event in list(managed.conversation.events):
-            replayed.add(event.id)
-            await websocket.send_text(event.model_dump_json())
-        # Seed current status so the client starts correct without polling.
-        await websocket.send_text(
-            StatusUpdate(status=managed.conversation.status.value).model_dump_json()
-        )
-        while True:
-            event = await queue.get()
-            if event.id in replayed:
-                continue
-            await websocket.send_text(event.model_dump_json())
-    except WebSocketDisconnect:
-        pass
-    finally:
-        managed.broker.unsubscribe(queue)
+    await stream_conversation(websocket, managed)

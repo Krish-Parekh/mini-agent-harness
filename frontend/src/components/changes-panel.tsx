@@ -7,6 +7,7 @@ import { api, type ChangedFile } from "@/lib/api";
 import { langForPath } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
 import { DiffViewer } from "@/components/assistant-ui/diff-viewer";
 import { CodeBlock } from "@/components/ai-elements/code-block";
 import {
@@ -24,8 +25,14 @@ import {
 type Tab = "all" | "changes";
 
 const MIN_WIDTH = 320;
-const DEFAULT_WIDTH = 384; 
+const DEFAULT_WIDTH = 384;
 const WIDTH_KEY = "changesPanelWidth";
+
+const PR_TONE = {
+  synced: { bar: "border-emerald-900/40 bg-[#1b2b1e]", text: "text-emerald-400", badge: "border-emerald-500/35" },
+  pending: { bar: "border-amber-900/40 bg-[#2a2310]", text: "text-amber-400", badge: "border-amber-500/35" },
+  syncing: { bar: "border-sky-900/40 bg-[#15212e]", text: "text-sky-400", badge: "border-sky-500/35" },
+} as const;
 
 type TreeNode = { name: string; path: string; dir: boolean; children: TreeNode[] };
 
@@ -243,19 +250,53 @@ function FileRow({
 export function ChangesPanel({
   conversationId,
   changes,
+  prNumber,
+  prUrl,
+  running,
   selectedPath,
   onSelectPath,
   onClose,
+  onSynced,
 }: {
   conversationId: string;
   changes: ChangedFile[];
+  prNumber: number | null;
+  prUrl: string | null;
+  running: boolean;
   selectedPath: string | null;
   onSelectPath: (path: string | null) => void;
   onClose: () => void;
+  onSynced?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("changes");
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [allFiles, setAllFiles] = useState<string[] | null>(null);
+  // The PR from a just-completed create; otherwise fall back to props. Derived
+  // (not synced via effect) so a fresh prop value flows through immediately.
+  const [createdPr, setCreatedPr] = useState<{ number: number; url: string } | null>(
+    null,
+  );
+  const [creatingPr, setCreatingPr] = useState(false);
+  const [prError, setPrError] = useState(false);
+  const pr =
+    createdPr ?? (prNumber != null && prUrl ? { number: prNumber, url: prUrl } : null);
+
+  // Create the PR the first time, or push new commits to it afterwards — the
+  // backend pushes the branch either way, which refreshes an existing PR.
+  const syncPr = useCallback(async () => {
+    setCreatingPr(true);
+    setPrError(false);
+    try {
+      const info = await api.createPr(conversationId);
+      if (info.pr_number != null && info.pr_url)
+        setCreatedPr({ number: info.pr_number, url: info.pr_url });
+      onSynced?.();
+    } catch {
+      setPrError(true);
+    } finally {
+      setCreatingPr(false);
+    }
+  }, [conversationId, onSynced]);
 
   const widthRef = useRef(DEFAULT_WIDTH);
   const dragging = useRef(false);
@@ -333,23 +374,77 @@ export function ChangesPanel({
         onPointerDown={onHandleDown}
         className="absolute top-0 left-0 z-10 h-full w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-primary/30 active:bg-primary/40"
       />
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-emerald-900/40 bg-[#1b2b1e] px-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="shrink-0 rounded-md border border-emerald-500/35 px-2 py-0.5 text-xs font-medium text-emerald-400">
-            PR #126
-          </span>
-          <div className="flex min-w-0 items-center gap-1.5 text-emerald-400">
-            <HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
-            <span className="truncate text-sm">Ready for review</span>
-          </div>
-        </div>
-        <button
-          type="button"
-          className="shrink-0 rounded-md bg-black/45 px-3 py-1 text-sm text-white transition-colors hover:bg-black/60"
-        >
-          Create PR
-        </button>
-      </div>
+      {(pr !== null || changes.length > 0) &&
+        (() => {
+          const tone = creatingPr
+            ? PR_TONE.syncing
+            : changes.length > 0
+              ? PR_TONE.pending
+              : PR_TONE.synced;
+          return (
+            <div
+              className={cn(
+                "flex h-14 shrink-0 items-center justify-between gap-3 border-b px-3 transition-colors",
+                tone.bar,
+              )}
+            >
+              {pr !== null ? (
+                <a
+                  href={pr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn(
+                    "flex min-w-0 items-center gap-3 hover:underline",
+                    tone.text,
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-md border px-2 py-0.5 text-xs font-medium",
+                      tone.badge,
+                    )}
+                  >
+                    PR #{pr.number}
+                  </span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
+                    <span className="truncate text-sm">
+                      {changes.length > 0 ? "Changes to push" : "View on GitHub"}
+                    </span>
+                  </span>
+                </a>
+              ) : (
+                <div className={cn("flex min-w-0 items-center gap-1.5", tone.text)}>
+                  <HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
+                  <span className="truncate text-sm">
+                    {prError
+                      ? "Couldn't sync PR — try again"
+                      : `${changes.length} file${changes.length === 1 ? "" : "s"} changed`}
+                  </span>
+                </div>
+              )}
+              {changes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={syncPr}
+                  disabled={running || creatingPr}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-1 text-sm text-background transition-colors hover:bg-foreground/85 disabled:opacity-50"
+                >
+                  {creatingPr && <Spinner className="size-3.5" />}
+                  {creatingPr
+                    ? pr !== null
+                      ? "Updating…"
+                      : "Creating…"
+                    : running
+                      ? "Working…"
+                      : pr !== null
+                        ? "Update PR"
+                        : "Create PR"}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
       <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
         <div className="flex items-center gap-1">

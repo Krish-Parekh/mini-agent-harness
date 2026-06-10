@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -28,6 +28,8 @@ class ConversationRepository:
         status: str,
         title: str | None,
         workspace_dir: str | None,
+        plan: dict[str, Any] | None,
+        implementing_plan: bool,
         event_id: str,
         seq: int,
         source: str,
@@ -44,6 +46,8 @@ class ConversationRepository:
                 status=status,
                 title=title,
                 workspace_dir=workspace_dir,
+                plan=plan,
+                implementing_plan=implementing_plan,
             )
             await sess.execute(
                 pg_insert(EventRow)
@@ -68,6 +72,8 @@ class ConversationRepository:
         status: str,
         title: str | None,
         workspace_dir: str | None,
+        plan: dict[str, Any] | None,
+        implementing_plan: bool,
         lane: str | None = None,
         run_started_at: Any = _UNSET,
     ) -> None:
@@ -80,6 +86,8 @@ class ConversationRepository:
                 status=status,
                 title=title,
                 workspace_dir=workspace_dir,
+                plan=plan,
+                implementing_plan=implementing_plan,
                 lane=lane,
                 run_started_at=run_started_at,
             )
@@ -95,6 +103,8 @@ class ConversationRepository:
         status: str,
         title: str | None,
         workspace_dir: str | None,
+        plan: dict[str, Any] | None,
+        implementing_plan: bool,
         lane: str | None = None,
         run_started_at: Any = _UNSET,
     ) -> None:
@@ -107,8 +117,16 @@ class ConversationRepository:
             status=status,
             title=title,
             workspace_dir=workspace_dir,
+            plan=plan,
+            implementing_plan=implementing_plan,
         )
-        set_: dict[str, Any] = dict(status=status, title=title, updated_at=func.now())
+        set_: dict[str, Any] = dict(
+            status=status,
+            title=title,
+            plan=plan,
+            implementing_plan=implementing_plan,
+            updated_at=func.now(),
+        )
         if lane is not None:
             values["lane"] = lane
             set_["lane"] = lane
@@ -127,6 +145,27 @@ class ConversationRepository:
     async def get(self, cid: str) -> ConversationRow | None:
         async with self._sessionmaker() as sess:
             return await sess.get(ConversationRow, cid)
+
+    async def set_pr(self, cid: str, pr_number: int, pr_url: str) -> None:
+        async with self._sessionmaker() as sess:
+            await sess.execute(
+                update(ConversationRow)
+                .where(ConversationRow.id == cid)
+                .values(pr_number=pr_number, pr_url=pr_url, updated_at=func.now())
+            )
+            await sess.commit()
+
+    async def delete_events(self, cid: str, event_ids: list[str]) -> None:
+        if not event_ids:
+            return
+        async with self._sessionmaker() as sess:
+            await sess.execute(
+                delete(EventRow).where(
+                    EventRow.conversation_id == cid,
+                    EventRow.id.in_(event_ids),
+                )
+            )
+            await sess.commit()
 
     async def list_events(self, cid: str) -> list[EventRow]:
         async with self._sessionmaker() as sess:

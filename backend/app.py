@@ -43,6 +43,21 @@ async def lifespan(app: FastAPI):
                 "ADD COLUMN IF NOT EXISTS run_started_at TIMESTAMP"
             )
         )
+        await conn.execute(
+            text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS plan JSONB")
+        )
+        await conn.execute(
+            text(
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "
+                "implementing_plan BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        )
+        await conn.execute(
+            text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS pr_number INTEGER")
+        )
+        await conn.execute(
+            text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS pr_url TEXT")
+        )
     sessionmaker = make_sessionmaker(engine)
 
     repository = ConversationRepository(sessionmaker)

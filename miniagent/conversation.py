@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import threading
 import uuid
 from typing import TYPE_CHECKING, Callable
 
@@ -16,6 +17,7 @@ from miniagent.events import (
 if TYPE_CHECKING:
     from miniagent.agent import Agent
     from miniagent.sandbox.base import Sandbox
+    from miniagent.tools.plan import Plan
 
 
 class Status(str, enum.Enum):
@@ -48,15 +50,21 @@ class Conversation:
         self.confirm_policy = confirm_policy or ConfirmPolicy()
         self.events: list[Event] = []
         self.status = Status.IDLE
+        # Set from another thread to ask the run loop to stop cooperatively; the
+        # loop checks it between iterations. Cleared at the start of each run().
+        self.cancel_event = threading.Event()
         # When set, the agent plans (read-only) and pauses via `present_plan`
         # instead of implementing. Sticky: it stays on across clarifying
-        # `ask_user` rounds and only clears once a plan is presented, so the
-        # whole planning conversation runs in plan mode.
+        # `ask_user` rounds and plan refinements, and only clears when the
+        # user approves the plan, so the whole planning conversation —
+        # including feedback after a presented plan — runs in plan mode.
         self.plan_mode = False
+        self.plan: Plan | None = None
+        self.implementing_plan = False
 
     def send_message(self, text: str, plan_mode: bool = False) -> None:
-        # Only ever turn it on here; `present_plan` clears it. A plain reply
-        # (e.g. answering a clarifying question) keeps the existing mode.
+        # Only ever turn it on here; plan approval clears it. A plain reply
+        # (answering a question, refining the plan) keeps the existing mode.
         if plan_mode:
             self.plan_mode = True
         self.add_event(MessageEvent(role="user", text=text))
@@ -70,6 +78,9 @@ class Conversation:
 
     def set_idle(self) -> None:
         self.status = Status.IDLE
+
+    def set_error(self) -> None:
+        self.status = Status.ERROR
 
     def needs_confirmation(self, action_event: ActionEvent) -> bool:
         return self.confirm_policy.needs_confirmation(action_event)
@@ -105,9 +116,19 @@ class Conversation:
             )
         self.run()
 
+    def request_cancel(self) -> None:
+        """Ask the in-flight run loop to stop after its current step."""
+        self.cancel_event.set()
+
     def run(self) -> None:
+        self.cancel_event.clear()
         self.status = Status.RUNNING
         for _ in range(self.max_iterations):
+            # Cooperative stop: a step runs to completion (the current LLM call
+            # or tool can't be interrupted), then we bail before the next one.
+            if self.cancel_event.is_set():
+                self.status = Status.IDLE
+                return
             try:
                 self.agent.step(self, self.sandbox)
             except Exception as exc:

@@ -19,7 +19,7 @@ from miniagent.tools.base import ToolRegistry
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.ask import AskUserTool
-from miniagent.tools.plan import PresentPlanTool
+from miniagent.tools.plan import Plan, PresentPlanTool, UpdatePlanTool
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
 
@@ -32,7 +32,7 @@ _TITLE_SYSTEM = (
 )
 
 
-def _build_agent(settings: Settings) -> Agent:
+def _build_agent(settings: Settings, repo: str | None, branch: str | None) -> Agent:
     llm = LLM(
         model=settings.model,
         temperature=settings.temperature,
@@ -44,10 +44,11 @@ def _build_agent(settings: Settings) -> Agent:
             FileEditTool(),
             FinishTool(),
             PresentPlanTool(),
+            UpdatePlanTool(),
             AskUserTool(),
         ]
     )
-    return Agent(llm=llm, tools=tools)
+    return Agent(llm=llm, tools=tools, repo=repo, branch=branch)
 
 
 class EventBroker:
@@ -95,6 +96,8 @@ class ManagedConversation:
         self.title: str | None = None
         self._ai_titled = False
         self.lane: str = "todo"
+        self.pr_number: int | None = None
+        self.pr_url: str | None = None
         self._seq = 0
         self.lock = asyncio.Lock()
         self.persist_hook: PersistHook = lambda *_: None
@@ -217,13 +220,21 @@ class ConversationManager:
         title: str | None,
         lane: str,
         events: list[Event],
+        plan: dict | None = None,
+        implementing_plan: bool = False,
+        pr_number: int | None = None,
+        pr_url: str | None = None,
     ) -> ManagedConversation:
         ws = workspace_dir or self._settings.workspace_dir
         managed = self._build(cid, ws, "risky", repo, branch, None)
         managed.conversation.events = events
+        managed.conversation.plan = Plan.model_validate(plan) if plan else None
+        managed.conversation.implementing_plan = implementing_plan
         managed.title = title
         managed._ai_titled = managed.user_turns() >= AI_TITLE_AFTER_TURNS
         managed.lane = lane
+        managed.pr_number = pr_number
+        managed.pr_url = pr_url
         managed._seq = len(events)
         try:
             managed.conversation.status = Status(status)
@@ -243,7 +254,7 @@ class ConversationManager:
         loop = asyncio.get_running_loop()
         sandbox = LocalSandbox(workspace_dir)
         conversation = Conversation(
-            agent=_build_agent(self._settings),
+            agent=_build_agent(self._settings, repo, branch),
             sandbox=sandbox,
             confirm_policy=ConfirmPolicy(confirm_mode),
             id=cid,

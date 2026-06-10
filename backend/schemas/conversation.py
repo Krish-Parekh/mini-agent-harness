@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from miniagent.confirm import ConfirmMode
+from miniagent.tools.plan import Plan
 
 
 class CreateConversationRequest(BaseModel):
@@ -73,6 +74,10 @@ class ConversationInfo(BaseModel):
     repo: str | None = None
     branch: str | None = None
     title: str | None = None
+    plan: Plan | None = None
+    implementing_plan: bool = False
+    pr_number: int | None = None
+    pr_url: str | None = None
     created_at: datetime | None = None
     run_started_at: datetime | None = None
     updated_at: datetime | None = None

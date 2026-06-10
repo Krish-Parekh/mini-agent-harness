@@ -2,6 +2,7 @@
 
 import {
   GitBranchIcon,
+  LinkSquare02Icon,
   MoreHorizontalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -80,8 +81,14 @@ function BoardCard({ c }: { c: ConversationInfo }) {
           <HugeiconsIcon icon={MoreHorizontalIcon} className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>Move to</DropdownMenuLabel>
+          <DropdownMenuItem
+            onClick={() => window.open(`/chat/${c.id}`, "_blank")}
+          >
+            <HugeiconsIcon icon={LinkSquare02Icon} />
+            Open in new tab
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
+          <DropdownMenuLabel>Move to</DropdownMenuLabel>
           {LANES.filter((l) => l !== c.lane).map((l) => (
             <DropdownMenuItem
               key={l}

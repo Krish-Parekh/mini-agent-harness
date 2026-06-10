@@ -13,9 +13,17 @@ from backend.runtime.manager import (
     ManagedConversation,
 )
 from backend.repository import ConversationRepository
-from backend.schemas import ConversationInfo, StatusUpdate
+from backend.runtime import changes, pulls
+from backend.runtime.workspaces import BRANCH_PREFIX
+from backend.schemas import (
+    ChangedFile,
+    ConversationInfo,
+    FileContent,
+    FileDiff,
+    StatusUpdate,
+)
 from miniagent.conversation import Status
-from miniagent.events import Event, Events
+from miniagent.events import Event, Events, MessageEvent
 
 _EVENT_ADAPTER: TypeAdapter[Event] = TypeAdapter(Events)
 
@@ -54,6 +62,14 @@ class ConversationService:
             self._persist_queue.put_nowait, (managed, event, seq)
         )
 
+    @staticmethod
+    def _plan_state(managed: ManagedConversation) -> dict[str, Any]:
+        conv = managed.conversation
+        return {
+            "plan": conv.plan.model_dump() if conv.plan else None,
+            "implementing_plan": conv.implementing_plan,
+        }
+
     async def _persistence_worker(self) -> None:
         while True:
             managed, event, seq = await self._persist_queue.get()
@@ -65,6 +81,7 @@ class ConversationService:
                     status=managed.conversation.status.value,
                     title=managed.title,
                     workspace_dir=managed.sandbox.workspace_dir,
+                    **self._plan_state(managed),
                     event_id=event.id,
                     seq=seq,
                     source=event.source,
@@ -103,6 +120,7 @@ class ConversationService:
             status=managed.conversation.status.value,
             title=managed.title,
             workspace_dir=managed.sandbox.workspace_dir,
+            **self._plan_state(managed),
             lane=lane,
             **run_kwargs,
         )
@@ -147,6 +165,15 @@ class ConversationService:
         managed.conversation.send_message(text, plan_mode=plan_mode)
         self._spawn(self._run(managed, managed.conversation.run))
 
+    async def approve_plan(self, managed: ManagedConversation) -> None:
+        conv = managed.conversation
+        conv.plan_mode = False
+        conv.implementing_plan = True
+        conv.send_message(
+            "The plan is approved. Implement it now, following the steps in order."
+        )
+        self._spawn(self._run(managed, conv.run))
+
     async def confirm(
         self, managed: ManagedConversation, approve: bool, reason: str
     ) -> None:
@@ -155,6 +182,28 @@ class ConversationService:
         else:
             trigger = partial(managed.conversation.reject, reason)
         self._spawn(self._run(managed, trigger))
+
+    async def stop(self, managed: ManagedConversation) -> bool:
+        """Stop a running/paused turn and roll it back so the prompt can be re-edited.
+
+        Returns False if there was nothing to stop."""
+        conv = managed.conversation
+        if conv.status == Status.RUNNING:
+            # Signal the live loop and kill any in-flight bash; the in-flight
+            # `_run` task does the rollback + idle status once the thread exits.
+            conv.request_cancel()
+            managed.sandbox.kill_running()
+            return True
+        if conv.status == Status.WAITING_FOR_CONFIRMATION:
+            # No loop is running while paused, so settle it here.
+            conv.set_idle()
+            await self._rollback_cancelled_turn(managed)
+            self._emit_status(managed)
+            await self._persist_status(
+                managed, lane=self._settled_lane(managed), run_started=False
+            )
+            return True
+        return False
 
     async def set_lane(self, managed: ManagedConversation, lane: str) -> None:
         """Manual board move (e.g. In Review -> Done, or requeue to Todo)."""
@@ -181,6 +230,10 @@ class ConversationService:
             title=row.title,
             lane=row.lane,
             events=events,
+            plan=row.plan,
+            implementing_plan=row.implementing_plan,
+            pr_number=row.pr_number,
+            pr_url=row.pr_url,
         )
 
     async def list_infos(self) -> list[ConversationInfo]:
@@ -195,6 +248,10 @@ class ConversationService:
                 repo=row.repo,
                 branch=row.branch,
                 title=row.title,
+                plan=row.plan,
+                implementing_plan=row.implementing_plan,
+                pr_number=row.pr_number,
+                pr_url=row.pr_url,
                 created_at=row.created_at,
                 run_started_at=row.run_started_at,
                 updated_at=row.updated_at,
@@ -224,7 +281,56 @@ class ConversationService:
             repo=managed.repo,
             branch=managed.branch,
             title=managed.title,
+            plan=conv.plan,
+            implementing_plan=conv.implementing_plan,
+            pr_number=managed.pr_number,
+            pr_url=managed.pr_url,
         )
+
+    async def create_pr(
+        self, managed: ManagedConversation, token: str
+    ) -> ConversationInfo:
+        """Commit + push this conversation's branch. Opens a PR the first time;
+        later calls just push, which refreshes the existing PR automatically."""
+        conv = managed.conversation
+        head = f"{BRANCH_PREFIX}/{conv.id}"
+        title = managed.title or f"MiniAgent changes for {managed.repo}"
+        await asyncio.to_thread(
+            pulls.commit_and_push, managed.sandbox, managed.repo, head, token, title
+        )
+        if managed.pr_number is None:
+            pr = await pulls.create_pull_request(
+                managed.repo, head, managed.branch, token, title, self._pr_body(managed)
+            )
+            managed.pr_number = pr["number"]
+            managed.pr_url = pr["html_url"]
+            await self._repo.set_pr(conv.id, managed.pr_number, managed.pr_url)
+        return self.info(managed)
+
+    @staticmethod
+    def _pr_body(managed: ManagedConversation) -> str:
+        lines = ["Opened by MiniAgent."]
+        if managed.title:
+            lines.append(f"\n{managed.title}")
+        return "\n".join(lines)
+
+    def list_changes(self, managed: ManagedConversation) -> list[ChangedFile]:
+        if managed.repo is None:
+            return []
+        return changes.list_changes(managed.sandbox)
+
+    def file_diff(self, managed: ManagedConversation, path: str) -> FileDiff:
+        if managed.repo is None:
+            return FileDiff(path=path, patch="")
+        return changes.file_diff(managed.sandbox, path)
+
+    def list_files(self, managed: ManagedConversation) -> list[str]:
+        if managed.repo is None:
+            return []
+        return changes.list_files(managed.sandbox)
+
+    def file_content(self, managed: ManagedConversation, path: str) -> FileContent:
+        return changes.file_content(managed.sandbox, path)
 
     # --- agent runs --------------------------------------------------------
 
@@ -243,11 +349,40 @@ class ConversationService:
         await self._persist_status(managed, lane="working", run_started=True)
         async with managed.lock:
             await asyncio.to_thread(trigger)
+            # Stopped mid-run (and didn't reach `finish`): discard the turn so the
+            # user can re-edit and resend their prompt.
+            conv = managed.conversation
+            if conv.cancel_event.is_set() and conv.status != Status.FINISHED:
+                await self._rollback_cancelled_turn(managed)
         await self._maybe_ai_title(managed)
         self._emit_status(managed)
         await self._persist_status(
             managed, lane=self._settled_lane(managed), run_started=False
         )
+
+    async def _rollback_cancelled_turn(self, managed: ManagedConversation) -> None:
+        """Drop the last user message and everything after it (the cancelled turn),
+        in memory and in the DB, so the conversation reads as if it never ran."""
+        conv = managed.conversation
+        events = conv.events
+        idx = self._last_user_index(events)
+        if idx is None:
+            return
+        removed = events[idx:]
+        conv.events = events[:idx]
+        managed._seq = len(conv.events)
+        # Flush any still-queued writes for this turn before deleting, so a late
+        # persist can't re-insert a row we just removed.
+        await self._persist_queue.join()
+        await self._repo.delete_events(conv.id, [e.id for e in removed])
+
+    @staticmethod
+    def _last_user_index(events: list[Event]) -> int | None:
+        for i in range(len(events) - 1, -1, -1):
+            e = events[i]
+            if isinstance(e, MessageEvent) and e.role == "user":
+                return i
+        return None
 
     async def _maybe_ai_title(self, managed: ManagedConversation) -> None:
         """Upgrade the heuristic title to an AI one once there are enough turns.

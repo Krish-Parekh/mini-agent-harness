@@ -1,7 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { AgentEvent, ConversationStatus } from "@/lib/api";
+import type {
+  AgentEvent,
+  ConversationStatus,
+  PlanStep,
+  StepStatus,
+} from "@/lib/api";
 import {
   type ActionEvent,
   type MessageEvent,
@@ -9,7 +14,7 @@ import {
   isErrorEvent,
   isObservation,
 } from "@/lib/events";
-import { type ToolView, toolView } from "@/lib/tool-views";
+import { ScrollablePreview, type ToolView, toolView } from "@/lib/tool-views";
 import { formatDuration, formatElapsed, useElapsed } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import {
@@ -39,24 +44,42 @@ import {
   PlanTrigger,
 } from "@/components/ai-elements/plan";
 import { Button } from "@/components/ui/button";
-import { CircleAlertIcon, ClipboardListIcon, HammerIcon } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  CircleIcon,
+  ClipboardListIcon,
+  HammerIcon,
+} from "lucide-react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CopyCheckIcon, CopyIcon } from "@hugeicons/core-free-icons";
 
 function ApprovalDetail({ view }: { view: ToolView }) {
   if (view.fileChange) {
+    const isSnippet = view.fileChange.kind === "snippet";
     return (
-      <DiffViewer
-        oldFile={{
-          content: view.fileChange.oldContent,
-          name: view.fileChange.path,
-        }}
-        newFile={{
-          content: view.fileChange.newContent,
-          name: view.fileChange.path,
-        }}
-        viewMode="unified"
-      />
+      <div className="space-y-1.5">
+        {isSnippet && (
+          <p className="text-muted-foreground text-xs">
+            Replacing matched snippet in{" "}
+            <span className="font-mono">{view.fileChange.path}</span>
+          </p>
+        )}
+        <ScrollablePreview>
+          <DiffViewer
+            oldFile={{
+              content: view.fileChange.oldContent,
+              name: view.fileChange.path,
+            }}
+            newFile={{
+              content: view.fileChange.newContent,
+              name: view.fileChange.path,
+            }}
+            viewMode="unified"
+          />
+        </ScrollablePreview>
+      </div>
     );
   }
   return <>{view.preview ?? null}</>;
@@ -156,9 +179,11 @@ function ChainStep({
         </div>
       )}
       {obs?.error && (
-        <p className="text-destructive text-xs">
-          {(obs.content ?? "").slice(0, 300)}
-        </p>
+        <ScrollablePreview>
+          <pre className="whitespace-pre-wrap break-words text-destructive text-xs">
+            {obs.content ?? ""}
+          </pre>
+        </ScrollablePreview>
       )}
     </ChainOfThoughtStep>
   );
@@ -217,21 +242,69 @@ function ActionChain({
   );
 }
 
+function StepGlyph({ status }: { status: StepStatus }) {
+  if (status === "done")
+    return <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-emerald-500" />;
+  if (status === "in_progress")
+    return <Spinner className="mt-0.5 size-4 shrink-0 text-amber-500" />;
+  return (
+    <CircleIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground/40" />
+  );
+}
+
+function PlanStepRow({ step }: { step: PlanStep }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <StepGlyph status={step.status} />
+      <div className="min-w-0 space-y-0.5">
+        <p
+          className={cn(
+            "text-sm font-medium",
+            step.status === "done" && "text-muted-foreground line-through",
+          )}
+        >
+          {step.title}
+        </p>
+        {step.description && (
+          <p className="text-muted-foreground text-xs">{step.description}</p>
+        )}
+        {step.files?.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-0.5">
+            {step.files.map((f) => (
+              <span
+                key={f}
+                className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+              >
+                {f}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PlanCard({
   ev,
+  liveSteps,
   isPending,
   onBuild,
 }: {
   ev: ActionEvent;
+  liveSteps?: PlanStep[];
   isPending?: boolean;
   onBuild?: () => void;
 }) {
-  const plan = String((ev.arguments?.plan as string) ?? "");
+  const steps = liveSteps ?? ((ev.arguments?.steps as PlanStep[]) ?? []);
+  // Plans presented before the structured schema carry a markdown blob.
+  const legacyPlan =
+    steps.length === 0 ? String((ev.arguments?.plan as string) ?? "") : "";
   return (
     <Plan defaultOpen>
       <PlanHeader>
         <div className="space-y-1">
-          <PlanTitle>Plan</PlanTitle>
+          <PlanTitle>{String(ev.arguments?.title ?? "Plan")}</PlanTitle>
           <PlanDescription>
             {isPending
               ? "Review, then build — or reply to refine"
@@ -243,7 +316,15 @@ function PlanCard({
         </PlanAction>
       </PlanHeader>
       <PlanContent>
-        <MessageResponse>{plan}</MessageResponse>
+        {legacyPlan ? (
+          <MessageResponse>{legacyPlan}</MessageResponse>
+        ) : (
+          <div className="space-y-3">
+            {steps.map((step, i) => (
+              <PlanStepRow key={i} step={step} />
+            ))}
+          </div>
+        )}
       </PlanContent>
       {isPending && onBuild && (
         <PlanFooter className="justify-end">
@@ -288,7 +369,7 @@ function MessageRow({ ev }: { ev: MessageEvent }) {
 
   if (ev.role === "user") {
     return (
-      <Message from="user">
+      <Message from="user" data-turn-id={ev.id}>
         <MessageContent>{ev.text}</MessageContent>
       </Message>
     );
@@ -383,6 +464,7 @@ export type ConversationTimelineProps = {
   pendingId?: string;
   pendingQuestionId?: string;
   pendingPlanId?: string;
+  livePlan?: { planId: string; steps: PlanStep[] };
   onApprove: () => void;
   onReject: () => void;
   onBuild?: () => void;
@@ -396,6 +478,7 @@ export function ConversationTimeline({
   pendingId,
   pendingQuestionId,
   pendingPlanId,
+  livePlan,
   onApprove,
   onReject,
   onBuild,
@@ -426,6 +509,9 @@ export function ConversationTimeline({
             <PlanCard
               key={group.event.id}
               ev={group.event}
+              liveSteps={
+                group.event.id === livePlan?.planId ? livePlan.steps : undefined
+              }
               isPending={group.event.id === pendingPlanId}
               onBuild={onBuild}
             />

@@ -15,7 +15,8 @@ export default function ReposPage() {
   const [repos, setRepos] = useState<Repo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [starting, setStarting] = useState<string | null>(null);
+  // Per-repo, so starting one chat doesn't block starting others in parallel.
+  const [starting, setStarting] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     api
@@ -36,7 +37,7 @@ export default function ReposPage() {
   }, [repos, query]);
 
   async function startChat(repo: Repo) {
-    setStarting(repo.full_name);
+    setStarting((prev) => new Set(prev).add(repo.full_name));
     try {
       const info = await api.createConversation({
         repo: repo.full_name,
@@ -45,7 +46,11 @@ export default function ReposPage() {
       router.push(`/chat/${info.id}`);
     } catch {
       setError(`Could not start a session for ${repo.full_name}.`);
-      setStarting(null);
+      setStarting((prev) => {
+        const next = new Set(prev);
+        next.delete(repo.full_name);
+        return next;
+      });
     }
   }
 
@@ -101,9 +106,9 @@ export default function ReposPage() {
               </div>
               <Button
                 onClick={() => startChat(repo)}
-                disabled={starting !== null}
+                disabled={starting.has(repo.full_name)}
               >
-                {starting === repo.full_name ? "Starting…" : "Start chat"}
+                {starting.has(repo.full_name) ? "Starting…" : "Start chat"}
               </Button>
             </CardContent>
           </Card>

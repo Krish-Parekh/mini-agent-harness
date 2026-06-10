@@ -11,6 +11,7 @@ class LocalSandbox(Sandbox):
     def __init__(self, workspace_dir: str | None = None):
         self.workspace_dir = str(Path(workspace_dir or Path.cwd()).resolve())
         Path(self.workspace_dir).mkdir(parents=True, exist_ok=True)
+        self._proc: subprocess.Popen | None = None
 
     def _resolve(self, path: str) -> Path:
         p = Path(path)
@@ -20,28 +21,44 @@ class LocalSandbox(Sandbox):
 
     def run_command(self, command: str, timeout: int = 30) -> CommandResult:
         start = time.perf_counter()
+        # Popen (not subprocess.run) so kill_running() can reach the live process.
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            cwd=self.workspace_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self._proc = proc
+
+        def elapsed() -> int:
+            return round((time.perf_counter() - start) * 1000)
+
         try:
-            process = subprocess.run(
-                command,
-                shell=True,
-                cwd=self.workspace_dir,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
+            stdout, stderr = proc.communicate(timeout=timeout)
             return CommandResult(
-                stdout=process.stdout,
-                stderr=process.stderr,
-                exit_code=process.returncode,
-                duration_ms=round((time.perf_counter() - start) * 1000),
+                stdout=stdout,
+                stderr=stderr,
+                exit_code=proc.returncode,
+                duration_ms=elapsed(),
             )
         except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
             return CommandResult(
                 stdout="",
                 stderr="Command timed out",
                 exit_code=1,
-                duration_ms=round((time.perf_counter() - start) * 1000),
+                duration_ms=elapsed(),
             )
+        finally:
+            self._proc = None
+
+    def kill_running(self) -> None:
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            proc.kill()
 
     def write_file(self, path: str, content: str) -> None:
         target = self._resolve(path)

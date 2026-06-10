@@ -91,6 +91,11 @@ class ErrorEvent(Event):
     source: Source = "environment"
     message: str
 
+    def to_chat_message(self) -> dict:
+        # User role: mid-history system messages are inconsistently honored,
+        # and the prefix keeps it unambiguous in the transcript.
+        return {"role": "user", "content": f"[error] {self.message}"}
+
 
 Events: TypeAlias = Annotated[
     Union[

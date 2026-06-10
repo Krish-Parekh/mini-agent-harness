@@ -22,6 +22,20 @@ export type ConversationStatus =
 
 export type Lane = "todo" | "working" | "review" | "done";
 
+export type StepStatus = "pending" | "in_progress" | "done";
+
+export type PlanStep = {
+  title: string;
+  files: string[];
+  description: string;
+  status: StepStatus;
+};
+
+export type PlanData = {
+  title: string;
+  steps: PlanStep[];
+};
+
 export type ConversationInfo = {
   id: string;
   status: ConversationStatus;
@@ -31,6 +45,10 @@ export type ConversationInfo = {
   repo: string | null;
   branch: string | null;
   title: string | null;
+  plan: PlanData | null;
+  implementing_plan: boolean;
+  pr_number: number | null;
+  pr_url: string | null;
   created_at: string | null;
   run_started_at: string | null;
   updated_at: string | null;
@@ -140,6 +158,21 @@ export const api = {
         ...(planMode ? { plan_mode: true } : {}),
       }),
     }).then((r) => json<ConversationInfo>(r)),
+
+  stop: (id: string) =>
+    fetch(`${API}/conversations/${id}/stop`, { method: "POST" }).then((r) =>
+      json<ConversationInfo>(r),
+    ),
+
+  createPr: (id: string) =>
+    fetch(`${API}/conversations/${id}/pr`, { method: "POST" }).then((r) =>
+      json<ConversationInfo>(r),
+    ),
+
+  approvePlan: (id: string) =>
+    fetch(`${API}/conversations/${id}/plan/approve`, { method: "POST" }).then(
+      (r) => json<ConversationInfo>(r),
+    ),
 
   confirm: (id: string, approve: boolean, reason?: string) =>
     fetch(`${API}/conversations/${id}/confirm`, {

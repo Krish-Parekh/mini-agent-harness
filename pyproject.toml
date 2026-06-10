@@ -28,4 +28,5 @@ packages = ["miniagent"]
 dev = [
     "httpx>=0.28.1",
     "ruff>=0.15.15",
+    "pytest>=8.0",
 ]
