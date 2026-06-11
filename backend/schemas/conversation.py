@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from miniagent.confirm import ConfirmMode
 from miniagent.tools.plan import Plan
@@ -81,3 +81,11 @@ class ConversationInfo(BaseModel):
     created_at: datetime | None = None
     run_started_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @field_serializer("created_at", "run_started_at", "updated_at")
+    def serialize_utc_datetime(self, value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.isoformat()

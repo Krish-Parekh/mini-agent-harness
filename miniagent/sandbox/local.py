@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import time
@@ -21,6 +22,11 @@ class LocalSandbox(Sandbox):
 
     def run_command(self, command: str, timeout: int = 30) -> CommandResult:
         start = time.perf_counter()
+        env = None
+        if "git init" in command:
+            template = Path(self.workspace_dir) / ".miniagent-empty-git-template"
+            template.mkdir(exist_ok=True)
+            env = {**os.environ, "GIT_TEMPLATE_DIR": str(template)}
         # Popen (not subprocess.run) so kill_running() can reach the live process.
         proc = subprocess.Popen(
             command,
@@ -29,6 +35,7 @@ class LocalSandbox(Sandbox):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
         self._proc = proc
 

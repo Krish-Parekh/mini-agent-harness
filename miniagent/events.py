@@ -42,8 +42,13 @@ class ActionEvent(Event):
     tool_name: str
     arguments: dict[str, Any]
     tool_call_id: str
+    raw_arguments: str | None = None
+    parse_error: str | None = None
 
     def to_chat_message(self) -> dict:
+        arguments = self.raw_arguments
+        if arguments is None:
+            arguments = json.dumps(self.arguments)
         return {
             "role": "assistant",
             "content": None,
@@ -53,7 +58,7 @@ class ActionEvent(Event):
                     "type": "function",
                     "function": {
                         "name": self.tool_name,
-                        "arguments": json.dumps(self.arguments),
+                        "arguments": arguments,
                     },
                 }
             ],
@@ -85,6 +90,20 @@ class CondensationEvent(Event):
     summary: str
     replaced_event_ids: list[str]
 
+    def to_chat_message(self) -> dict:
+        return {"role": "user", "content": f"[conversation summary]\n{self.summary}"}
+
+
+class LLMUsageEvent(Event):
+    kind: Literal["llm_usage"] = "llm_usage"
+    source: Source = "agent"
+    phase: str
+    model: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float = 0.0
+
 
 class ErrorEvent(Event):
     kind: Literal["error"] = "error"
@@ -103,6 +122,7 @@ Events: TypeAlias = Annotated[
         ActionEvent,
         ObservationEvent,
         CondensationEvent,
+        LLMUsageEvent,
         ErrorEvent,
     ],
     Field(discriminator="kind"),

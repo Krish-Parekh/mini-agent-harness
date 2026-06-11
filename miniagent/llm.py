@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, TypeVar
 
 import litellm
 from litellm import ModelResponse
@@ -17,6 +17,8 @@ class ToolCall(BaseModel):
     id: str
     name: str
     arguments: dict[str, Any]
+    raw_arguments: str | None = None
+    parse_error: str | None = None
 
 
 class TokenUsage(BaseModel):
@@ -36,11 +38,19 @@ class LLMResponse(BaseModel):
     cost: float = 0.0
 
 
+StructuredResponse = TypeVar("StructuredResponse", bound=BaseModel)
+
+
 _TRANSIENT = (
     litellm.RateLimitError,
     litellm.APIConnectionError,
     litellm.InternalServerError,
 )
+
+
+def _supports_custom_temperature(model: str) -> bool:
+    normalized = model.removeprefix("openai/")
+    return not normalized.startswith("gpt-5")
 
 
 class LLM:
@@ -63,14 +73,7 @@ class LLM:
     def complete(
         self, messages: list[dict], tools: list[Tool] | None = None
     ) -> LLMResponse:
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-        }
-        if self.api_key:
-            kwargs["api_key"] = self.api_key
+        kwargs = self._completion_kwargs(messages)
         if tools:
             kwargs["tools"] = [to_openai_schema(t) for t in tools]
             kwargs["tool_choice"] = "auto"
@@ -78,11 +81,35 @@ class LLM:
         response = self._call_with_retry(kwargs)
         return self._parse(response)
 
+    def complete_structured(
+        self,
+        messages: list[dict],
+        response_model: type[StructuredResponse],
+    ) -> StructuredResponse:
+        """Ask the model for a structured response and validate it with Pydantic."""
+        kwargs = self._completion_kwargs(messages)
+        kwargs["response_format"] = response_model
+        response = self._call_with_retry(kwargs)
+        content = response.choices[0].message.content or ""
+        return response_model.model_validate_json(content)
+
     def count_tokens(self, messages: list[dict]) -> int:
         try:
             return litellm.token_counter(model=self.model, messages=messages)
         except Exception:
             return 0
+
+    def _completion_kwargs(self, messages: list[dict]) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": self.max_tokens,
+        }
+        if _supports_custom_temperature(self.model):
+            kwargs["temperature"] = self.temperature
+        if self.api_key:
+            kwargs["api_key"] = self.api_key
+        return kwargs
 
     def _call_with_retry(self, kwargs: dict[str, Any]):
         for attempt in range(self.num_retries + 1):
@@ -100,12 +127,25 @@ class LLM:
 
         tool_calls: list[ToolCall] = []
         for tc in message.tool_calls or []:
+            raw_arguments = tc.function.arguments or "{}"
+            parse_error = None
             try:
-                arguments = json.loads(tc.function.arguments or "{}")
-            except json.JSONDecodeError:
+                arguments = json.loads(raw_arguments)
+            except json.JSONDecodeError as exc:
                 arguments = {}
+                preview = raw_arguments[:500]
+                parse_error = (
+                    f"{exc.msg} at line {exc.lineno} column {exc.colno}; "
+                    f"raw arguments: {preview}"
+                )
             tool_calls.append(
-                ToolCall(id=tc.id, name=tc.function.name, arguments=arguments)
+                ToolCall(
+                    id=tc.id,
+                    name=tc.function.name,
+                    arguments=arguments,
+                    raw_arguments=raw_arguments,
+                    parse_error=parse_error,
+                )
             )
 
         usage = TokenUsage()

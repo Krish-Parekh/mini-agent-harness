@@ -1,29 +1,37 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from pathlib import Path
 from typing import Callable
 
 from miniagent.agent import Agent
+from miniagent.classification import TaskClassifier
 from miniagent.config import Settings
 from miniagent.confirm import ConfirmMode, ConfirmPolicy
 from miniagent.conversation import Conversation, Status
-from miniagent.events import ErrorEvent, Event, MessageEvent
+from miniagent.events import ActionEvent, ErrorEvent, Event, MessageEvent, ObservationEvent
 from miniagent.llm import LLM
+from miniagent.policy import PolicyClassifier
 from miniagent.sandbox.local import LocalSandbox
 from miniagent.sandbox.workspace import WorkspaceError
+from miniagent.text import clip
 from backend.runtime.workspaces import WorkspaceManager
 from miniagent.tools.bash import BashTool
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.ask import AskUserTool
+from miniagent.tools.fanout import FanoutTool
 from miniagent.tools.plan import Plan, PresentPlanTool, UpdatePlanTool
+from miniagent.tools.skill import ReadSkillTool
+from miniagent.skills import SkillLibrary
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
 
 AI_TITLE_AFTER_TURNS = 4
+_SKILL_TRANSCRIPT_BUDGET = 16_000
 
 _TITLE_SYSTEM = (
     "You write a short, specific title for a coding conversation. "
@@ -32,11 +40,57 @@ _TITLE_SYSTEM = (
 )
 
 
-def _build_agent(settings: Settings, repo: str | None, branch: str | None) -> Agent:
+def _parse_skill_json(text: str) -> dict | None:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        first_nl = cleaned.find("\n")
+        cleaned = cleaned[first_nl + 1 :] if first_nl != -1 else ""
+        cleaned = cleaned.strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+    try:
+        data = json.loads(cleaned)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    decision = data.get("decision")
+    if decision == "skip":
+        return {"decision": "skip"}
+    if decision not in ("create", "update"):
+        return None
+    if data.get("scope") not in ("repo", "global"):
+        return None
+    for key in ("name", "description", "body"):
+        if not isinstance(data.get(key), str) or not data[key].strip():
+            return None
+    return data
+
+
+def _build_agent(
+    settings: Settings,
+    repo: str | None,
+    branch: str | None,
+    skills: SkillLibrary | None = None,
+) -> Agent:
     llm = LLM(
         model=settings.model,
         temperature=settings.temperature,
         max_tokens=settings.max_tokens,
+    )
+    policy = PolicyClassifier(
+        LLM(
+            model=settings.policy_model,
+            temperature=0.0,
+            max_tokens=1024,
+        )
+    )
+    task_router = TaskClassifier(
+        LLM(
+            model=settings.policy_model,
+            temperature=0.0,
+            max_tokens=512,
+        )
     )
     tools = ToolRegistry(
         [
@@ -46,9 +100,19 @@ def _build_agent(settings: Settings, repo: str | None, branch: str | None) -> Ag
             PresentPlanTool(),
             UpdatePlanTool(),
             AskUserTool(),
+            *([ReadSkillTool(skills, repo)] if skills is not None else []),
+            FanoutTool(llm, repo, branch, skills, policy),
         ]
     )
-    return Agent(llm=llm, tools=tools, repo=repo, branch=branch)
+    return Agent(
+        llm=llm,
+        tools=tools,
+        repo=repo,
+        branch=branch,
+        skills=skills,
+        policy=policy,
+        task_router=task_router,
+    )
 
 
 class EventBroker:
@@ -157,6 +221,22 @@ class ManagedConversation:
                 if text:
                     lines.append(f"{e.role}: {text[:500]}")
         return "\n".join(lines[:12])
+
+    def _skill_transcript(self) -> str:
+        lines: list[str] = []
+        for event in self.conversation.events:
+            if isinstance(event, MessageEvent):
+                text = event.text.strip()
+                if text:
+                    lines.append(f"{event.role}: {text}")
+            elif isinstance(event, ActionEvent):
+                lines.append(f"tool {event.tool_name}: {json.dumps(event.arguments)}")
+            elif isinstance(event, ObservationEvent):
+                status = "ERROR" if event.error else "OK"
+                lines.append(f"result[{status}]: {event.content}")
+            elif isinstance(event, ErrorEvent):
+                lines.append(f"error: {event.message}")
+        return clip("\n".join(lines), _SKILL_TRANSCRIPT_BUDGET)
 
     def bootstrap(self) -> None:
         """Set up this conversation's isolated worktree (cloning the repo once

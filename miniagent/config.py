@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     )
 
     model: str = "gpt-4o-mini"
+    policy_model: str = "gpt-4o-mini"
     max_tokens: int = 4096
     temperature: float = 0.0
     workspace_dir: str = "./workspace"

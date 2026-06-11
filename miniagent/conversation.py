@@ -5,6 +5,7 @@ import threading
 import uuid
 from typing import TYPE_CHECKING, Callable
 
+from miniagent.classification import TaskRoute
 from miniagent.confirm import ConfirmPolicy
 from miniagent.events import (
     ActionEvent,
@@ -16,6 +17,7 @@ from miniagent.events import (
 
 if TYPE_CHECKING:
     from miniagent.agent import Agent
+    from miniagent.policy import PolicyProvider
     from miniagent.sandbox.base import Sandbox
     from miniagent.tools.plan import Plan
 
@@ -61,12 +63,18 @@ class Conversation:
         self.plan_mode = False
         self.plan: Plan | None = None
         self.implementing_plan = False
+        self.route = TaskRoute.DEFAULT
 
-    def send_message(self, text: str, plan_mode: bool = False) -> None:
+    def send_message(
+        self, text: str, plan_mode: bool = False, route: TaskRoute | None = None
+    ) -> None:
         # Only ever turn it on here; plan approval clears it. A plain reply
         # (answering a question, refining the plan) keeps the existing mode.
         if plan_mode:
             self.plan_mode = True
+        self.route = route or self.agent.classify_task_route(
+            text, plan_mode=self.plan_mode
+        )
         self.add_event(MessageEvent(role="user", text=text))
 
     def add_event(self, event: Event) -> None:
@@ -89,12 +97,92 @@ class Conversation:
         self.status = Status.WAITING_FOR_CONFIRMATION
 
     def pending_action(self) -> ActionEvent | None:
+        pending = self.pending_actions()
+        return pending[0] if pending else None
+
+    def pending_actions(self) -> list[ActionEvent]:
         observed = {
             e.tool_call_id for e in self.events if isinstance(e, ObservationEvent)
         }
-        for event in reversed(self.events):
-            if isinstance(event, ActionEvent) and event.tool_call_id not in observed:
-                return event
+        return [
+            event
+            for event in self.events
+            if isinstance(event, ActionEvent) and event.tool_call_id not in observed
+        ]
+
+    def compacted_event_ids(self) -> set[str]:
+        from miniagent.events import CondensationEvent
+
+        replaced: set[str] = set()
+        for event in self.events:
+            if isinstance(event, CondensationEvent):
+                replaced.update(event.replaced_event_ids)
+        return replaced
+
+    def condensation_candidates(self) -> list[Event]:
+        from miniagent.events import CondensationEvent
+
+        last_user_index = self._last_user_index()
+        if last_user_index is None:
+            return []
+        compacted = self.compacted_event_ids()
+        candidates = [
+            event
+            for event in self.events[:last_user_index]
+            if event.id not in compacted and not isinstance(event, CondensationEvent)
+        ]
+        observed = {
+            event.tool_call_id
+            for event in candidates
+            if isinstance(event, ObservationEvent)
+        }
+        if any(
+            isinstance(event, ActionEvent) and event.tool_call_id not in observed
+            for event in candidates
+        ):
+            return []
+        return candidates
+
+    def has_unverified_changes(self, policy: PolicyProvider | None = None) -> bool:
+        dirty = False
+        for action, observation in self._observed_actions():
+            if action.tool_name == "bash":
+                if policy is None:
+                    continue
+                command = action.arguments.get("command", "")
+                command_policy = policy.classify_bash(command)
+                if command_policy.is_verification:
+                    dirty = False
+                elif not observation.error and command_policy.mutates_workspace:
+                    dirty = True
+            elif (
+                action.tool_name == "file_edit"
+                and action.arguments.get("command") in ("create", "str_replace")
+                and not observation.error
+            ):
+                dirty = True
+        return dirty
+
+    def _observed_actions(self) -> list[tuple[ActionEvent, ObservationEvent]]:
+        actions = {
+            event.tool_call_id: event
+            for event in self.events
+            if isinstance(event, ActionEvent)
+        }
+        pairs: list[tuple[ActionEvent, ObservationEvent]] = []
+        for event in self.events:
+            if not isinstance(event, ObservationEvent):
+                continue
+            action = actions.get(event.tool_call_id)
+            if action is not None:
+                pairs.append((action, event))
+        return pairs
+
+    def _last_user_index(self) -> int | None:
+        for index in range(len(self.events) - 1, -1, -1):
+            event = self.events[index]
+            if isinstance(event, MessageEvent) and event.role == "user":
+                return index
         return None
 
     def approve(self) -> None:
@@ -137,11 +225,18 @@ class Conversation:
                 return
             if self.status != Status.RUNNING:
                 return
-        # Exhausted the loop while still running — surface it instead of going
-        # quietly idle, which looks indistinguishable from a clean finish.
-        self.add_event(
-            ErrorEvent(
-                message=f"reached max iterations ({self.max_iterations}) without finishing"
+        # Exhausted the loop while still running. Give the model one final
+        # no-tools chance to synthesize the work so the user isn't left with
+        # only a control-plane error.
+        try:
+            self.agent.early_stop(self, self.sandbox)
+        except Exception as exc:
+            self.add_event(
+                ErrorEvent(
+                    message=(
+                        f"reached max iterations ({self.max_iterations}) and "
+                        f"early-stop synthesis failed: {exc}"
+                    )
+                )
             )
-        )
-        self.status = Status.ERROR
+            self.status = Status.ERROR

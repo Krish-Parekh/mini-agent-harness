@@ -8,6 +8,7 @@ from starlette.requests import HTTPConnection
 from backend.runtime.github import GitHubAuth
 from backend.runtime.manager import ManagedConversation
 from backend.service import ConversationService
+from miniagent.skills import SkillLibrary
 
 
 def get_service(conn: HTTPConnection) -> ConversationService:
@@ -18,8 +19,13 @@ def get_github(conn: HTTPConnection) -> GitHubAuth:
     return conn.app.state.github
 
 
+def get_skills(conn: HTTPConnection) -> SkillLibrary:
+    return conn.app.state.skills
+
+
 ServiceDep = Annotated[ConversationService, Depends(get_service)]
 GitHubDep = Annotated[GitHubAuth, Depends(get_github)]
+SkillsDep = Annotated[SkillLibrary, Depends(get_skills)]
 
 
 async def require_conversation(cid: str, service: ServiceDep) -> ManagedConversation:

@@ -11,6 +11,7 @@ from backend.schemas.conversation import (
     StatusUpdate,
 )
 from backend.schemas.github import ImportRepoRequest, RepoOut
+from backend.schemas.skill import SkillBody, SkillInfo
 
 __all__ = [
     "ChangedFile",
@@ -24,5 +25,7 @@ __all__ = [
     "LaneUpdate",
     "RepoOut",
     "SendMessageRequest",
+    "SkillBody",
+    "SkillInfo",
     "StatusUpdate",
 ]

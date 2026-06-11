@@ -1,0 +1,1 @@
+You have reached the maximum number of agent loop iterations. Do not call tools. Provide the best answer you can based on the work already done, including what is complete, what remains uncertain, and any verification that was or was not run.

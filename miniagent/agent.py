@@ -1,13 +1,36 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from pydantic import ValidationError
 
-from miniagent.confirm import blocked_in_plan_mode
-from miniagent.events import ActionEvent, ErrorEvent, MessageEvent, ObservationEvent
-from miniagent.llm import LLM, ToolCall
+from miniagent.classification import TaskClassifier, TaskRoute, TaskRouteProvider
+from miniagent.events import (
+    ActionEvent,
+    CondensationEvent,
+    ErrorEvent,
+    Event,
+    LLMUsageEvent,
+    MessageEvent,
+    ObservationEvent,
+)
+from miniagent.llm import LLM, LLMResponse, ToolCall
+from miniagent.policy import PolicyClassifier, PolicyProvider
+from miniagent.prompts import (
+    CONDENSE_SYSTEM_PROMPT,
+    DEFAULT_SYSTEM_PROMPT,
+    EARLY_STOP_PROMPT,
+    IMPLEMENT_PLAN_DIRECTIVE,
+    PLAN_MODE_DIRECTIVE,
+    ROUTE_CODE_EDIT_DIRECTIVE,
+    ROUTE_PR_FLOW_DIRECTIVE,
+    ROUTE_QUESTION_DIRECTIVE,
+    ROUTE_REVIEW_DIRECTIVE,
+)
 from miniagent.text import clip
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.plan import Plan
@@ -15,6 +38,7 @@ from miniagent.tools.plan import Plan
 if TYPE_CHECKING:
     from miniagent.conversation import Conversation
     from miniagent.sandbox.base import Sandbox
+    from miniagent.skills import SkillLibrary
 
 ToolOutcome: TypeAlias = Literal["ok", "finished", "paused"]
 
@@ -26,96 +50,69 @@ _MAX_MESSAGE_CHARS = 12_000
 # letting it burn every iteration on the same no-op.
 _NUDGE_AFTER_REPEATS = 2
 _ABORT_AFTER_REPEATS = 5
+_ABORT_AFTER_RESULT_REPEATS = 5
+_ABORT_AFTER_RESULT_OSCILLATION = 6
+_RESULT_FINGERPRINT_CHARS = 500
+
+# Repo-authored agent context, first match wins (AGENTS.md is the open standard).
+_INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md")
+_MAX_INSTRUCTIONS_CHARS = 5_000
+_MAX_FILE_SKETCH_CHARS = 2_000
+
+_CONDENSE_AFTER_TOKENS = 32_000
+_MIN_CONDENSE_EVENTS = 12
+_MAX_CONDENSE_TRANSCRIPT_CHARS = 60_000
+_MAX_FAILURE_EVIDENCE_CHARS = 8_000
+_MAX_FAILURE_ITEM_CHARS = 1_000
 
 
-DEFAULT_SYSTEM_PROMPT = """You are MiniAgent, a coding agent that works on a software project inside an \
-isolated sandbox workspace. The code lives at the working directory and all your tools run there.
-
-You act only through tools — you never touch the world directly. Each turn you either call a tool \
-or, when the task is fully complete and verified, call the `finish` tool. Do not end a turn with a \
-plain message assuming the work is done; the loop only stops when you call `finish`.
-
-# Tools
-- `bash`: run a shell command in the workspace — build, run code, run tests, search, inspect git. \
-Use it for anything other than reading or writing a single file.
-- `file_edit`:
-  - `view` — read a file before changing it. Returns the raw file text exactly as stored, with \
-no line-number prefixes; pass `view_range=[start, end]` (1-based, end -1 = EOF) for a slice. To \
-find line numbers, use `bash` (`rg -n`, `sed -n`).
-  - `create` — write a new file (provide the full `content`).
-  - `str_replace` — make a targeted edit; `old_str` must match the raw file bytes exactly — copy \
-it from `view` output, never paste line-number prefixes — and appear exactly once, so include \
-enough surrounding context to be unique.
-- `finish`: end the task with a short summary of what you did.
-
-# Bash workflow
-- Explore with search, not guesswork: `rg -n "pattern" path/` (fall back to `grep -rn`) to find \
-code, `git ls-files | rg name` or `find` to locate files, `sed -n '40,90p' file` to read a slice. \
-Use `git log --oneline -10`, `git diff`, and `git status` to understand the repo's state. \
-Use `file_edit view` for a file you're about to edit; bash for anything search- or multi-file-shaped.
-- Verify in a tight loop: reproduce the problem before fixing it, and after each meaningful change \
-run the narrowest check that exercises it — a single test file (`python -m pytest tests/test_x.py \
--x -q`), a build, an import — rather than batching many edits before the first verification.
-- Keep output small (`| head -50`, `--oneline`, `-q`) and never run interactive or watch-mode \
-commands (editors, REPLs, `npm run dev`). The default timeout is 30s; pass a larger `timeout` \
-(120-600) for installs, builds, and full test suites, and prefer narrow invocations over \
-suite-wide runs.
-
-# How to work
-- Treat instructions as software-engineering tasks against the actual code. If asked to rename \
-`methodName`, find it in the code and change it — don't just answer in chat.
-- Explore before editing: read the relevant files and follow the existing conventions, then make \
-the smallest change that satisfies the task. Match the surrounding code's style.
-- Don't add features, refactors, abstractions, error handling, or compatibility shims beyond what \
-the task requires. Three similar lines beat a premature abstraction. Only validate at real \
-boundaries (user input, external APIs); trust internal code. No half-finished work.
-- Verify your change by running the code or its tests with `bash`. Don't assume it works — confirm it.
-- Keep tool use efficient: read the parts of a file you need rather than dumping whole files, and \
-prefer small `str_replace` edits over rewriting entire files.
-
-# Acting with care
-- Local, reversible actions (editing files, running tests) are fine to take freely. Be careful with \
-destructive or hard-to-reverse commands (rm -rf, git reset --hard, force-push, dropping data).
-- Don't use destructive shortcuts to get past an obstacle. Find and fix the root cause instead of \
-bypassing safety checks (e.g. --no-verify). If you find unexpected files or state, investigate \
-before deleting or overwriting — it may be the user's in-progress work.
-
-# Finishing
-- When the task is done and verified, call `finish` with a brief, truthful summary of what changed.
-- Report outcomes honestly: if tests fail or a step was skipped, say so. State what is done plainly, \
-without hedging or overclaiming. Reference code as `path:line` when useful.
-"""
+@dataclass(frozen=True)
+class ToolResult:
+    content: str
+    error: bool
+    duration_ms: int | None = None
 
 
-# Appended to the system prompt for a turn when the user has planning mode on.
-PLAN_MODE_DIRECTIVE = """
-
-# Planning mode is ON
-The user wants a plan before any changes are made. For now:
-- Explore the relevant code read-only — read files, search, inspect git — to ground the \
-plan in how things actually work. Actions that modify the workspace are blocked while \
-planning; don't attempt them.
-- If the task is ambiguous or could reasonably go more than one way, call `ask_user` with \
-a few multiple-choice questions to settle the key decisions before you write the plan.
-- Then call `present_plan` with a short title and the ordered steps: each step has an \
-imperative title, the files it touches, and a one-to-two sentence description. Keep it \
-tight — no code dumps.
-- Calling `present_plan` ends your turn. Do not call `finish` and do not start \
-implementing. If the user replies with feedback instead of approving, refine the plan \
-and present it again.
-"""
+def _instructions_block(sandbox: Sandbox) -> str:
+    """The repo's own agent instructions, when its authors wrote any."""
+    for name in _INSTRUCTION_FILES:
+        try:
+            content = sandbox.read_file(name).strip()
+        except Exception:
+            continue
+        if content:
+            return f"\n\n## Repository instructions ({name})\n" + clip(
+                content, _MAX_INSTRUCTIONS_CHARS
+            )
+    return ""
 
 
-IMPLEMENT_PLAN_DIRECTIVE = """
-
-# Approved plan
-{plan}
-
-Follow the steps in order. Call `update_plan` to mark a step `in_progress` before \
-starting it and `done` once implemented and verified. If the plan turns out to be \
-wrong, say so and adapt rather than following it blindly. Call `finish` when every \
-step is done.
-"""
+def _file_sketch(sandbox: Sandbox) -> str:
+    """Tracked-files listing so the model can orient before exploring."""
+    result = sandbox.run_command("git ls-files", timeout=10)
+    files = result.stdout.strip()
+    if result.exit_code == 0 and files:
+        return "\n\n## Tracked files (git ls-files)\n" + clip(
+            files, _MAX_FILE_SKETCH_CHARS
+        )
+    try:
+        has_git_dir = ".git" in sandbox.list_files(".")
+    except Exception:
+        has_git_dir = False
+    if not has_git_dir:
+        return ""
+    workspace = Path(sandbox.workspace_dir)
+    fallback = sorted(
+        str(path.relative_to(workspace))
+        for path in workspace.rglob("*")
+        if path.is_file()
+        and not any(part.startswith(".") for part in path.relative_to(workspace).parts)
+    )
+    if not fallback:
+        return ""
+    return "\n\n## Tracked files (git ls-files)\n" + clip(
+        "\n".join(fallback), _MAX_FILE_SKETCH_CHARS
+    )
 
 
 class Agent:
@@ -126,41 +123,73 @@ class Agent:
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         repo: str | None = None,
         branch: str | None = None,
+        skills: SkillLibrary | None = None,
+        policy: PolicyProvider | None = None,
+        task_router: TaskRouteProvider | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
         self.system_prompt = system_prompt
         self.repo = repo
         self.branch = branch
+        self.skills = skills
+        self.policy = policy or PolicyClassifier(llm)
+        self.task_router = task_router or TaskClassifier(llm)
+
+    def classify_task_route(self, text: str, plan_mode: bool = False) -> TaskRoute:
+        if plan_mode:
+            return TaskRoute.PLAN
+        return self.task_router.classify_task_route(text)
 
     def step(self, conversation: Conversation, sandbox: Sandbox) -> None:
         pending = conversation.pending_action()
         if pending is not None:
-            call = ToolCall(
-                id=pending.tool_call_id,
-                name=pending.tool_name,
-                arguments=pending.arguments,
+            self._run_tool(
+                ToolCall(
+                    id=pending.tool_call_id,
+                    name=pending.tool_name,
+                    arguments=pending.arguments,
+                ),
+                conversation,
+                sandbox,
             )
-            self._run_tool(call, conversation, sandbox)
             return
 
+        self._maybe_condense(conversation, sandbox)
         messages = self._build_messages(conversation, sandbox)
         response = self.llm.complete(messages, self.tools.all())
+        self._record_llm_usage(conversation, response, "step")
 
         if response.text:
             conversation.add_event(MessageEvent(role="assistant", text=response.text))
 
         if response.tool_calls:
-            for call in response.tool_calls:
-                outcome = self._handle_tool_call(call, conversation, sandbox)
-                if outcome in ("finished", "paused"):
-                    break
+            actions = self._record_tool_calls(response.tool_calls, conversation)
+            self._execute_actions(actions, conversation, sandbox)
             return
 
         # No tool call ends the turn; re-prompting here would loop to the cap.
         if not response.text:
             conversation.add_event(ErrorEvent(message="empty model response"))
+            conversation.set_error()
+            return
         conversation.set_idle()
+
+    def early_stop(self, conversation: Conversation, sandbox: Sandbox) -> bool:
+        """Generate a best-effort final response after the loop hits its cap."""
+        self._maybe_condense(conversation, sandbox)
+        messages = self._build_messages(conversation, sandbox)
+        messages.append({"role": "user", "content": EARLY_STOP_PROMPT})
+        response = self.llm.complete(messages)
+        self._record_llm_usage(conversation, response, "early_stop")
+        text = (response.text or "").strip()
+        if not text:
+            conversation.add_event(ErrorEvent(message="empty early-stop response"))
+            conversation.set_error()
+            return False
+        conversation.add_event(MessageEvent(role="assistant", text=text))
+        conversation.set_idle()
+        return True
 
     def _context_block(self, conversation: Conversation, sandbox: Sandbox) -> str:
         """Workspace context appended to the system prompt every turn.
@@ -175,6 +204,8 @@ class Agent:
         lines.append(f"- working directory: {sandbox.workspace_dir}")
         lines.append("Relative paths resolve against the working directory.")
         block = "\n".join(lines)
+        block += _instructions_block(sandbox)
+        block += _file_sketch(sandbox)
         if conversation.implementing_plan:
             result = sandbox.run_command("git status --porcelain", timeout=10)
             status = result.stdout.strip()
@@ -183,10 +214,115 @@ class Agent:
                 block += clip(status, 1_500)
         return block
 
+    def _skills_block(self) -> str:
+        if self.skills is None:
+            return ""
+        refs = self.skills.index(self.repo)
+        if not refs:
+            return ""
+        lines = [
+            "\n\n# Skills",
+            "Reusable knowledge distilled from previous sessions. If one looks",
+            "relevant, call `read_skill` with its name before working in that area.",
+        ]
+        lines.extend(f"- {ref.name}: {ref.description}" for ref in refs)
+        return "\n".join(lines)
+
+    def _route_block(self, conversation: Conversation) -> str:
+        if conversation.route == TaskRoute.QUESTION:
+            return "\n\n" + ROUTE_QUESTION_DIRECTIVE
+        if conversation.route == TaskRoute.CODE_EDIT:
+            return "\n\n" + ROUTE_CODE_EDIT_DIRECTIVE
+        if conversation.route == TaskRoute.REVIEW:
+            return "\n\n" + ROUTE_REVIEW_DIRECTIVE
+        if conversation.route == TaskRoute.PR_FLOW:
+            return "\n\n" + ROUTE_PR_FLOW_DIRECTIVE
+        return ""
+
+    def _maybe_condense(self, conversation: Conversation, sandbox: Sandbox) -> None:
+        candidates = conversation.condensation_candidates()
+        if len(candidates) < _MIN_CONDENSE_EVENTS:
+            return
+        messages = self._build_messages(conversation, sandbox)
+        tokens = self.llm.count_tokens(messages)
+        if tokens and tokens < _CONDENSE_AFTER_TOKENS:
+            return
+        if not tokens:
+            total_chars = sum(
+                len(str(message.get("content") or "")) for message in messages
+            )
+            if total_chars < _MAX_CONDENSE_TRANSCRIPT_CHARS:
+                return
+
+        transcript = self._condensation_transcript(candidates)
+        if not transcript.strip():
+            return
+        response = self.llm.complete(
+            [
+                {"role": "system", "content": CONDENSE_SYSTEM_PROMPT},
+                {"role": "user", "content": transcript},
+            ]
+        )
+        self._record_llm_usage(conversation, response, "condense")
+        summary = (response.text or "").strip()
+        if summary:
+            failure_evidence = self._failure_evidence(candidates)
+            if failure_evidence:
+                summary += (
+                    "\n\nFailure/error evidence to preserve:\n" + failure_evidence
+                )
+            conversation.add_event(
+                CondensationEvent(
+                    summary=summary,
+                    replaced_event_ids=[event.id for event in candidates],
+                )
+            )
+
+    @staticmethod
+    def _condensation_transcript(events: list[Event]) -> str:
+        lines: list[str] = []
+        for event in events:
+            if isinstance(event, MessageEvent):
+                lines.append(f"{event.role}: {event.text}")
+            elif isinstance(event, ActionEvent):
+                arguments = event.raw_arguments
+                if arguments is None:
+                    arguments = json.dumps(event.arguments)
+                line = f"tool {event.tool_name}: {arguments}"
+                if event.parse_error is not None:
+                    line += f" (invalid JSON: {event.parse_error})"
+                lines.append(line)
+            elif isinstance(event, ObservationEvent):
+                status = "ERROR" if event.error else "OK"
+                lines.append(f"result[{status}] {event.tool_name}: {event.content}")
+            elif isinstance(event, ErrorEvent):
+                lines.append(f"error: {event.message}")
+        return clip("\n".join(lines), _MAX_CONDENSE_TRANSCRIPT_CHARS)
+
+    @staticmethod
+    def _failure_evidence(events: list[Event]) -> str:
+        lines: list[str] = []
+        for event in events:
+            if isinstance(event, ObservationEvent) and event.error:
+                lines.append(
+                    f"- failed {event.tool_name}: "
+                    + clip(event.content, _MAX_FAILURE_ITEM_CHARS)
+                )
+            elif isinstance(event, ErrorEvent):
+                lines.append(
+                    "- error: " + clip(event.message, _MAX_FAILURE_ITEM_CHARS)
+                )
+        return clip("\n".join(lines), _MAX_FAILURE_EVIDENCE_CHARS)
+
     def _build_messages(
         self, conversation: Conversation, sandbox: Sandbox
     ) -> list[dict]:
-        system_prompt = self.system_prompt + self._context_block(conversation, sandbox)
+        system_prompt = (
+            self.system_prompt
+            + self._context_block(conversation, sandbox)
+            + self._skills_block()
+            + self._route_block(conversation)
+        )
         if conversation.plan_mode:
             system_prompt += PLAN_MODE_DIRECTIVE
         elif conversation.implementing_plan and conversation.plan is not None:
@@ -194,6 +330,10 @@ class Agent:
                 plan=conversation.plan.render()
             )
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        compacted = conversation.compacted_event_ids()
+        for event in conversation.events:
+            if isinstance(event, CondensationEvent):
+                messages.append(event.to_chat_message())
         pending: dict | None = None  # assistant turn being assembled
 
         def flush() -> None:
@@ -203,6 +343,8 @@ class Agent:
                 pending = None
 
         for event in conversation.events:
+            if isinstance(event, CondensationEvent) or event.id in compacted:
+                continue
             # An assistant turn's text and its tool calls arrive as separate
             # events, but the LLM expects ONE assistant message carrying both
             # `content` and `tool_calls`, with parallel calls sharing that single
@@ -222,7 +364,9 @@ class Agent:
                         "type": "function",
                         "function": {
                             "name": event.tool_name,
-                            "arguments": json.dumps(event.arguments),
+                            "arguments": event.raw_arguments
+                            if event.raw_arguments is not None
+                            else json.dumps(event.arguments),
                         },
                     }
                 )
@@ -245,19 +389,167 @@ class Agent:
         flush()
         return messages
 
-    def _handle_tool_call(
-        self, call: ToolCall, conversation: Conversation, sandbox: Sandbox
-    ) -> ToolOutcome:
-        action_event = ActionEvent(
-            tool_name=call.name,
-            arguments=call.arguments,
-            tool_call_id=call.id,
+    def _record_llm_usage(
+        self, conversation: Conversation, response: LLMResponse, phase: str
+    ) -> None:
+        usage = response.usage
+        if not usage.total_tokens and not response.cost:
+            return
+        conversation.add_event(
+            LLMUsageEvent(
+                phase=phase,
+                model=self.llm.model,
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                total_tokens=usage.total_tokens,
+                cost_usd=response.cost,
+            )
         )
-        conversation.add_event(action_event)
+
+    def _record_tool_calls(
+        self, calls: list[ToolCall], conversation: Conversation
+    ) -> list[ActionEvent]:
+        actions: list[ActionEvent] = []
+        for call in calls:
+            action = ActionEvent(
+                tool_name=call.name,
+                arguments=call.arguments,
+                tool_call_id=call.id,
+                raw_arguments=call.raw_arguments,
+                parse_error=call.parse_error,
+            )
+            conversation.add_event(action)
+            actions.append(action)
+        return actions
+
+    def _execute_actions(
+        self,
+        actions: list[ActionEvent],
+        conversation: Conversation,
+        sandbox: Sandbox,
+    ) -> None:
+        index = 0
+        while index < len(actions):
+            group = self._parallel_safe_group(actions, index, conversation)
+            if group:
+                self._execute_parallel_group(group, conversation, sandbox)
+                index += len(group)
+                continue
+
+            outcome = self._execute_action(actions[index], conversation, sandbox)
+            if outcome == "paused":
+                self._skip_later_actions(
+                    actions[index + 1 :],
+                    conversation,
+                    "Skipped because an earlier tool call paused; reissue this call if it is still needed.",
+                )
+                break
+            if outcome == "finished":
+                self._skip_later_actions(
+                    actions[index + 1 :],
+                    conversation,
+                    "Skipped because an earlier tool call ended the turn; reissue this call if it is still needed.",
+                )
+                break
+            index += 1
+
+    def _parallel_safe_group(
+        self,
+        actions: list[ActionEvent],
+        start: int,
+        conversation: Conversation,
+    ) -> list[ActionEvent]:
+        group: list[ActionEvent] = []
+        for action in actions[start:]:
+            if not self._is_parallel_safe(action, conversation):
+                break
+            group.append(action)
+        return group if len(group) > 1 else []
+
+    def _is_parallel_safe(
+        self, action_event: ActionEvent, conversation: Conversation
+    ) -> bool:
+        if getattr(action_event, "parse_error", None) is not None:
+            return False
+        if self._needs_confirmation(action_event, conversation):
+            return False
+        if conversation.plan_mode and self._blocked_in_plan_mode(action_event):
+            return False
+        if action_event.tool_name == "file_edit":
+            return action_event.arguments.get("command") == "view"
+        if action_event.tool_name == "read_skill":
+            return True
+        if action_event.tool_name == "bash":
+            return self.policy.classify_bash(
+                action_event.arguments.get("command", "")
+            ).read_only
+        return False
+
+    def _execute_parallel_group(
+        self,
+        actions: list[ActionEvent],
+        conversation: Conversation,
+        sandbox: Sandbox,
+    ) -> None:
+        calls = [
+            ToolCall(
+                id=action.tool_call_id,
+                name=action.tool_name,
+                arguments=action.arguments,
+                raw_arguments=action.raw_arguments,
+                parse_error=action.parse_error,
+            )
+            for action in actions
+        ]
+        with ThreadPoolExecutor(max_workers=len(calls)) as executor:
+            results = list(
+                executor.map(
+                    lambda call: self._run_tool_for_observation(call, sandbox),
+                    calls,
+                )
+            )
+        for call, result in zip(calls, results):
+            self._observe(
+                conversation,
+                call,
+                result.content,
+                result.error,
+                result.duration_ms,
+            )
+
+    def _execute_action(
+        self, action_event: ActionEvent, conversation: Conversation, sandbox: Sandbox
+    ) -> ToolOutcome:
+        call = ToolCall(
+            id=action_event.tool_call_id,
+            name=action_event.tool_name,
+            arguments=action_event.arguments,
+            raw_arguments=action_event.raw_arguments,
+            parse_error=action_event.parse_error,
+        )
+
+        parse_error = getattr(call, "parse_error", None)
+        if parse_error is not None:
+            self._observe(
+                conversation,
+                call,
+                f"Invalid JSON arguments for {call.name}: {parse_error}",
+                True,
+            )
+            return "ok"
 
         # Hard stop: the model has ignored the nudge and is stuck on one call.
         # Abort the run with a clear error instead of grinding to max iterations.
         if self._prior_identical_calls(conversation, call) >= _ABORT_AFTER_REPEATS:
+            self._observe(
+                conversation,
+                call,
+                (
+                    f"Stopped: repeated the same {call.name} call "
+                    f"{_ABORT_AFTER_REPEATS}+ times without making progress."
+                ),
+                True,
+            )
             conversation.add_event(
                 ErrorEvent(
                     message=(
@@ -269,7 +561,7 @@ class Agent:
             conversation.set_error()
             return "paused"
 
-        if conversation.plan_mode and blocked_in_plan_mode(action_event):
+        if conversation.plan_mode and self._blocked_in_plan_mode(action_event):
             self._observe(
                 conversation,
                 call,
@@ -279,66 +571,51 @@ class Agent:
             )
             return "ok"
 
-        if conversation.needs_confirmation(action_event):
+        if self._needs_confirmation(action_event, conversation):
             conversation.set_waiting_for_confirmation()
             return "paused"
 
         finished = self._run_tool(call, conversation, sandbox)
         return "finished" if finished else "ok"
 
+    @staticmethod
+    def _skip_later_actions(
+        actions: list[ActionEvent], conversation: Conversation, reason: str
+    ) -> None:
+        for action in actions:
+            Agent._observe(
+                conversation,
+                ToolCall(
+                    id=action.tool_call_id,
+                    name=action.tool_name,
+                    arguments=action.arguments,
+                    raw_arguments=action.raw_arguments,
+                    parse_error=action.parse_error,
+                ),
+                reason,
+                True,
+            )
+
     def _run_tool(
         self, call: ToolCall, conversation: Conversation, sandbox: Sandbox
     ) -> bool:
-        if call.name not in self.tools:
-            available = ", ".join(t.name for t in self.tools.all())
-            self._observe(
-                conversation,
-                call,
-                f"Unknown tool: {call.name}. Available: {available}",
-                True,
-            )
-            return False
-
-        tool = self.tools[call.name]
-        try:
-            action = tool.action_type(**call.arguments)
-        except ValidationError as exc:
-            self._observe(conversation, call, f"Invalid arguments: {exc}", True)
-            return False
-
-        # The plan lives on the conversation, which tools never see, so the
-        # step mutation happens here; the tool's observation reports it.
-        if call.name == "update_plan":
-            plan = conversation.plan
-            if plan is None or not (1 <= action.step <= len(plan.steps)):
-                self._observe(
-                    conversation,
-                    call,
-                    f"Invalid step: the approved plan has no step {action.step}.",
-                    True,
-                )
-                return False
-            plan.steps[action.step - 1].status = action.status
-
-        try:
-            observation = tool.execute(action, sandbox)
-        except Exception as exc:
-            self._observe(conversation, call, f"Tool error: {exc}", True)
-            return False
-
+        result = self._run_tool_for_observation(call, sandbox, conversation)
         self._observe(
             conversation,
             call,
-            observation.to_llm_text(),
-            getattr(observation, "error", False),
-            getattr(observation, "duration_ms", None),
+            result.content,
+            result.error,
+            result.duration_ms,
         )
+        if result.error:
+            return False
 
         if call.name == "finish":
             conversation.implementing_plan = False
             conversation.set_finished()
             return True
         if call.name == "present_plan":
+            action = self.tools[call.name].action_type(**call.arguments)
             # Plan delivered: stay in plan mode so a reply refines the plan
             # (read-only); only the user's explicit approval starts implementing.
             conversation.plan = Plan(
@@ -354,6 +631,89 @@ class Agent:
             conversation.set_idle()
             return True
         return False
+
+    def _run_tool_for_observation(
+        self,
+        call: ToolCall,
+        sandbox: Sandbox,
+        conversation: Conversation | None = None,
+    ) -> ToolResult:
+        if call.name not in self.tools:
+            available = ", ".join(t.name for t in self.tools.all())
+            return ToolResult(f"Unknown tool: {call.name}. Available: {available}", True)
+
+        tool = self.tools[call.name]
+        try:
+            action = tool.action_type(**call.arguments)
+        except ValidationError as exc:
+            return ToolResult(f"Invalid arguments: {exc}", True)
+
+        if (
+            call.name == "finish"
+            and conversation is not None
+            and conversation.has_unverified_changes(self.policy)
+            and not self.policy.classify_finish_message(
+                getattr(action, "message", "")
+            ).verification_unavailable
+        ):
+            return ToolResult(
+                "Verification required before finishing: run a focused test, "
+                "lint/typecheck/build command, or explain in the finish message why "
+                "verification cannot be run.",
+                True,
+            )
+
+        # The plan lives on the conversation, which tools never see, so the
+        # step mutation happens here; the tool's observation reports it.
+        if call.name == "update_plan":
+            if conversation is None:
+                return ToolResult("update_plan requires a live conversation.", True)
+            plan = conversation.plan
+            if plan is None or not (1 <= action.step <= len(plan.steps)):
+                return ToolResult(
+                    f"Invalid step: the approved plan has no step {action.step}.",
+                    True,
+                )
+            plan.steps[action.step - 1].status = action.status
+
+        try:
+            observation = tool.execute(action, sandbox)
+        except Exception as exc:
+            return ToolResult(f"Tool error: {exc}", True)
+
+        try:
+            content = observation.to_llm_text()
+        except Exception as exc:
+            return ToolResult(f"Tool returned an invalid observation: {exc}", True)
+
+        return ToolResult(
+            content,
+            getattr(observation, "error", False),
+            getattr(observation, "duration_ms", None),
+        )
+
+    def _blocked_in_plan_mode(self, action_event: ActionEvent) -> bool:
+        if action_event.tool_name == "file_edit":
+            return action_event.arguments.get("command") in ("create", "str_replace")
+        if action_event.tool_name == "bash":
+            return not self.policy.classify_bash(
+                action_event.arguments.get("command", "")
+            ).read_only
+        return False
+
+    def _needs_confirmation(
+        self, action_event: ActionEvent, conversation: Conversation
+    ) -> bool:
+        mode = conversation.confirm_policy.mode
+        if mode == "never":
+            return False
+        if mode == "always":
+            return True
+        if action_event.tool_name == "bash":
+            return self.policy.classify_bash(
+                action_event.arguments.get("command", "")
+            ).needs_confirmation
+        return conversation.needs_confirmation(action_event)
 
     @staticmethod
     def _prior_identical_calls(conversation: Conversation, call: ToolCall) -> int:
@@ -371,6 +731,52 @@ class Agent:
             and e.tool_call_id in observed
             and (e.tool_name, json.dumps(e.arguments, sort_keys=True)) == sig
         )
+
+    @staticmethod
+    def _result_fingerprint(
+        tool_name: str, content: str, error: bool
+    ) -> tuple[str, bool, str]:
+        preview = " ".join(content.strip().split())[:_RESULT_FINGERPRINT_CHARS]
+        return (tool_name, error, preview)
+
+    @staticmethod
+    def _recent_result_fingerprints(
+        conversation: Conversation,
+    ) -> list[tuple[str, bool, str]]:
+        return [
+            Agent._result_fingerprint(event.tool_name, event.content, event.error)
+            for event in conversation.events
+            if isinstance(event, ObservationEvent)
+            and event.tool_name not in ("finish", "present_plan", "ask_user")
+        ]
+
+    @staticmethod
+    def _no_progress_reason(
+        conversation: Conversation, call: ToolCall, content: str, error: bool
+    ) -> str | None:
+        if call.name in ("finish", "present_plan", "ask_user"):
+            return None
+        current = Agent._result_fingerprint(call.name, content, error)
+        previous = Agent._recent_result_fingerprints(conversation)
+        repeats = sum(1 for fingerprint in previous if fingerprint == current)
+        if repeats >= _ABORT_AFTER_RESULT_REPEATS:
+            return (
+                f"stopped: {call.name} produced the same result "
+                f"{_ABORT_AFTER_RESULT_REPEATS}+ times without progress"
+            )
+
+        recent = previous + [current]
+        window = recent[-_ABORT_AFTER_RESULT_OSCILLATION:]
+        if len(window) == _ABORT_AFTER_RESULT_OSCILLATION:
+            odd = window[0::2]
+            even = window[1::2]
+            if (
+                len(set(odd)) == 1
+                and len(set(even)) == 1
+                and odd[0] != even[0]
+            ):
+                return "stopped: tool results are oscillating without progress"
+        return None
 
     @staticmethod
     def _observe(
@@ -392,6 +798,11 @@ class Agent:
                 "inputs and fix the problem, take a different action, or call "
                 "`finish` if you're done or stuck."
             )
+        no_progress_reason = Agent._no_progress_reason(
+            conversation, call, content, error
+        )
+        if no_progress_reason is not None:
+            content += f"\n\n[stopped] {no_progress_reason}."
         conversation.add_event(
             ObservationEvent(
                 tool_name=call.name,
@@ -401,3 +812,6 @@ class Agent:
                 duration_ms=duration_ms,
             )
         )
+        if no_progress_reason is not None:
+            conversation.add_event(ErrorEvent(message=no_progress_reason))
+            conversation.set_error()
