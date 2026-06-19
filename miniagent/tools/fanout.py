@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -8,7 +10,7 @@ from miniagent.agent import Agent
 from miniagent.classification import StaticTaskClassifier
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation
-from miniagent.events import MessageEvent, ObservationEvent
+from miniagent.events import ActionEvent, FanoutWorkerEvent, MessageEvent, ObservationEvent
 from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier, PolicyProvider
 from miniagent.sandbox.base import Sandbox
@@ -19,6 +21,9 @@ from miniagent.tools.bash import BashAction, BashObservation, BashTool
 from miniagent.tools.file_edit import FileEditAction, FileEditObservation, FileEditTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.skill import ReadSkillTool
+
+if TYPE_CHECKING:
+    pass
 
 _WORKER_SYSTEM_PROMPT = """You are a read-only MiniAgent worker.
 
@@ -88,6 +93,25 @@ class ReadOnlyFileEditTool(FileEditTool):
         return super().execute(action, sandbox)
 
 
+def _describe_worker_activity(event: ActionEvent) -> str | None:
+    if event.tool_name == "bash":
+        command = str(event.arguments.get("command", "")).strip()
+        if not command:
+            return "Running shell command"
+        line = command.splitlines()[0]
+        return f"Running: {line[:100]}"
+    if event.tool_name == "file_edit":
+        path = str(event.arguments.get("path", ""))
+        if event.arguments.get("command") == "view":
+            return f"Reading {path}" if path else "Reading file"
+    if event.tool_name == "read_skill":
+        name = str(event.arguments.get("name", ""))
+        return f"Reading skill {name}" if name else "Reading skill"
+    if event.tool_name == "finish":
+        return "Writing summary"
+    return None
+
+
 class FanoutTool(Tool):
     name = "fanout"
     description = (
@@ -115,14 +139,83 @@ class FanoutTool(Tool):
         self.policy = policy or PolicyClassifier(llm)
         self.max_iterations = max_iterations
 
-    def execute(self, action: FanoutAction, sandbox: Sandbox) -> FanoutObservation:
-        with ThreadPoolExecutor(max_workers=len(action.tasks)) as executor:
-            results = list(
-                executor.map(lambda task: self._run_worker(task, sandbox), action.tasks)
-            )
-        return FanoutObservation(results=results)
+    def execute(
+        self,
+        action: FanoutAction,
+        sandbox: Sandbox,
+        *,
+        conversation: Conversation | None = None,
+        tool_call_id: str | None = None,
+    ) -> FanoutObservation:
+        emit_lock = threading.Lock()
 
-    def _run_worker(self, task: FanoutTask, sandbox: Sandbox) -> WorkerResult:
+        def emit(
+            index: int,
+            title: str,
+            status: str,
+            activity: str | None = None,
+        ) -> None:
+            if conversation is None or tool_call_id is None:
+                return
+            with emit_lock:
+                conversation.add_event(
+                    FanoutWorkerEvent(
+                        parent_tool_call_id=tool_call_id,
+                        worker_index=index,
+                        title=title,
+                        status=status,  # type: ignore[arg-type]
+                        activity=activity,
+                    )
+                )
+
+        for index, task in enumerate(action.tasks):
+            emit(index, task.title, "running", "Spawned")
+
+        results: list[WorkerResult | None] = [None] * len(action.tasks)
+        with ThreadPoolExecutor(max_workers=len(action.tasks)) as executor:
+            futures = {
+                executor.submit(
+                    self._run_worker,
+                    task,
+                    sandbox,
+                    index,
+                    emit,
+                ): index
+                for index, task in enumerate(action.tasks)
+            }
+            for future in as_completed(futures):
+                index = futures[future]
+                results[index] = future.result()
+
+        finalized: list[WorkerResult] = []
+        for index, result in enumerate(results):
+            if result is not None:
+                finalized.append(result)
+            else:
+                finalized.append(
+                    WorkerResult(
+                        title=action.tasks[index].title,
+                        status="error",
+                        summary="Worker failed unexpectedly.",
+                    )
+                )
+        return FanoutObservation(results=finalized)
+
+    def _run_worker(
+        self,
+        task: FanoutTask,
+        sandbox: Sandbox,
+        index: int,
+        emit,
+    ) -> WorkerResult:
+        emit(index, task.title, "running", "Starting investigation")
+
+        def on_worker_event(event) -> None:
+            if isinstance(event, ActionEvent):
+                activity = _describe_worker_activity(event)
+                if activity:
+                    emit(index, task.title, "running", activity)
+
         agent = Agent(
             llm=self.llm,
             tools=self._worker_tools(),
@@ -136,16 +229,29 @@ class FanoutTool(Tool):
         conversation = Conversation(
             agent=agent,
             sandbox=sandbox,
+            on_event=on_worker_event,
             max_iterations=self.max_iterations,
             confirm_policy=ConfirmPolicy("never"),
         )
-        conversation.send_message(task.prompt)
-        conversation.run()
-        return WorkerResult(
-            title=task.title,
-            status=conversation.status.value,
-            summary=self._worker_summary(conversation),
-        )
+        try:
+            conversation.send_message(task.prompt)
+            conversation.run()
+            summary = self._worker_summary(conversation)
+            status = "error" if conversation.status.value in ("error", "stuck") else "done"
+            activity = "Completed" if status == "done" else "Failed"
+            emit(index, task.title, status, activity)
+            return WorkerResult(
+                title=task.title,
+                status=conversation.status.value,
+                summary=summary,
+            )
+        except Exception as exc:
+            emit(index, task.title, "error", f"Failed: {exc}")
+            return WorkerResult(
+                title=task.title,
+                status="error",
+                summary=str(exc),
+            )
 
     def _worker_tools(self) -> ToolRegistry:
         tools: list[Tool] = [

@@ -24,6 +24,15 @@ export type ErrorEvent = AgentEvent & {
   message?: string;
 };
 
+export type FanoutWorkerEvent = AgentEvent & {
+  kind: "fanout_worker";
+  parent_tool_call_id: string;
+  worker_index: number;
+  title: string;
+  status: "running" | "done" | "error";
+  activity?: string;
+};
+
 export const isMessage = (e: AgentEvent): e is MessageEvent =>
   e.kind === "message";
 
@@ -35,3 +44,6 @@ export const isObservation = (e: AgentEvent): e is ObservationEvent =>
 
 export const isErrorEvent = (e: AgentEvent): e is ErrorEvent =>
   e.kind === "error";
+
+export const isFanoutWorker = (e: AgentEvent): e is FanoutWorkerEvent =>
+  e.kind === "fanout_worker";

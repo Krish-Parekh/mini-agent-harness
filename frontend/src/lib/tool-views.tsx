@@ -91,6 +91,17 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
     };
   },
   finish: () => ({ icon: CircleCheckIcon, verb: "Finished" }),
+  fanout: (a) => {
+    const tasks = (a.tasks as { title?: string }[] | undefined) ?? [];
+    return {
+      icon: FileIcon,
+      verb: "Fan-out",
+      target:
+        tasks.length > 0
+          ? `${tasks.length} agent${tasks.length === 1 ? "" : "s"}`
+          : "agents",
+    };
+  },
   update_plan: (a) => ({
     icon: ListChecksIcon,
     verb: a.status === "done" ? "Step done" : "Step started",

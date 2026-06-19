@@ -430,16 +430,21 @@ export function ChangesPanel({
                   disabled={running || creatingPr}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-1 text-sm text-background transition-colors hover:bg-foreground/85 disabled:opacity-50"
                 >
-                  {creatingPr && <Spinner className="size-3.5" />}
-                  {creatingPr
-                    ? pr !== null
-                      ? "Updating…"
-                      : "Creating…"
-                    : running
-                      ? "Working…"
-                      : pr !== null
-                        ? "Update PR"
-                        : "Create PR"}
+                  {creatingPr ? (
+                    <>
+                      {pr !== null ? "Updating" : "Creating"}
+                      <Spinner className="size-3.5" />
+                    </>
+                  ) : running ? (
+                    <>
+                      Working
+                      <Spinner className="size-3.5" />
+                    </>
+                  ) : pr !== null ? (
+                    "Update PR"
+                  ) : (
+                    "Create PR"
+                  )}
                 </button>
               )}
             </div>

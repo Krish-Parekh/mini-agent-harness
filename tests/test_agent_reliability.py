@@ -104,6 +104,48 @@ def test_conversation_run_finishes_with_finish_tool(sandbox):
     )
 
 
+def test_finish_rejected_when_bundled_with_other_tools(sandbox):
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                tool_calls=[
+                    call("bash", {"command": "echo hi"}, "bash-1"),
+                    call("finish", {"message": "done"}, "finish-1"),
+                ]
+            ),
+            LLMResponse(tool_calls=[call("finish", {"message": "all done"}, "finish-2")]),
+        ]
+    )
+    agent = Agent(
+        llm=llm,  # type: ignore[arg-type]
+        tools=ToolRegistry([BashTool(), FinishTool()]),
+        policy=StaticPolicy(bash={"echo hi": CommandPolicy(risk="safe", read_only=True)}),
+        task_router=StaticTaskClassifier(),
+    )
+    conversation = Conversation(agent=agent, sandbox=sandbox)
+
+    conversation.send_message("run and finish")
+    conversation.run()
+
+    assert conversation.status == Status.FINISHED
+    rejected = [
+        event
+        for event in conversation.events
+        if isinstance(event, ObservationEvent)
+        and event.tool_name == "finish"
+        and event.error
+    ]
+    assert len(rejected) == 1
+    assert "together with other tools" in rejected[0].content
+    assert any(
+        isinstance(event, ObservationEvent)
+        and event.tool_name == "finish"
+        and event.content == "all done"
+        and not event.error
+        for event in conversation.events
+    )
+
+
 def test_conversation_generates_best_effort_answer_after_max_iterations(sandbox):
     agent = agent_with(
         [
@@ -308,7 +350,7 @@ def test_repeated_identical_calls_abort(sandbox):
                 call("bash", {"command": "printf repeat", "timeout": 5}, f"bash-{i}")
             ]
         )
-        for i in range(7)
+        for i in range(6)
     ]
     agent = agent_with(responses, [BashTool()])
     conversation = Conversation(agent=agent, sandbox=sandbox, max_iterations=10)
@@ -316,13 +358,14 @@ def test_repeated_identical_calls_abort(sandbox):
     conversation.send_message("repeat")
     conversation.run()
 
-    assert conversation.status == Status.ERROR
-    assert "repeated the same bash call" in conversation.events[-1].to_chat_message()[
-        "content"
-    ]
+    assert conversation.status == Status.STUCK
+    last = conversation.events[-1]
+    assert last.kind == "error"
+    assert "stuck:" in last.message
+    assert "repeated the same bash call and result" in last.message
 
 
-def test_repeated_result_fingerprints_abort(sandbox):
+def test_same_result_different_calls_does_not_abort(sandbox):
     responses = [
         LLMResponse(
             tool_calls=[
@@ -336,15 +379,12 @@ def test_repeated_result_fingerprints_abort(sandbox):
         for i in range(7)
     ]
     agent = agent_with(responses, [BashTool()])
-    conversation = Conversation(agent=agent, sandbox=sandbox, max_iterations=10)
+    conversation = Conversation(agent=agent, sandbox=sandbox, max_iterations=7)
 
     conversation.send_message("repeat by result")
     conversation.run()
 
-    assert conversation.status == Status.ERROR
-    assert "produced the same result" in conversation.events[-1].to_chat_message()[
-        "content"
-    ]
+    assert conversation.status != Status.STUCK
 
 
 def test_invalid_tool_json_is_observed_without_execution(sandbox):
@@ -629,3 +669,37 @@ def test_fanout_tool_runs_read_only_workers(sandbox):
         "worker one facts",
         "worker two facts",
     }
+
+
+def test_fanout_emits_worker_progress_events(sandbox):
+    from miniagent.events import FanoutWorkerEvent
+
+    llm = ScriptedLLM(
+        [
+            LLMResponse(
+                tool_calls=[call("finish", {"message": "worker facts"}, "w1")]
+            ),
+        ]
+    )
+    agent = agent_with([], [FinishTool()])
+    parent = Conversation(agent=agent, sandbox=sandbox)
+    tool = FanoutTool(llm=llm, policy=StaticPolicy())  # type: ignore[arg-type]
+
+    tool.execute(
+        FanoutAction(
+            tasks=[FanoutTask(title="Inspect", prompt="Inspect one thing")]
+        ),
+        sandbox,
+        conversation=parent,
+        tool_call_id="fanout-parent",
+    )
+
+    worker_events = [
+        event
+        for event in parent.events
+        if isinstance(event, FanoutWorkerEvent)
+    ]
+    assert worker_events
+    assert worker_events[0].parent_tool_call_id == "fanout-parent"
+    assert worker_events[0].title == "Inspect"
+    assert worker_events[-1].status == "done"

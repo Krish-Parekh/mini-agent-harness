@@ -18,7 +18,8 @@ export type ConversationStatus =
   | "running"
   | "waiting_for_confirmation"
   | "finished"
-  | "error";
+  | "error"
+  | "stuck";
 
 export type StepStatus = "pending" | "in_progress" | "done";
 

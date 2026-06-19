@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useRef, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import Link from "next/link";
@@ -10,7 +10,7 @@ import { messageFor } from "@/lib/errors";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
 import {
   ConversationTimeline,
-  ThinkingIndicator,
+  OPTIMISTIC_USER_ID,
 } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
 import { QuestionCard, type Question } from "@/components/question-card";
@@ -20,7 +20,7 @@ import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
-  ConversationTurnAnchor,
+  ConversationScrollAnchor,
 } from "@/components/ai-elements/conversation";
 import {
   PromptInput,
@@ -96,7 +96,18 @@ export default function ChatPage({
   const selectedModel = MODELS.find((m) => m.id === model);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [optimisticUserText, setOptimisticUserText] = useState<string | null>(
+    null,
+  );
   const lastSentText = useRef("");
+
+  useEffect(() => {
+    if (!optimisticUserText) return;
+    const lastUser = [...events]
+      .reverse()
+      .find((e) => e.kind === "message" && e.role === "user");
+    if (lastUser?.text === optimisticUserText) setOptimisticUserText(null);
+  }, [events, optimisticUserText]);
 
   const showQuestion =
     !!pendingQuestion &&
@@ -125,11 +136,13 @@ export default function ChatPage({
   async function sendAnswer(text: string) {
     if (busy) return;
     lastSentText.current = text;
+    setOptimisticUserText(text);
     const prev = status;
     setStatus("running");
     try {
       await api.sendMessage(id, text, model);
     } catch (e) {
+      setOptimisticUserText(null);
       setStatus(prev);
       toast.error(messageFor(e));
     }
@@ -139,6 +152,7 @@ export default function ChatPage({
     if (!busy) return;
     // Restore the prompt right away; the turn is trimmed once status settles.
     if (lastSentText.current) setInput(lastSentText.current);
+    setOptimisticUserText(null);
     stopRun();
   }
 
@@ -146,6 +160,7 @@ export default function ChatPage({
     const text = message.text.trim();
     if (!text || busy) return;
     lastSentText.current = text;
+    setOptimisticUserText(text);
     setInput("");
     const prev = status;
     setStatus("running");
@@ -154,6 +169,7 @@ export default function ChatPage({
     try {
       await api.sendMessage(id, text, model, wasPlanMode);
     } catch (e) {
+      setOptimisticUserText(null);
       setInput(text);
       setPlanMode(wasPlanMode);
       setStatus(prev);
@@ -174,8 +190,8 @@ export default function ChatPage({
 
   return (
     <div className="flex h-full min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b bg-background px-4">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="relative z-10 flex h-14 shrink-0 items-center justify-between gap-3 border-b bg-background px-4">
           <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger />
             {conversation?.repo && (
@@ -217,6 +233,7 @@ export default function ChatPage({
             <ConversationContent className="space-y-6 px-0 py-0">
               <ConversationTimeline
                 events={events}
+                optimisticUserText={optimisticUserText}
                 observationByCall={observationByCall}
                 status={status}
                 pendingId={waiting ? lastUnresolvedAction?.id : undefined}
@@ -228,14 +245,12 @@ export default function ChatPage({
                 onReject={() => optimisticRun(() => api.confirm(id, false))}
                 onSelectFile={openFile}
               />
-              {status === "running" && <ThinkingIndicator label="Working…" />}
-              {status === "finished" && (
-                <div className="flex items-center justify-center gap-1.5 py-1 text-xs text-muted-foreground">
-                  <CheckIcon className="size-3.5" />
-                  Run complete
-                </div>
-              )}
-              <ConversationTurnAnchor turnId={lastUserTurnId} />
+              <ConversationScrollAnchor
+                turnKey={
+                  optimisticUserText ? OPTIMISTIC_USER_ID : lastUserTurnId
+                }
+                optimisticTurnId={OPTIMISTIC_USER_ID}
+              />
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>
@@ -262,6 +277,19 @@ export default function ChatPage({
               <span>
                 The agent hit an error. Edit your message and resend, or check
                 the details above.
+              </span>
+            </div>
+          )}
+
+          {status === "stuck" && (
+            <div
+              role="status"
+              className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100"
+            >
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+              <span>
+                The agent got stuck in a loop. Send a new message to nudge it
+                in a different direction, or review the steps above.
               </span>
             </div>
           )}

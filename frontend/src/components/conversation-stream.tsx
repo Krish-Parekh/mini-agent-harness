@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 import type {
   AgentEvent,
   ConversationStatus,
@@ -12,15 +12,20 @@ import {
   type MessageEvent,
   isAction,
   isErrorEvent,
+  isFanoutWorker,
+  isMessage,
   isObservation,
 } from "@/lib/events";
+import {
+  type FanoutWorkerState,
+  buildFanoutWorkerMap,
+} from "@/lib/fanout-workers";
 import { ScrollablePreview, type ToolView, toolView } from "@/lib/tool-views";
 import { formatDuration, formatElapsed, useElapsed } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { useConversation } from "@/components/ai-elements/conversation";
 import {
   Message,
-  MessageAction,
-  MessageActions,
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
@@ -52,9 +57,6 @@ import {
   ClipboardListIcon,
   HammerIcon,
 } from "lucide-react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { CopyCheckIcon, CopyIcon } from "@hugeicons/core-free-icons";
-
 function ApprovalDetail({ view }: { view: ToolView }) {
   if (view.fileChange) {
     const isSnippet = view.fileChange.kind === "snippet";
@@ -133,11 +135,64 @@ function stepTiming(
   return formatDuration(ms);
 }
 
+function FanoutWorkersPanel({
+  workers,
+  live,
+}: {
+  workers: FanoutWorkerState[];
+  live: boolean;
+}) {
+  if (workers.length === 0) return null;
+  const done = workers.filter((w) => w.status === "done").length;
+  const header = live
+    ? `Spawning ${workers.length} read-only agent${workers.length === 1 ? "" : "s"}…`
+    : `${done}/${workers.length} agent${workers.length === 1 ? "" : "s"} completed`;
+
+  return (
+    <div className="mt-2 space-y-2.5 rounded-lg border border-border/60 bg-muted/20 p-3">
+      <p className="text-xs font-medium text-muted-foreground">{header}</p>
+      <ul className="space-y-2">
+        {workers.map((worker) => (
+          <li key={worker.index} className="flex items-start gap-2.5">
+            <FanoutWorkerGlyph status={worker.status} />
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-sm font-medium leading-snug">{worker.title}</p>
+              {worker.activity && (
+                <p className="text-muted-foreground text-xs leading-relaxed">
+                  {worker.activity}
+                </p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function FanoutWorkerGlyph({ status }: { status: FanoutWorkerState["status"] }) {
+  if (status === "done") {
+    return (
+      <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+    );
+  }
+  if (status === "error") {
+    return <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-destructive" />;
+  }
+  if (status === "running") {
+    return <Spinner className="mt-0.5 size-4 shrink-0 text-amber-500" />;
+  }
+  return (
+    <CircleIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground/40" />
+  );
+}
+
 function ChainStep({
   action,
   obs,
   isPending,
   live,
+  fanoutWorkers,
   onApprove,
   onReject,
   onSelectFile,
@@ -146,6 +201,7 @@ function ChainStep({
   obs?: AgentEvent;
   isPending: boolean;
   live: boolean;
+  fanoutWorkers?: FanoutWorkerState[];
   onApprove: () => void;
   onReject: () => void;
   onSelectFile?: (path: string) => void;
@@ -185,6 +241,12 @@ function ChainStep({
           </pre>
         </ScrollablePreview>
       )}
+      {action.tool_name === "fanout" && fanoutWorkers && fanoutWorkers.length > 0 && (
+        <FanoutWorkersPanel
+          workers={fanoutWorkers}
+          live={running || (live && !obs)}
+        />
+      )}
     </ChainOfThoughtStep>
   );
 }
@@ -192,6 +254,7 @@ function ChainStep({
 function ActionChain({
   actions,
   observationByCall,
+  fanoutWorkersByCall,
   pendingId,
   live,
   onApprove,
@@ -200,6 +263,7 @@ function ActionChain({
 }: {
   actions: ActionEvent[];
   observationByCall: Map<string, AgentEvent>;
+  fanoutWorkersByCall: Map<string, FanoutWorkerState[]>;
   pendingId?: string;
   live: boolean;
   onApprove: () => void;
@@ -211,6 +275,7 @@ function ActionChain({
   // Only show the live "Working…" header while the conversation is actually
   // running; a leftover unobserved action on a stopped chat isn't working.
   const active = live && actions.some((a) => !obsFor(a));
+  const label = `${actions.length} tool ${actions.length === 1 ? "call" : "calls"}`;
 
   return (
     <ChainOfThought defaultOpen>
@@ -218,10 +283,10 @@ function ActionChain({
         {active ? (
           <span className="flex items-center gap-2">
             <DotmSquare1 size={14} dotSize={2} muted />
-            Working…
+            {label}
           </span>
         ) : (
-          `${actions.length} tool ${actions.length === 1 ? "call" : "calls"}`
+          label
         )}
       </ChainOfThoughtHeader>
       <ChainOfThoughtContent>
@@ -232,6 +297,11 @@ function ActionChain({
             obs={obsFor(a)}
             isPending={pendingId != null && a.id === pendingId}
             live={live}
+            fanoutWorkers={
+              a.tool_name === "fanout" && a.tool_call_id
+                ? fanoutWorkersByCall.get(a.tool_call_id)
+                : undefined
+            }
             onApprove={onApprove}
             onReject={onReject}
             onSelectFile={onSelectFile}
@@ -364,58 +434,6 @@ export function ThinkingIndicator({ label = "Working…" }: { label?: string }) 
   );
 }
 
-function MessageRow({ ev }: { ev: MessageEvent }) {
-  const [copied, setCopied] = useState(false);
-
-  if (ev.role === "user") {
-    return (
-      <Message from="user" data-turn-id={ev.id}>
-        <MessageContent>{ev.text}</MessageContent>
-      </Message>
-    );
-  }
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(ev.text ?? "");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <Message from="assistant">
-      <MessageContent>
-        <MessageResponse>{ev.text ?? ""}</MessageResponse>
-      </MessageContent>
-      <MessageActions className="opacity-0 transition-opacity group-hover:opacity-100">
-        <MessageAction label={copied ? "Copied" : "Copy"} onClick={handleCopy}>
-          <span className="relative inline-flex size-3 items-center justify-center">
-            <HugeiconsIcon
-              icon={CopyIcon}
-              size={42}
-              className={cn(
-                "absolute size-3 transition-all duration-200 ease-out",
-                copied
-                  ? "scale-50 rotate-12 opacity-0"
-                  : "scale-100 rotate-0 opacity-100",
-              )}
-            />
-            <HugeiconsIcon
-              icon={CopyCheckIcon}
-              size={42}
-              className={cn(
-                "absolute size-3 transition-all duration-200 ease-out",
-                copied
-                  ? "scale-100 rotate-0 opacity-100"
-                  : "scale-50 -rotate-12 opacity-0",
-              )}
-            />
-          </span>
-        </MessageAction>
-      </MessageActions>
-    </Message>
-  );
-}
-
 type Group =
   | { kind: "message"; event: MessageEvent }
   | { kind: "error"; event: AgentEvent }
@@ -423,11 +441,128 @@ type Group =
   | { kind: "questions"; event: ActionEvent }
   | { kind: "actions"; actions: ActionEvent[] };
 
+function finishText(action: ActionEvent, obs?: AgentEvent): string | null {
+  if (obs?.error) return null;
+  const fromArgs = String(action.arguments?.message ?? "").trim();
+  const fromObs = (obs?.content ?? "").trim();
+  return fromArgs || fromObs || null;
+}
+
+/** Tool-only turns store the answer in `finish` or `fanout`, not a message event. */
+function synthesizeToolResponse(
+  actions: ActionEvent[],
+  observationByCall: Map<string, AgentEvent>,
+): string | null {
+  for (let i = actions.length - 1; i >= 0; i--) {
+    const action = actions[i];
+    const obs = action.tool_call_id
+      ? observationByCall.get(action.tool_call_id)
+      : undefined;
+    if (action.tool_name === "finish") {
+      const text = finishText(action, obs);
+      if (text) return text;
+    }
+  }
+  for (let i = actions.length - 1; i >= 0; i--) {
+    const action = actions[i];
+    if (action.tool_name !== "fanout") continue;
+    const obs = action.tool_call_id
+      ? observationByCall.get(action.tool_call_id)
+      : undefined;
+    if (obs?.content?.trim() && !obs.error) return obs.content.trim();
+  }
+  return null;
+}
+
+function hasLaterAssistantReply(groups: Group[], afterIndex: number): boolean {
+  for (let i = afterIndex + 1; i < groups.length; i++) {
+    const group = groups[i];
+    if (group.kind === "message") {
+      if (group.event.role === "user") return false;
+      if (group.event.role === "assistant" && group.event.text?.trim()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function ToolResponseRow({ text }: { text: string }) {
+  return (
+    <Message from="assistant">
+      <MessageContent>
+        <MessageResponse>{text}</MessageResponse>
+      </MessageContent>
+    </Message>
+  );
+}
+
+function MessageRow({
+  ev,
+  isLatestUserTurn,
+}: {
+  ev: MessageEvent;
+  isLatestUserTurn?: boolean;
+}) {
+  // Assistant turns can carry tool calls without visible text; skip the bubble.
+  if (ev.role === "assistant" && !(ev.text ?? "").trim()) return null;
+
+  if (ev.role === "user") {
+    return (
+      <Message from="user" {...(isLatestUserTurn ? { "data-user-turn": "" } : {})}>
+        <MessageContent>{ev.text}</MessageContent>
+      </Message>
+    );
+  }
+
+  return (
+    <Message from="assistant">
+      <MessageContent>
+        <MessageResponse>{ev.text ?? ""}</MessageResponse>
+      </MessageContent>
+    </Message>
+  );
+}
+
+function hasAssistantReplyAfterLastUser(groups: Group[]): boolean {
+  let lastUserIdx = -1;
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const group = groups[i];
+    if (group.kind === "message" && group.event.role === "user") {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  if (lastUserIdx === -1) return false;
+  for (let i = lastUserIdx + 1; i < groups.length; i++) {
+    const group = groups[i];
+    if (
+      group.kind === "message" &&
+      group.event.role === "assistant" &&
+      (group.event.text ?? "").trim()
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function AssistantStreamingRow() {
+  return (
+    <Message from="assistant" className="min-h-0 flex-1">
+      <MessageContent className="w-full min-h-32">
+        <ThinkingIndicator label="Working…" />
+      </MessageContent>
+    </Message>
+  );
+}
+
 function groupEvents(events: AgentEvent[]): Group[] {
   const groups: Group[] = [];
   let chain: ActionEvent[] | null = null;
   for (const ev of events) {
     if (isObservation(ev)) continue;
+    if (isFanoutWorker(ev)) continue;
     // System messages (e.g. the legacy "Workspace ready" banner) are noise in
     // the timeline; skip them so old persisted logs stop rendering them too.
     if (!isAction(ev) && !isErrorEvent(ev) && (ev as MessageEvent).role === "system")
@@ -449,16 +584,41 @@ function groupEvents(events: AgentEvent[]): Group[] {
     } else if (isErrorEvent(ev)) {
       chain = null;
       groups.push({ kind: "error", event: ev });
-    } else {
+    } else if (isMessage(ev)) {
       chain = null;
-      groups.push({ kind: "message", event: ev as MessageEvent });
+      groups.push({ kind: "message", event: ev });
     }
   }
   return groups;
 }
 
+export const OPTIMISTIC_USER_ID = "optimistic-user";
+
+function withOptimisticUser(
+  events: AgentEvent[],
+  text: string | null | undefined,
+): AgentEvent[] {
+  if (!text?.trim()) return events;
+  const lastUser = [...events]
+    .reverse()
+    .find((e) => isMessage(e) && e.role === "user");
+  if (lastUser?.text === text) return events;
+  return [
+    ...events,
+    {
+      id: OPTIMISTIC_USER_ID,
+      timestamp: Date.now() / 1000,
+      source: "user",
+      kind: "message",
+      role: "user",
+      text,
+    },
+  ];
+}
+
 export type ConversationTimelineProps = {
   events: AgentEvent[];
+  optimisticUserText?: string | null;
   observationByCall: Map<string, AgentEvent>;
   status: ConversationStatus;
   pendingId?: string;
@@ -473,6 +633,7 @@ export type ConversationTimelineProps = {
 
 export function ConversationTimeline({
   events,
+  optimisticUserText,
   observationByCall,
   status,
   pendingId,
@@ -484,54 +645,130 @@ export function ConversationTimeline({
   onBuild,
   onSelectFile,
 }: ConversationTimelineProps) {
-  const groups = useMemo(() => groupEvents(events), [events]);
+  const groups = useMemo(
+    () => groupEvents(withOptimisticUser(events, optimisticUserText)),
+    [events, optimisticUserText],
+  );
+  const fanoutWorkersByCall = useMemo(
+    () => buildFanoutWorkerMap(events),
+    [events],
+  );
+  const latestUserId = useMemo(() => {
+    for (let i = groups.length - 1; i >= 0; i--) {
+      const group = groups[i];
+      if (group.kind === "message" && group.event.role === "user") {
+        return group.event.id;
+      }
+    }
+    return undefined;
+  }, [groups]);
   const live = status === "running" || status === "waiting_for_confirmation";
+  const hasActiveToolWork =
+    live &&
+    events.some(
+      (e) =>
+        isAction(e) &&
+        e.tool_call_id &&
+        !observationByCall.has(e.tool_call_id),
+    );
+  const showAssistantStreaming =
+    status === "running" &&
+    !hasActiveToolWork &&
+    !hasAssistantReplyAfterLastUser(groups);
+
+  const lastUserIdx = useMemo(() => {
+    for (let i = groups.length - 1; i >= 0; i--) {
+      const group = groups[i];
+      if (group.kind === "message" && group.event.role === "user") return i;
+    }
+    return -1;
+  }, [groups]);
+
+  const { viewportHeight } = useConversation();
+
+  const renderGroup = (group: Group, i: number) => {
+    if (group.kind === "actions") {
+      const toolResponse = synthesizeToolResponse(
+        group.actions,
+        observationByCall,
+      );
+      const showToolResponse =
+        toolResponse && !hasLaterAssistantReply(groups, i);
+      return (
+        <Fragment key={group.actions[0]?.id ?? i}>
+          <ActionChain
+            actions={group.actions}
+            observationByCall={observationByCall}
+            fanoutWorkersByCall={fanoutWorkersByCall}
+            pendingId={pendingId}
+            live={live}
+            onApprove={onApprove}
+            onReject={onReject}
+            onSelectFile={onSelectFile}
+          />
+          {showToolResponse && <ToolResponseRow text={toolResponse} />}
+        </Fragment>
+      );
+    }
+    if (group.kind === "plan") {
+      return (
+        <PlanCard
+          key={group.event.id}
+          ev={group.event}
+          liveSteps={
+            group.event.id === livePlan?.planId ? livePlan.steps : undefined
+          }
+          isPending={group.event.id === pendingPlanId}
+          onBuild={onBuild}
+        />
+      );
+    }
+    if (group.kind === "questions") {
+      if (group.event.id === pendingQuestionId) return null;
+      return <QuestionsSummary key={group.event.id} ev={group.event} />;
+    }
+    if (group.kind === "error") {
+      return (
+        <p key={group.event.id} className="text-destructive text-sm">
+          ⚠ {group.event.message}
+        </p>
+      );
+    }
+    return (
+      <MessageRow
+        key={group.event.id}
+        ev={group.event}
+        isLatestUserTurn={
+          group.event.role === "user" && group.event.id === latestUserId
+        }
+      />
+    );
+  };
 
   return (
     <>
       {groups.map((group, i) => {
-        if (group.kind === "actions") {
-          return (
-            <ActionChain
-              key={group.actions[0]?.id ?? i}
-              actions={group.actions}
-              observationByCall={observationByCall}
-              pendingId={pendingId}
-              live={live}
-              onApprove={onApprove}
-              onReject={onReject}
-              onSelectFile={onSelectFile}
-            />
-          );
-        }
-        if (group.kind === "plan") {
-          return (
-            <PlanCard
-              key={group.event.id}
-              ev={group.event}
-              liveSteps={
-                group.event.id === livePlan?.planId ? livePlan.steps : undefined
-              }
-              isPending={group.event.id === pendingPlanId}
-              onBuild={onBuild}
-            />
-          );
-        }
-        if (group.kind === "questions") {
-          // The pending question is shown interactively above the composer;
-          // skip it here so it isn't duplicated.
-          if (group.event.id === pendingQuestionId) return null;
-          return <QuestionsSummary key={group.event.id} ev={group.event} />;
-        }
-        if (group.kind === "error") {
-          return (
-            <p key={group.event.id} className="text-destructive text-sm">
-              ⚠ {group.event.message}
-            </p>
-          );
-        }
-        return <MessageRow key={group.event.id} ev={group.event} />;
+        if (lastUserIdx >= 0 && i >= lastUserIdx) return null;
+        return renderGroup(group, i);
       })}
+      {lastUserIdx >= 0 && groups[lastUserIdx]?.kind === "message" && (
+        <div
+          data-active-turn
+          className="flex flex-col gap-6"
+          style={
+            viewportHeight > 0 ? { minHeight: viewportHeight } : undefined
+          }
+        >
+          <MessageRow
+            ev={(groups[lastUserIdx] as { kind: "message"; event: MessageEvent }).event}
+            isLatestUserTurn
+          />
+          {groups.slice(lastUserIdx + 1).map((group, j) =>
+            renderGroup(group, lastUserIdx + 1 + j),
+          )}
+          {showAssistantStreaming && <AssistantStreamingRow />}
+        </div>
+      )}
     </>
   );
 }

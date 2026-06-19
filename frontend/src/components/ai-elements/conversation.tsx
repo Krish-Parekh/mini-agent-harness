@@ -14,20 +14,67 @@ import {
 } from "react";
 
 const BOTTOM_THRESHOLD = 40;
+const USER_TURN_ANCHOR = "[data-user-turn]";
+const SCROLL_DURATION_MS = 420;
+
+function easeOutCubic(t: number) {
+  return 1 - (1 - t) ** 3;
+}
+
+function smoothScrollTo(
+  el: HTMLDivElement,
+  targetTop: number,
+  onComplete?: () => void,
+) {
+  const start = el.scrollTop;
+  const distance = targetTop - start;
+  if (Math.abs(distance) < 2) {
+    el.scrollTop = targetTop;
+    onComplete?.();
+    return () => {};
+  }
+
+  const startTime = performance.now();
+  let frame = 0;
+  let cancelled = false;
+  const step = (now: number) => {
+    if (cancelled) return;
+    const progress = Math.min((now - startTime) / SCROLL_DURATION_MS, 1);
+    el.scrollTop = start + distance * easeOutCubic(progress);
+    if (progress < 1) {
+      frame = requestAnimationFrame(step);
+    } else {
+      onComplete?.();
+    }
+  };
+  frame = requestAnimationFrame(step);
+  return () => {
+    cancelled = true;
+    cancelAnimationFrame(frame);
+  };
+}
+
+function scrollNodeToContainerTop(el: HTMLDivElement, node: HTMLElement) {
+  const targetScrollTop =
+    node.getBoundingClientRect().top -
+    el.getBoundingClientRect().top +
+    el.scrollTop;
+  el.scrollTop = Math.max(0, targetScrollTop);
+}
 
 type ConversationCtx = {
   scrollRef: React.RefObject<HTMLDivElement | null>;
   contentRef: React.RefObject<HTMLDivElement | null>;
-  spacerHeight: number;
+  viewportHeight: number;
   isAtBottom: boolean;
   onScroll: () => void;
   scrollToBottom: (behavior?: ScrollBehavior) => void;
-  scrollToTurn: (turnId: string) => void;
+  scrollToUserTurn: () => void;
 };
 
 const ConversationContext = createContext<ConversationCtx | null>(null);
 
-function useConversation() {
+export function useConversation() {
   const ctx = useContext(ConversationContext);
   if (!ctx) {
     throw new Error("Conversation parts must be rendered inside <Conversation>");
@@ -45,42 +92,55 @@ export const Conversation = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [viewportHeight, setViewportHeight] = useState(0);
   const atBottomRef = useRef(true);
-  // A trailing pad sized to one viewport so a freshly anchored turn — even a
-  // short one — can be scrolled all the way to the top of the visible area.
-  const [spacerHeight, setSpacerHeight] = useState(0);
-  const spacerRef = useRef(0);
-  const setSpacer = useCallback((h: number) => {
-    spacerRef.current = h;
-    setSpacerHeight(h);
-  }, []);
+  const isAnimatingScrollRef = useRef(false);
+  const cancelScrollRef = useRef<(() => void) | null>(null);
 
-  // The real content ends one spacer above scrollHeight; park there, not in pad.
-  const realBottom = (el: HTMLDivElement) =>
-    Math.max(0, el.scrollHeight - spacerRef.current - el.clientHeight);
+  const scrollBottom = (el: HTMLDivElement) =>
+    Math.max(0, el.scrollHeight - el.clientHeight);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: realBottom(el), behavior });
+    if (!el) return;
+    cancelScrollRef.current?.();
+    cancelScrollRef.current = null;
+    atBottomRef.current = true;
+    setIsAtBottom(true);
+    const target = scrollBottom(el);
+    if (behavior === "smooth") {
+      isAnimatingScrollRef.current = true;
+      cancelScrollRef.current = smoothScrollTo(el, target, () => {
+        isAnimatingScrollRef.current = false;
+        cancelScrollRef.current = null;
+      });
+    } else {
+      el.scrollTop = target;
+    }
   }, []);
 
-  // Pin a user turn to the top of the viewport (Cursor-style). Leaving the
-  // bottom-follow off here is intentional: once anchored we're no longer at the
-  // bottom, so streaming output grows below without shoving the turn off-screen.
-  const scrollToTurn = useCallback((turnId: string) => {
+  // Instant pin on send — smooth scroll from the bottom would animate through
+  // every prior message one by one.
+  const scrollToUserTurn = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const node = el.querySelector(`[data-turn-id="${turnId}"]`);
-    if (!node) return;
+    const node = el.querySelector(USER_TURN_ANCHOR) as HTMLElement | null;
+    if (!node) {
+      scrollToBottom("auto");
+      return;
+    }
+    cancelScrollRef.current?.();
+    cancelScrollRef.current = null;
+    isAnimatingScrollRef.current = false;
     atBottomRef.current = false;
     setIsAtBottom(false);
-    node.scrollIntoView({ block: "start", behavior: "smooth" });
-  }, []);
+    scrollNodeToContainerTop(el, node);
+  }, [scrollToBottom]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const distance = el.scrollHeight - spacerRef.current - el.scrollTop - el.clientHeight;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distance <= BOTTOM_THRESHOLD;
     atBottomRef.current = atBottom;
     setIsAtBottom(atBottom);
@@ -90,30 +150,36 @@ export const Conversation = ({
     const el = scrollRef.current;
     const content = contentRef.current;
     if (!el || !content) return;
-    const syncSpacer = () => setSpacer(el.clientHeight);
-    syncSpacer();
+
+    const syncViewport = () => setViewportHeight(el.clientHeight);
+    syncViewport();
     el.scrollTop = el.scrollHeight;
+
     const observer = new ResizeObserver(() => {
-      if (atBottomRef.current) el.scrollTop = realBottom(el);
+      syncViewport();
+      if (atBottomRef.current && !isAnimatingScrollRef.current) {
+        el.scrollTop = scrollBottom(el);
+      }
     });
     observer.observe(content);
-    window.addEventListener("resize", syncSpacer);
+    window.addEventListener("resize", syncViewport);
     return () => {
+      cancelScrollRef.current?.();
       observer.disconnect();
-      window.removeEventListener("resize", syncSpacer);
+      window.removeEventListener("resize", syncViewport);
     };
-  }, [setSpacer]);
+  }, []);
 
   return (
     <ConversationContext.Provider
       value={{
         scrollRef,
         contentRef,
-        spacerHeight,
+        viewportHeight,
         isAtBottom,
         onScroll,
         scrollToBottom,
-        scrollToTurn,
+        scrollToUserTurn,
       }}
     >
       <div
@@ -133,35 +199,59 @@ export const ConversationContent = ({
   children,
   ...props
 }: ConversationContentProps) => {
-  const { scrollRef, contentRef, spacerHeight, onScroll } = useConversation();
+  const { scrollRef, contentRef, onScroll } = useConversation();
   return (
     <div
       ref={scrollRef}
       onScroll={onScroll}
       role="log"
-      className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       <div ref={contentRef} className={cn("p-4", className)} {...props}>
         {children}
-        <div aria-hidden style={{ minHeight: spacerHeight }} />
       </div>
     </div>
   );
 };
 
-// Effect-only child: pins the latest user turn to the top when it changes.
-// Rendered inside <ConversationContent> so it can reach the scroll context.
-export const ConversationTurnAnchor = ({ turnId }: { turnId?: string }) => {
-  const { scrollToTurn } = useConversation();
+// After a new user turn, pin the user message to the top of the scroll area.
+export const ConversationScrollAnchor = ({
+  turnKey,
+  optimisticTurnId,
+}: {
+  turnKey?: string;
+  optimisticTurnId?: string;
+}) => {
+  const { scrollToUserTurn } = useConversation();
   const prev = useRef<string | undefined>(undefined);
   useEffect(() => {
-    // Skip the first defined value (initial load) so reopening a conversation
-    // restores the bottom rather than yanking the last turn to the top.
-    if (turnId && prev.current !== undefined && turnId !== prev.current) {
-      scrollToTurn(turnId);
+    if (!turnKey) return;
+    if (prev.current === undefined) {
+      prev.current = turnKey;
+      return;
     }
-    prev.current = turnId;
-  }, [turnId, scrollToTurn]);
+    if (turnKey === prev.current) return;
+    if (
+      optimisticTurnId &&
+      prev.current === optimisticTurnId &&
+      turnKey !== optimisticTurnId
+    ) {
+      prev.current = turnKey;
+      return;
+    }
+
+    let cancelled = false;
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!cancelled) scrollToUserTurn();
+      });
+    });
+    prev.current = turnKey;
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [turnKey, optimisticTurnId, scrollToUserTurn]);
   return null;
 };
 

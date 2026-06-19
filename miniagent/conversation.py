@@ -14,6 +14,7 @@ from miniagent.events import (
     MessageEvent,
     ObservationEvent,
 )
+from miniagent.stuck_detector import StuckDetectionThresholds, StuckDetector
 
 if TYPE_CHECKING:
     from miniagent.agent import Agent
@@ -28,6 +29,7 @@ class Status(str, enum.Enum):
     WAITING_FOR_CONFIRMATION = "waiting_for_confirmation"
     FINISHED = "finished"
     ERROR = "error"
+    STUCK = "stuck"
 
 
 def _new_id() -> str:
@@ -43,6 +45,8 @@ class Conversation:
         max_iterations: int = 50,
         confirm_policy: ConfirmPolicy | None = None,
         id: str | None = None,
+        stuck_detection: bool = True,
+        stuck_detection_thresholds: StuckDetectionThresholds | None = None,
     ) -> None:
         self.id = id or _new_id()
         self.agent = agent
@@ -64,6 +68,17 @@ class Conversation:
         self.plan: Plan | None = None
         self.implementing_plan = False
         self.route = TaskRoute.DEFAULT
+        if stuck_detection:
+            self._stuck_detector = StuckDetector(
+                self,
+                thresholds=stuck_detection_thresholds or StuckDetectionThresholds(),
+            )
+        else:
+            self._stuck_detector = None
+
+    @property
+    def stuck_detector(self) -> StuckDetector | None:
+        return self._stuck_detector
 
     def send_message(
         self, text: str, plan_mode: bool = False, route: TaskRoute | None = None
@@ -89,6 +104,9 @@ class Conversation:
 
     def set_error(self) -> None:
         self.status = Status.ERROR
+
+    def set_stuck(self) -> None:
+        self.status = Status.STUCK
 
     def needs_confirmation(self, action_event: ActionEvent) -> bool:
         return self.confirm_policy.needs_confirmation(action_event)
@@ -217,6 +235,12 @@ class Conversation:
             if self.cancel_event.is_set():
                 self.status = Status.IDLE
                 return
+            if self._stuck_detector is not None:
+                reason = self._stuck_detector.reason()
+                if reason is not None:
+                    self.add_event(ErrorEvent(message=f"stuck: {reason}"))
+                    self.set_stuck()
+                    return
             try:
                 self.agent.step(self, self.sandbox)
             except Exception as exc:

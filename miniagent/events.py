@@ -105,6 +105,16 @@ class LLMUsageEvent(Event):
     cost_usd: float = 0.0
 
 
+class FanoutWorkerEvent(Event):
+    kind: Literal["fanout_worker"] = "fanout_worker"
+    source: Source = "agent"
+    parent_tool_call_id: str
+    worker_index: int
+    title: str
+    status: Literal["running", "done", "error"]
+    activity: str | None = None
+
+
 class ErrorEvent(Event):
     kind: Literal["error"] = "error"
     source: Source = "environment"
@@ -123,6 +133,7 @@ Events: TypeAlias = Annotated[
         ObservationEvent,
         CondensationEvent,
         LLMUsageEvent,
+        FanoutWorkerEvent,
         ErrorEvent,
     ],
     Field(discriminator="kind"),

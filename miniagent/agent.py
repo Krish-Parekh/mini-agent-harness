@@ -45,14 +45,10 @@ ToolOutcome: TypeAlias = Literal["ok", "finished", "paused"]
 # Per-message ceiling sent to the LLM; long tool output is head+tail clipped.
 _MAX_MESSAGE_CHARS = 12_000
 
-# A weak model can get wedged re-issuing one identical call. We first nudge it in
-# the observation; if it ignores that and keeps going, abort the run rather than
-# letting it burn every iteration on the same no-op.
+# A weak model can get wedged re-issuing one identical call. Nudge it in the
+# observation so the model course-corrects before the conversation-level
+# stuck detector pauses the run.
 _NUDGE_AFTER_REPEATS = 2
-_ABORT_AFTER_REPEATS = 5
-_ABORT_AFTER_RESULT_REPEATS = 5
-_ABORT_AFTER_RESULT_OSCILLATION = 6
-_RESULT_FINGERPRINT_CHARS = 500
 
 # Repo-authored agent context, first match wins (AGENTS.md is the open standard).
 _INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md")
@@ -436,7 +432,9 @@ class Agent:
                 index += len(group)
                 continue
 
-            outcome = self._execute_action(actions[index], conversation, sandbox)
+            outcome = self._execute_action(
+                actions[index], conversation, sandbox, batch=actions
+            )
             if outcome == "paused":
                 self._skip_later_actions(
                     actions[index + 1 :],
@@ -518,8 +516,14 @@ class Agent:
             )
 
     def _execute_action(
-        self, action_event: ActionEvent, conversation: Conversation, sandbox: Sandbox
+        self,
+        action_event: ActionEvent,
+        conversation: Conversation,
+        sandbox: Sandbox,
+        *,
+        batch: list[ActionEvent] | None = None,
     ) -> ToolOutcome:
+        batch = batch or [action_event]
         call = ToolCall(
             id=action_event.tool_call_id,
             name=action_event.tool_name,
@@ -538,29 +542,6 @@ class Agent:
             )
             return "ok"
 
-        # Hard stop: the model has ignored the nudge and is stuck on one call.
-        # Abort the run with a clear error instead of grinding to max iterations.
-        if self._prior_identical_calls(conversation, call) >= _ABORT_AFTER_REPEATS:
-            self._observe(
-                conversation,
-                call,
-                (
-                    f"Stopped: repeated the same {call.name} call "
-                    f"{_ABORT_AFTER_REPEATS}+ times without making progress."
-                ),
-                True,
-            )
-            conversation.add_event(
-                ErrorEvent(
-                    message=(
-                        f"stopped: repeated the same {call.name} call "
-                        f"{_ABORT_AFTER_REPEATS}+ times without making progress"
-                    )
-                )
-            )
-            conversation.set_error()
-            return "paused"
-
         if conversation.plan_mode and self._blocked_in_plan_mode(action_event):
             self._observe(
                 conversation,
@@ -575,7 +556,9 @@ class Agent:
             conversation.set_waiting_for_confirmation()
             return "paused"
 
-        finished = self._run_tool(call, conversation, sandbox)
+        finished = self._run_tool(
+            call, conversation, sandbox, batch_size=len(batch)
+        )
         return "finished" if finished else "ok"
 
     @staticmethod
@@ -597,8 +580,24 @@ class Agent:
             )
 
     def _run_tool(
-        self, call: ToolCall, conversation: Conversation, sandbox: Sandbox
+        self,
+        call: ToolCall,
+        conversation: Conversation,
+        sandbox: Sandbox,
+        *,
+        batch_size: int = 1,
     ) -> bool:
+        if call.name == "finish" and batch_size > 1:
+            self._observe(
+                conversation,
+                call,
+                "Cannot call `finish` together with other tools in the same "
+                "step. Review the tool results above, then call `finish` "
+                "alone with your summary.",
+                True,
+            )
+            return False
+
         result = self._run_tool_for_observation(call, sandbox, conversation)
         self._observe(
             conversation,
@@ -677,7 +676,15 @@ class Agent:
             plan.steps[action.step - 1].status = action.status
 
         try:
-            observation = tool.execute(action, sandbox)
+            if call.name == "fanout" and conversation is not None:
+                observation = tool.execute(
+                    action,
+                    sandbox,
+                    conversation=conversation,
+                    tool_call_id=call.id,
+                )
+            else:
+                observation = tool.execute(action, sandbox)
         except Exception as exc:
             return ToolResult(f"Tool error: {exc}", True)
 
@@ -733,52 +740,6 @@ class Agent:
         )
 
     @staticmethod
-    def _result_fingerprint(
-        tool_name: str, content: str, error: bool
-    ) -> tuple[str, bool, str]:
-        preview = " ".join(content.strip().split())[:_RESULT_FINGERPRINT_CHARS]
-        return (tool_name, error, preview)
-
-    @staticmethod
-    def _recent_result_fingerprints(
-        conversation: Conversation,
-    ) -> list[tuple[str, bool, str]]:
-        return [
-            Agent._result_fingerprint(event.tool_name, event.content, event.error)
-            for event in conversation.events
-            if isinstance(event, ObservationEvent)
-            and event.tool_name not in ("finish", "present_plan", "ask_user")
-        ]
-
-    @staticmethod
-    def _no_progress_reason(
-        conversation: Conversation, call: ToolCall, content: str, error: bool
-    ) -> str | None:
-        if call.name in ("finish", "present_plan", "ask_user"):
-            return None
-        current = Agent._result_fingerprint(call.name, content, error)
-        previous = Agent._recent_result_fingerprints(conversation)
-        repeats = sum(1 for fingerprint in previous if fingerprint == current)
-        if repeats >= _ABORT_AFTER_RESULT_REPEATS:
-            return (
-                f"stopped: {call.name} produced the same result "
-                f"{_ABORT_AFTER_RESULT_REPEATS}+ times without progress"
-            )
-
-        recent = previous + [current]
-        window = recent[-_ABORT_AFTER_RESULT_OSCILLATION:]
-        if len(window) == _ABORT_AFTER_RESULT_OSCILLATION:
-            odd = window[0::2]
-            even = window[1::2]
-            if (
-                len(set(odd)) == 1
-                and len(set(even)) == 1
-                and odd[0] != even[0]
-            ):
-                return "stopped: tool results are oscillating without progress"
-        return None
-
-    @staticmethod
     def _observe(
         conversation: Conversation,
         call: ToolCall,
@@ -788,8 +749,8 @@ class Agent:
     ) -> None:
         # A weak model can get stuck re-issuing an identical call — a failing
         # str_replace, an invalid-args retry — and burn every iteration on it.
-        # Once it's repeated, append a pointed nudge to the result (whatever the
-        # outcome) so the model sees it's looping and course-corrects or finishes.
+        # Append a pointed nudge so the model sees it's looping and
+        # course-corrects before the stuck detector pauses the run.
         repeats = Agent._prior_identical_calls(conversation, call)
         if repeats >= _NUDGE_AFTER_REPEATS:
             content += (
@@ -798,11 +759,6 @@ class Agent:
                 "inputs and fix the problem, take a different action, or call "
                 "`finish` if you're done or stuck."
             )
-        no_progress_reason = Agent._no_progress_reason(
-            conversation, call, content, error
-        )
-        if no_progress_reason is not None:
-            content += f"\n\n[stopped] {no_progress_reason}."
         conversation.add_event(
             ObservationEvent(
                 tool_name=call.name,
@@ -812,6 +768,3 @@ class Agent:
                 duration_ms=duration_ms,
             )
         )
-        if no_progress_reason is not None:
-            conversation.add_event(ErrorEvent(message=no_progress_reason))
-            conversation.set_error()
