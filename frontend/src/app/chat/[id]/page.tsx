@@ -1,19 +1,13 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { use, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import Link from "next/link";
 
-import {
-  api,
-  ApiError,
-  type AgentEvent,
-  type ChangedFile,
-  type ConversationStatus,
-  type PlanStep,
-  type StepStatus,
-} from "@/lib/api";
-import { useConversation } from "@/lib/queries";
+import { api } from "@/lib/api";
+import { messageFor } from "@/lib/errors";
+import { useConversationStream } from "@/hooks/use-conversation-stream";
 import {
   ConversationTimeline,
   ThinkingIndicator,
@@ -50,11 +44,9 @@ import {
   ModelSelectorName,
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
-import { CheckIcon, ClipboardListIcon } from "lucide-react";
+import { AlertTriangleIcon, CheckIcon, ClipboardListIcon } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
-
-const BUSY = new Set(["running", "waiting_for_confirmation"]);
 
 // First entry is the default and matches the backend config default.
 const MODELS = [
@@ -70,8 +62,30 @@ export default function ChatPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [status, setStatus] = useState<ConversationStatus>("idle");
+
+  // The hook owns everything derivable from the live event stream + status;
+  // the page keeps only input/presentation state.
+  const {
+    conversation,
+    exists,
+    missing,
+    connected,
+    events,
+    status,
+    setStatus,
+    busy,
+    waiting,
+    changes,
+    refreshChanges,
+    observationByCall,
+    lastUnresolvedAction,
+    pendingQuestion,
+    pendingPlan,
+    livePlan,
+    lastUserTurnId,
+    stop: stopRun,
+  } = useConversationStream(id);
+
   const [input, setInput] = useState("");
   const [model, setModel] = useState(MODELS[0].id);
   const [modelOpen, setModelOpen] = useState(false);
@@ -80,189 +94,52 @@ export default function ChatPage({
     null,
   );
   const selectedModel = MODELS.find((m) => m.id === model);
-  const [changes, setChanges] = useState<ChangedFile[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const lastSentText = useRef("");
-  const stopping = useRef(false);
-
-
-  const { data: conversation, error } = useConversation(id);
-  const [wsGone, setWsGone] = useState(false);
-  const [wsConnected, setWsConnected] = useState(false);
-  const exists = !!conversation;
-  const missing =
-    wsGone || (error instanceof ApiError && error.status === 404);
-
-  useEffect(() => {
-    if (!exists) return; 
-    let ws: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let unmounted = false;
-
-    function connect() {
-      ws = new WebSocket(api.wsUrl(id));
-      ws.onopen = () => setWsConnected(true);
-      ws.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
-        if (data.kind === "status") {
-          const next = data.status as ConversationStatus;
-          setStatus(next);
-          // A stop settled: the backend trimmed the cancelled turn, so resync.
-          if (stopping.current && !BUSY.has(next)) {
-            stopping.current = false;
-            api.events(id).then(setEvents).catch(() => {});
-          }
-          return;
-        }
-        const ev = data as AgentEvent;
-        setEvents((prev) =>
-          prev.some((e) => e.id === ev.id) ? prev : [...prev, ev],
-        );
-      };
-      ws.onclose = (e) => {
-        setWsConnected(false);
-        // 4404: deleted mid-session. Stop reconnecting and fall through to the
-        // not-found screen rather than looping against a gone conversation.
-        if (e.code === 4404) {
-          setWsGone(true);
-          return;
-        }
-        if (unmounted) return;
-        reconnectTimer = setTimeout(connect, 1000);
-      };
-    }
-    connect();
-
-    return () => {
-      unmounted = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      ws?.close();
-    };
-  }, [id, exists]);
-
-  const busy = BUSY.has(status);
-
-  const waiting = status === "waiting_for_confirmation";
-
-  const observationByCall = useMemo(() => {
-    const map = new Map<string, AgentEvent>();
-    for (const e of events) {
-      if (e.kind === "observation" && e.tool_call_id) map.set(e.tool_call_id, e);
-    }
-    return map;
-  }, [events]);
-
-  const refreshChanges = useCallback(() => {
-    api.changes(id).then(setChanges).catch(() => {});
-  }, [id]);
-
-  // Git is the source of truth for changed files; refetch whenever a tool
-  // finishes (each observation), since bash can touch files too.
-  useEffect(() => {
-    refreshChanges();
-  }, [refreshChanges, observationByCall.size]);
-
-  function openFile(path: string) {
-    setSelectedPath(path);
-    setPanelOpen(true);
-  }
-
-  const lastUnresolvedAction = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const e = events[i];
-      if (
-        e.kind === "action" &&
-        e.tool_call_id &&
-        !observationByCall.has(e.tool_call_id)
-      ) {
-        return e;
-      }
-    }
-    return undefined;
-  }, [events, observationByCall]);
-
-  // The agent's last `ask_user` that the user hasn't replied to yet.
-  const pendingQuestion = useMemo(() => {
-    let candidate: AgentEvent | undefined;
-    for (const e of events) {
-      if (e.kind === "action" && e.tool_name === "ask_user") candidate = e;
-      else if (e.kind === "message" && e.role === "user") candidate = undefined;
-    }
-    return candidate;
-  }, [events]);
 
   const showQuestion =
     !!pendingQuestion &&
     pendingQuestion.id !== dismissedQuestionId &&
     status !== "running";
 
-  // The agent's last presented plan that the user hasn't responded to yet.
-  const pendingPlan = useMemo(() => {
-    let candidate: AgentEvent | undefined;
-    for (const e of events) {
-      if (e.kind === "action" && e.tool_name === "present_plan") candidate = e;
-      else if (e.kind === "message" && e.role === "user") candidate = undefined;
-    }
-    return candidate;
-  }, [events]);
-
   const showBuild = !!pendingPlan && status !== "running";
 
-  const lastUserTurnId = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const e = events[i];
-      if (e.kind === "message" && e.role === "user") return e.id;
-    }
-    return undefined;
-  }, [events]);
+  function openFile(path: string) {
+    setSelectedPath(path);
+    setPanelOpen(true);
+  }
 
-  // Live statuses for the latest plan's steps: seeded from its `present_plan`
-  // arguments, then folded forward with each `update_plan` call. Replayed
-  // events on reconnect rebuild the same state, so this survives refresh.
-  const livePlan = useMemo(() => {
-    let planEvent: AgentEvent | undefined;
-    for (const e of events) {
-      if (e.kind === "action" && e.tool_name === "present_plan") planEvent = e;
-    }
-    if (!planEvent) return undefined;
-    const steps = ((planEvent.arguments?.steps as PlanStep[]) ?? []).map(
-      (s) => ({ ...s }),
-    );
-    let afterPlan = false;
-    for (const e of events) {
-      if (e === planEvent) {
-        afterPlan = true;
-        continue;
-      }
-      if (!afterPlan || e.kind !== "action" || e.tool_name !== "update_plan")
-        continue;
-      const step = Number(e.arguments?.step);
-      if (step >= 1 && step <= steps.length)
-        steps[step - 1].status = e.arguments?.status as StepStatus;
-    }
-    return { planId: planEvent.id, steps };
-  }, [events]);
+  // Optimistically flip to "running" for instant feedback, but restore the
+  // prior status (and surface the error) if the request fails — otherwise a
+  // rejected confirm/approve would leave the composer locked on "running".
+  function optimisticRun(fn: () => Promise<unknown>) {
+    const prev = status;
+    setStatus("running");
+    fn().catch((e) => {
+      setStatus(prev);
+      toast.error(messageFor(e));
+    });
+  }
 
   async function sendAnswer(text: string) {
     if (busy) return;
     lastSentText.current = text;
+    const prev = status;
     setStatus("running");
     try {
       await api.sendMessage(id, text, model);
-    } catch {
-      setStatus("idle");
+    } catch (e) {
+      setStatus(prev);
+      toast.error(messageFor(e));
     }
   }
 
   function stop() {
     if (!busy) return;
-    stopping.current = true;
-    // Restore the prompt right away; the turn itself is trimmed once status settles.
+    // Restore the prompt right away; the turn is trimmed once status settles.
     if (lastSentText.current) setInput(lastSentText.current);
-    api.stop(id).catch(() => {
-      stopping.current = false;
-    });
+    stopRun();
   }
 
   async function send(message: PromptInputMessage) {
@@ -270,15 +147,17 @@ export default function ChatPage({
     if (!text || busy) return;
     lastSentText.current = text;
     setInput("");
+    const prev = status;
     setStatus("running");
     const wasPlanMode = planMode;
     setPlanMode(false);
     try {
       await api.sendMessage(id, text, model, wasPlanMode);
-    } catch {
+    } catch (e) {
       setInput(text);
       setPlanMode(wasPlanMode);
-      setStatus("idle");
+      setStatus(prev);
+      toast.error(messageFor(e));
     }
   }
 
@@ -304,7 +183,7 @@ export default function ChatPage({
                 {conversation.repo}
               </span>
             )}
-            {exists && !wsConnected && (
+            {exists && !connected && (
               <span className="flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 <Spinner className="size-3" />
                 Reconnecting…
@@ -344,21 +223,18 @@ export default function ChatPage({
                 pendingQuestionId={showQuestion ? pendingQuestion?.id : undefined}
                 pendingPlanId={showBuild ? pendingPlan?.id : undefined}
                 livePlan={livePlan}
-                onBuild={() => {
-                  setStatus("running");
-                  api.approvePlan(id).catch(() => setStatus("idle"));
-                }}
-                onApprove={() => {
-                  setStatus("running");
-                  api.confirm(id, true).catch(() => {});
-                }}
-                onReject={() => {
-                  setStatus("running");
-                  api.confirm(id, false).catch(() => {});
-                }}
+                onBuild={() => optimisticRun(() => api.approvePlan(id))}
+                onApprove={() => optimisticRun(() => api.confirm(id, true))}
+                onReject={() => optimisticRun(() => api.confirm(id, false))}
                 onSelectFile={openFile}
               />
               {status === "running" && <ThinkingIndicator label="Working…" />}
+              {status === "finished" && (
+                <div className="flex items-center justify-center gap-1.5 py-1 text-xs text-muted-foreground">
+                  <CheckIcon className="size-3.5" />
+                  Run complete
+                </div>
+              )}
               <ConversationTurnAnchor turnId={lastUserTurnId} />
             </ConversationContent>
             <ConversationScrollButton />
@@ -374,6 +250,19 @@ export default function ChatPage({
                 onSubmit={sendAnswer}
                 onDismiss={() => setDismissedQuestionId(pendingQuestion.id)}
               />
+            </div>
+          )}
+
+          {status === "error" && (
+            <div
+              role="alert"
+              className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+              <span>
+                The agent hit an error. Edit your message and resend, or check
+                the details above.
+              </span>
             </div>
           )}
 

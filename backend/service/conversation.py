@@ -23,7 +23,7 @@ from backend.schemas import (
     StatusUpdate,
 )
 from miniagent.conversation import Status
-from miniagent.events import Event, Events, MessageEvent
+from miniagent.events import ActionEvent, Event, Events, MessageEvent
 
 _EVENT_ADAPTER: TypeAdapter[Event] = TypeAdapter(Events)
 
@@ -102,11 +102,8 @@ class ConversationService:
     async def _persist_status(
         self,
         managed: ManagedConversation,
-        lane: str | None = None,
         run_started: bool | None = None,
     ) -> None:
-        if lane is not None:
-            managed.lane = lane
         # run_started: True stamps the run start, False clears it, None leaves it.
         run_kwargs: dict[str, Any] = {}
         if run_started is True:
@@ -121,7 +118,6 @@ class ConversationService:
             title=managed.title,
             workspace_dir=managed.sandbox.workspace_dir,
             **self._plan_state(managed),
-            lane=lane,
             **run_kwargs,
         )
 
@@ -145,12 +141,9 @@ class ConversationService:
             token=token,
         )
         if repo or initial_message:
-            managed.lane = "working"
             self._spawn(self._start(managed, initial_message))
         else:
-            # Nothing runs yet — it sits in Todo until started.
-            managed.lane = "todo"
-            self._spawn(self._persist_status(managed, lane="todo"))
+            self._spawn(self._persist_status(managed))
         return managed
 
     async def send_message(
@@ -199,15 +192,9 @@ class ConversationService:
             conv.set_idle()
             await self._rollback_cancelled_turn(managed)
             self._emit_status(managed)
-            await self._persist_status(
-                managed, lane=self._settled_lane(managed), run_started=False
-            )
+            await self._persist_status(managed, run_started=False)
             return True
         return False
-
-    async def set_lane(self, managed: ManagedConversation, lane: str) -> None:
-        """Manual board move (e.g. In Review -> Done, or requeue to Todo)."""
-        await self._persist_status(managed, lane=lane)
 
     async def get_or_revive(self, cid: str) -> ManagedConversation | None:
         managed = self._manager.get(cid)
@@ -228,7 +215,6 @@ class ConversationService:
             workspace_dir=row.workspace_dir,
             status=row.status,
             title=row.title,
-            lane=row.lane,
             events=events,
             plan=row.plan,
             implementing_plan=row.implementing_plan,
@@ -242,7 +228,6 @@ class ConversationService:
             ConversationInfo(
                 id=row.id,
                 status=row.status,
-                lane=row.lane,
                 workspace_dir=row.workspace_dir or "",
                 num_events=count,
                 repo=row.repo,
@@ -275,7 +260,6 @@ class ConversationService:
         return ConversationInfo(
             id=conv.id,
             status=conv.status.value,
-            lane=managed.lane,
             workspace_dir=managed.sandbox.workspace_dir,
             num_events=len(conv.events),
             repo=managed.repo,
@@ -339,14 +323,9 @@ class ConversationService:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    # While a run is in flight the card sits in Working; when it ends it moves
-    # to In Review for the user to look at (unless they've already marked Done).
-    def _settled_lane(self, managed: ManagedConversation) -> str | None:
-        return None if managed.lane == "done" else "review"
-
     async def _run(self, managed: ManagedConversation, trigger) -> None:
         self._emit_status(managed, "running")
-        await self._persist_status(managed, lane="working", run_started=True)
+        await self._persist_status(managed, run_started=True)
         async with managed.lock:
             await asyncio.to_thread(trigger)
             # Stopped mid-run (and didn't reach `finish`): discard the turn so the
@@ -355,10 +334,9 @@ class ConversationService:
             if conv.cancel_event.is_set() and conv.status != Status.FINISHED:
                 await self._rollback_cancelled_turn(managed)
         await self._maybe_ai_title(managed)
+        await self._maybe_distill_skill(managed)
         self._emit_status(managed)
-        await self._persist_status(
-            managed, lane=self._settled_lane(managed), run_started=False
-        )
+        await self._persist_status(managed, run_started=False)
 
     async def _rollback_cancelled_turn(self, managed: ManagedConversation) -> None:
         """Drop the last user message and everything after it (the cancelled turn),
@@ -398,23 +376,38 @@ class ConversationService:
             managed.title = title
             managed._ai_titled = True
 
+    async def _maybe_distill_skill(self, managed: ManagedConversation) -> None:
+        """After a substantial finished run, distill a reusable skill into the
+        library. Best-effort: distillation never fails the run."""
+        library = self._manager.skills
+        conv = managed.conversation
+        if library is None or managed._distilled or conv.status != Status.FINISHED:
+            return
+        # Only distill runs that actually did work — skip trivial Q&A.
+        if sum(1 for e in conv.events if isinstance(e, ActionEvent)) < 2:
+            return
+        try:
+            name = await asyncio.to_thread(managed.distill_skill, library)
+        except Exception as exc:  # distillation is best-effort — never fail the run
+            print(f"[distill] failed for {conv.id}: {exc}")
+            return
+        if name:
+            managed._distilled = True
+
     async def _start(
         self, managed: ManagedConversation, initial_message: str | None
     ) -> None:
         self._emit_status(managed, "running")
-        await self._persist_status(managed, lane="working", run_started=True)
+        await self._persist_status(managed, run_started=True)
         async with managed.lock:
             await asyncio.to_thread(managed.bootstrap)
             if managed.conversation.status == Status.ERROR:
                 self._emit_status(managed)
-                await self._persist_status(
-                    managed, lane=self._settled_lane(managed), run_started=False
-                )
+                await self._persist_status(managed, run_started=False)
                 return
             if initial_message:
                 managed.conversation.send_message(initial_message)
                 await asyncio.to_thread(managed.conversation.run)
+        await self._maybe_distill_skill(managed)
         self._emit_status(managed)
-        await self._persist_status(
-            managed, lane=self._settled_lane(managed), run_started=False
-        )
+        await self._persist_status(managed, run_started=False)

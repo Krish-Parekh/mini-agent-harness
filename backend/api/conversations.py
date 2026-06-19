@@ -11,7 +11,6 @@ from backend.schemas import (
     CreateConversationRequest,
     FileContent,
     FileDiff,
-    LaneUpdate,
     SendMessageRequest,
 )
 from miniagent.conversation import Status
@@ -118,12 +117,6 @@ async def create_pr(managed: ManagedDep, service: ServiceDep, github: GitHubDep)
     if github.token is None:
         raise HTTPException(status_code=401, detail="GitHub is not connected")
     return await service.create_pr(managed, github.token)
-
-
-@router.patch("/conversations/{cid}/lane", response_model=ConversationInfo)
-async def update_lane(managed: ManagedDep, body: LaneUpdate, service: ServiceDep):
-    await service.set_lane(managed, body.lane)
-    return service.info(managed)
 
 
 @router.delete("/conversations/{cid}")

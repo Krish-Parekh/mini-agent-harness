@@ -19,8 +19,7 @@ export function formatElapsed(ms: number): string {
   return `${mins}m ${secs.toString().padStart(2, "0")}s`;
 }
 
-// "just now" / "5m ago" / "3d ago". Moved here from board/page.tsx so the
-// sidebar, board, and chat can share one relative-time formatter.
+// "just now" / "5m ago" / "3d ago". Shared by the sidebar and chat.
 export function relativeTime(iso: string | null): string {
   if (!iso) return "";
   const then = new Date(iso).getTime();

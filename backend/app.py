@@ -9,11 +9,13 @@ from sqlalchemy import text
 from backend import models  # noqa: F401 — register ORM tables on Base.metadata
 from backend.api.conversations import router
 from backend.api.github import router as github_router
+from backend.api.skills import router as skills_router
 from backend.core.db import Base, make_engine, make_sessionmaker
 from backend.repository import ConversationRepository
 from backend.runtime import ConversationManager, GitHubAuth
 from backend.service import ConversationService
 from miniagent.config import Settings
+from miniagent.skills import SkillLibrary
 
 settings = Settings()
 
@@ -22,19 +24,13 @@ settings = Settings()
 async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.github = GitHubAuth()
+    skills = SkillLibrary(settings.skills_dir)
+    app.state.skills = skills
 
     engine = make_engine(settings.database_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Lightweight migration for DBs created before the board `lane` column.
-        # Existing conversations have all run, so backfill them into Review.
-        await conn.execute(
-            text(
-                "ALTER TABLE conversations "
-                "ADD COLUMN IF NOT EXISTS lane TEXT NOT NULL DEFAULT 'review'"
-            )
-        )
-        # Live run-elapsed for the board; NULL means not currently running.
+        # Live run-elapsed for the sidebar; NULL means not currently running.
         # Same naive TIMESTAMP type as created_at/updated_at so the frontend
         # parses them all consistently.
         await conn.execute(
@@ -61,7 +57,7 @@ async def lifespan(app: FastAPI):
     sessionmaker = make_sessionmaker(engine)
 
     repository = ConversationRepository(sessionmaker)
-    manager = ConversationManager(settings)
+    manager = ConversationManager(settings, skills=skills)
     service = ConversationService(manager, repository)
     service.start()
     app.state.service = service
@@ -80,3 +76,4 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(github_router)
+app.include_router(skills_router)

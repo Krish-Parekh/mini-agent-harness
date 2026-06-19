@@ -14,6 +14,7 @@ from miniagent.conversation import Conversation, Status
 from miniagent.events import ActionEvent, ErrorEvent, Event, MessageEvent, ObservationEvent
 from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier
+from miniagent.prompts import DISTILL_SKILL_PROMPT
 from miniagent.sandbox.local import LocalSandbox
 from miniagent.sandbox.workspace import WorkspaceError
 from miniagent.text import clip
@@ -159,7 +160,7 @@ class ManagedConversation:
         self._token = token
         self.title: str | None = None
         self._ai_titled = False
-        self.lane: str = "todo"
+        self._distilled = False
         self.pr_number: int | None = None
         self.pr_url: str | None = None
         self._seq = 0
@@ -238,6 +239,41 @@ class ManagedConversation:
                 lines.append(f"error: {event.message}")
         return clip("\n".join(lines), _SKILL_TRANSCRIPT_BUDGET)
 
+    def distill_skill(self, library: SkillLibrary) -> str | None:
+        """Distill one reusable skill from this finished session, if warranted.
+
+        Blocking (litellm) — call in a worker thread. Returns the slug written,
+        or None when the distiller chose to skip or produced invalid output."""
+        transcript = self._skill_transcript()
+        if not transcript:
+            return None
+        existing = library.index(self.repo)
+        existing_block = (
+            "\n".join(f"- {r.name} ({r.scope}): {r.description}" for r in existing)
+            or "(none)"
+        )
+        response = self.conversation.agent.llm.complete(
+            [
+                {"role": "system", "content": DISTILL_SKILL_PROMPT},
+                {
+                    "role": "user",
+                    "content": f"# Existing skills\n{existing_block}\n\n"
+                    f"# Session transcript\n{transcript}",
+                },
+            ]
+        )
+        data = _parse_skill_json(response.text or "")
+        if data is None or data.get("decision") == "skip":
+            return None
+        library.write(
+            name=data["name"],
+            description=data["description"],
+            body=data["body"],
+            scope=data["scope"],
+            repo=self.repo,
+        )
+        return SkillLibrary.slugify(data["name"])
+
     def bootstrap(self) -> None:
         """Set up this conversation's isolated worktree (cloning the repo once
         if needed) before the agent runs. Runs in a worker thread."""
@@ -260,10 +296,14 @@ class ConversationManager:
     """In-memory registry and factory of live conversations. No persistence."""
 
     def __init__(
-        self, settings: Settings, data_dir: Path = Path("data")
+        self,
+        settings: Settings,
+        data_dir: Path = Path("data"),
+        skills: SkillLibrary | None = None,
     ) -> None:
         self._settings = settings
         self._workspaces = WorkspaceManager(data_dir)
+        self.skills = skills
         self._conversations: dict[str, ManagedConversation] = {}
         self._persist_hook: PersistHook = lambda *_: None
 
@@ -298,7 +338,6 @@ class ConversationManager:
         workspace_dir: str | None,
         status: str,
         title: str | None,
-        lane: str,
         events: list[Event],
         plan: dict | None = None,
         implementing_plan: bool = False,
@@ -312,7 +351,6 @@ class ConversationManager:
         managed.conversation.implementing_plan = implementing_plan
         managed.title = title
         managed._ai_titled = managed.user_turns() >= AI_TITLE_AFTER_TURNS
-        managed.lane = lane
         managed.pr_number = pr_number
         managed.pr_url = pr_url
         managed._seq = len(events)
@@ -334,7 +372,7 @@ class ConversationManager:
         loop = asyncio.get_running_loop()
         sandbox = LocalSandbox(workspace_dir)
         conversation = Conversation(
-            agent=_build_agent(self._settings, repo, branch),
+            agent=_build_agent(self._settings, repo, branch, self.skills),
             sandbox=sandbox,
             confirm_policy=ConfirmPolicy(confirm_mode),
             id=cid,

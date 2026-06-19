@@ -8,7 +8,7 @@ from miniagent.agent import Agent
 from miniagent.classification import StaticTaskClassifier
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation
-from miniagent.events import ObservationEvent
+from miniagent.events import MessageEvent, ObservationEvent
 from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier, PolicyProvider
 from miniagent.sandbox.base import Sandbox
@@ -159,9 +159,22 @@ class FanoutTool(Tool):
 
     @staticmethod
     def _worker_summary(conversation: Conversation) -> str:
+        # Workers that call `finish` give us an explicit summary. Most instead
+        # answer in a final assistant message and end the turn idle — capture
+        # that so their findings aren't discarded.
+        last_assistant: str | None = None
         for event in reversed(conversation.events):
             if isinstance(event, ObservationEvent) and event.tool_name == "finish":
                 return event.content
+            if (
+                last_assistant is None
+                and isinstance(event, MessageEvent)
+                and event.role == "assistant"
+                and event.text.strip()
+            ):
+                last_assistant = event.text.strip()
+        if last_assistant:
+            return last_assistant
         errors = [
             event.content
             for event in conversation.events

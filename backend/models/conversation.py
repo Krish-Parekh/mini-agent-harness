@@ -17,7 +17,6 @@ class ConversationRow(Base):
     repo: Mapped[str | None] = mapped_column(Text)
     branch: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
-    lane: Mapped[str] = mapped_column(Text, server_default="todo")
     title: Mapped[str | None] = mapped_column(Text)
     workspace_dir: Mapped[str | None] = mapped_column(Text)
     run_started_at: Mapped[datetime | None] = mapped_column()

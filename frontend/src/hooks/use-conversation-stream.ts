@@ -27,7 +27,10 @@ const BUSY = new Set<ConversationStatus>([
  */
 export function useConversationStream(id: string) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [status, setStatus] = useState<ConversationStatus>("idle");
+  // Only set by the websocket (status seed on connect + live updates). Until
+  // it arrives we fall back to the REST status below, so the chat opens in its
+  // real state instead of a stale "idle".
+  const [wsStatus, setStatus] = useState<ConversationStatus | null>(null);
   const [changes, setChanges] = useState<ChangedFile[]>([]);
   const [wsGone, setWsGone] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -96,6 +99,7 @@ export function useConversationStream(id: string) {
     };
   }, [id, exists]);
 
+  const status: ConversationStatus = wsStatus ?? conversation?.status ?? "idle";
   const busy = BUSY.has(status);
   const waiting = status === "waiting_for_confirmation";
 

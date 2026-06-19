@@ -10,8 +10,9 @@ import {
   ApiError,
   type ConversationInfo,
   type GitHubStatus,
-  type Lane,
   type Repo,
+  type SkillBody,
+  type SkillInfo,
 } from "@/lib/api";
 
 export const queryKeys = {
@@ -20,6 +21,10 @@ export const queryKeys = {
   conversations: ["conversations"] as const,
   conversation: (id: string) => ["conversation", id] as const,
   events: (id: string) => ["events", id] as const,
+  files: (id: string) => ["files", id] as const,
+  skills: ["skills"] as const,
+  skillBody: (name: string, repo: string | null) =>
+    ["skills", "body", name, repo] as const,
 };
 
 export function useGitHubStatus() {
@@ -91,34 +96,6 @@ export function useConversation(id: string) {
   });
 }
 
-export function useSetLane() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, lane }: { id: string; lane: Lane }) =>
-      api.setLane(id, lane),
-    // Move the card to its new lane instantly; reconcile on settle.
-    onMutate: async ({ id, lane }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.conversations });
-      const prev = queryClient.getQueryData<ConversationInfo[]>(
-        queryKeys.conversations,
-      );
-      queryClient.setQueryData<ConversationInfo[]>(
-        queryKeys.conversations,
-        (cs) => cs?.map((c) => (c.id === id ? { ...c, lane } : c)),
-      );
-      return { prev };
-    },
-    onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) {
-        queryClient.setQueryData(queryKeys.conversations, ctx.prev);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
-    },
-  });
-}
-
 export function useDeleteConversation() {
   const router = useRouter();
   const pathname = usePathname();
@@ -155,5 +132,27 @@ export function useStartChat() {
       queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       router.push(`/chat/${conversation.id}`);
     },
+  });
+}
+
+export function useFiles(id: string, enabled = true) {
+  return useQuery<string[]>({
+    queryKey: queryKeys.files(id),
+    queryFn: () => api.files(id),
+    enabled,
+  });
+}
+
+export function useSkills() {
+  return useQuery<SkillInfo[]>({
+    queryKey: queryKeys.skills,
+    queryFn: api.skills,
+  });
+}
+
+export function useSkillBody(name: string, repo: string | null) {
+  return useQuery<SkillBody>({
+    queryKey: queryKeys.skillBody(name, repo),
+    queryFn: () => api.skillBody(name, repo),
   });
 }

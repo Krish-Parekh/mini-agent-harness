@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     max_tokens: int = 4096
     temperature: float = 0.0
     workspace_dir: str = "./workspace"
+    skills_dir: str = "./data/skills"
 
     # GitHub OAuth App (read without the MINIAGENT_ prefix, like OPENAI_API_KEY).
     github_client_id: str = Field(

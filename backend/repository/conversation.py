@@ -74,7 +74,6 @@ class ConversationRepository:
         workspace_dir: str | None,
         plan: dict[str, Any] | None,
         implementing_plan: bool,
-        lane: str | None = None,
         run_started_at: Any = _UNSET,
     ) -> None:
         async with self._sessionmaker() as sess:
@@ -88,7 +87,6 @@ class ConversationRepository:
                 workspace_dir=workspace_dir,
                 plan=plan,
                 implementing_plan=implementing_plan,
-                lane=lane,
                 run_started_at=run_started_at,
             )
             await sess.commit()
@@ -105,11 +103,10 @@ class ConversationRepository:
         workspace_dir: str | None,
         plan: dict[str, Any] | None,
         implementing_plan: bool,
-        lane: str | None = None,
         run_started_at: Any = _UNSET,
     ) -> None:
-        # `lane` and `run_started_at` are only written when explicitly provided,
-        # so event persistence (which knows neither) never clobbers them.
+        # `run_started_at` is only written when explicitly provided, so event
+        # persistence (which knows nothing about run state) never clobbers it.
         values: dict[str, Any] = dict(
             id=cid,
             repo=repo,
@@ -127,9 +124,6 @@ class ConversationRepository:
             implementing_plan=implementing_plan,
             updated_at=func.now(),
         )
-        if lane is not None:
-            values["lane"] = lane
-            set_["lane"] = lane
         if run_started_at is not _UNSET:
             values["run_started_at"] = run_started_at
             set_["run_started_at"] = run_started_at
