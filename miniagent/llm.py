@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 import json
-import time
+import logging
 from typing import Any, TypeVar
 
 import litellm
 from litellm import ModelResponse
 from pydantic import BaseModel, ConfigDict, Field
+from tenacity import (
+    Retrying,
+    before_sleep_log,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 
 from miniagent.tools.base import Tool, to_openai_schema
+
+logger = logging.getLogger(__name__)
 
 
 class ToolCall(BaseModel):
@@ -45,7 +54,11 @@ _TRANSIENT = (
     litellm.RateLimitError,
     litellm.APIConnectionError,
     litellm.InternalServerError,
+    litellm.ServiceUnavailableError,
+    litellm.Timeout,
 )
+
+_MAX_BACKOFF = 30.0
 
 
 def _supports_custom_temperature(model: str) -> bool:
@@ -60,7 +73,7 @@ class LLM:
         api_key: str | None = None,
         temperature: float = 0.0,
         max_tokens: int = 4096,
-        num_retries: int = 2,
+        num_retries: int = 4,
         backoff: float = 1.0,
     ) -> None:
         self.model = model
@@ -111,14 +124,22 @@ class LLM:
             kwargs["api_key"] = self.api_key
         return kwargs
 
-    def _call_with_retry(self, kwargs: dict[str, Any]):
-        for attempt in range(self.num_retries + 1):
-            try:
-                return litellm.completion(**kwargs)
-            except _TRANSIENT:
-                if attempt == self.num_retries:
-                    raise
-                time.sleep(self.backoff * (2**attempt))
+    def _call_with_retry(self, kwargs: dict[str, Any]) -> ModelResponse:
+        """Call the model, retrying transient failures with jittered backoff.
+
+        ``num_retries`` is retries beyond the first attempt (``num_retries + 1``
+        total). Only ``_TRANSIENT`` errors retry; anything else raises at once.
+        ``reraise=True`` surfaces the original exception after the final attempt
+        rather than tenacity's ``RetryError``, so callers see the real cause.
+        """
+        retryer = Retrying(
+            stop=stop_after_attempt(self.num_retries + 1),
+            wait=wait_random_exponential(multiplier=self.backoff, max=_MAX_BACKOFF),
+            retry=retry_if_exception_type(_TRANSIENT),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+            reraise=True,
+        )
+        return retryer(litellm.completion, **kwargs)
 
     @staticmethod
     def _parse(response: ModelResponse) -> LLMResponse:
