@@ -76,11 +76,10 @@ export function useImportRepo() {
   });
 }
 
-export function useConversations(options?: { refetchInterval?: number }) {
+export function useConversations() {
   return useQuery<ConversationInfo[]>({
     queryKey: queryKeys.conversations,
     queryFn: api.conversations,
-    refetchInterval: options?.refetchInterval,
   });
 }
 
@@ -103,12 +102,10 @@ export function useDeleteConversation() {
   return useMutation({
     mutationFn: (id: string) => api.deleteConversation(id),
     onSuccess: (_, id) => {
-      // Drop it from the sidebar immediately, then refetch for canonical state.
       queryClient.setQueryData<ConversationInfo[]>(
         queryKeys.conversations,
         (prev) => prev?.filter((c) => c.id !== id),
       );
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       // If we were viewing the chat we just deleted, leave its dead page.
       if (pathname === `/chat/${id}`) router.push("/");
     },
@@ -129,7 +126,10 @@ export function useStartChat() {
       return api.createConversation(body);
     },
     onSuccess: (conversation) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+      queryClient.setQueryData<ConversationInfo[]>(
+        queryKeys.conversations,
+        (prev) => [conversation, ...(prev ?? [])],
+      );
       router.push(`/chat/${conversation.id}`);
     },
   });

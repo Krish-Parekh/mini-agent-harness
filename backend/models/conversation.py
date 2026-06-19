@@ -19,7 +19,6 @@ class ConversationRow(Base):
     status: Mapped[str] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(Text)
     workspace_dir: Mapped[str | None] = mapped_column(Text)
-    run_started_at: Mapped[datetime | None] = mapped_column()
     pr_number: Mapped[int | None] = mapped_column(Integer)
     pr_url: Mapped[str | None] = mapped_column(Text)
     plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB)

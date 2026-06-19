@@ -30,15 +30,6 @@ async def lifespan(app: FastAPI):
     engine = make_engine(settings.database_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Live run-elapsed for the sidebar; NULL means not currently running.
-        # Same naive TIMESTAMP type as created_at/updated_at so the frontend
-        # parses them all consistently.
-        await conn.execute(
-            text(
-                "ALTER TABLE conversations "
-                "ADD COLUMN IF NOT EXISTS run_started_at TIMESTAMP"
-            )
-        )
         await conn.execute(
             text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS plan JSONB")
         )

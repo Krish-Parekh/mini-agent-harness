@@ -47,7 +47,6 @@ export type ConversationInfo = {
   pr_number: number | null;
   pr_url: string | null;
   created_at: string | null;
-  run_started_at: string | null;
   updated_at: string | null;
 };
 

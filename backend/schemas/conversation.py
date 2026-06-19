@@ -69,10 +69,9 @@ class ConversationInfo(BaseModel):
     pr_number: int | None = None
     pr_url: str | None = None
     created_at: datetime | None = None
-    run_started_at: datetime | None = None
     updated_at: datetime | None = None
 
-    @field_serializer("created_at", "run_started_at", "updated_at")
+    @field_serializer("created_at", "updated_at")
     def serialize_utc_datetime(self, value: datetime | None) -> str | None:
         if value is None:
             return None

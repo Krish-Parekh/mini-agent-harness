@@ -8,10 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.models import ConversationRow, EventRow
 
-# Distinguishes "leave run_started_at untouched" (event persistence, which knows
-# nothing about run state) from "explicitly clear it to NULL" (run settled).
-_UNSET: Any = object()
-
 
 class ConversationRepository:
     """All database access for conversations and their events lives here."""
@@ -74,7 +70,6 @@ class ConversationRepository:
         workspace_dir: str | None,
         plan: dict[str, Any] | None,
         implementing_plan: bool,
-        run_started_at: Any = _UNSET,
     ) -> None:
         async with self._sessionmaker() as sess:
             await self._upsert(
@@ -87,7 +82,6 @@ class ConversationRepository:
                 workspace_dir=workspace_dir,
                 plan=plan,
                 implementing_plan=implementing_plan,
-                run_started_at=run_started_at,
             )
             await sess.commit()
 
@@ -103,10 +97,7 @@ class ConversationRepository:
         workspace_dir: str | None,
         plan: dict[str, Any] | None,
         implementing_plan: bool,
-        run_started_at: Any = _UNSET,
     ) -> None:
-        # `run_started_at` is only written when explicitly provided, so event
-        # persistence (which knows nothing about run state) never clobbers it.
         values: dict[str, Any] = dict(
             id=cid,
             repo=repo,
@@ -124,9 +115,6 @@ class ConversationRepository:
             implementing_plan=implementing_plan,
             updated_at=func.now(),
         )
-        if run_started_at is not _UNSET:
-            values["run_started_at"] = run_started_at
-            set_["run_started_at"] = run_started_at
         await sess.execute(
             pg_insert(ConversationRow)
             .values(**values)

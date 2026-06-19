@@ -5,7 +5,6 @@ from functools import partial
 from typing import Any, Callable
 
 from pydantic import TypeAdapter
-from sqlalchemy import func
 
 from backend.runtime.manager import (
     AI_TITLE_AFTER_TURNS,
@@ -99,17 +98,7 @@ class ConversationService:
             StatusUpdate(status=status or managed.conversation.status.value)
         )
 
-    async def _persist_status(
-        self,
-        managed: ManagedConversation,
-        run_started: bool | None = None,
-    ) -> None:
-        # run_started: True stamps the run start, False clears it, None leaves it.
-        run_kwargs: dict[str, Any] = {}
-        if run_started is True:
-            run_kwargs["run_started_at"] = func.now()
-        elif run_started is False:
-            run_kwargs["run_started_at"] = None
+    async def _persist_status(self, managed: ManagedConversation) -> None:
         await self._repo.upsert_conversation(
             cid=managed.conversation.id,
             repo=managed.repo,
@@ -118,7 +107,6 @@ class ConversationService:
             title=managed.title,
             workspace_dir=managed.sandbox.workspace_dir,
             **self._plan_state(managed),
-            **run_kwargs,
         )
 
     # --- use cases ---------------------------------------------------------
@@ -192,7 +180,7 @@ class ConversationService:
             conv.set_idle()
             await self._rollback_cancelled_turn(managed)
             self._emit_status(managed)
-            await self._persist_status(managed, run_started=False)
+            await self._persist_status(managed)
             return True
         return False
 
@@ -238,7 +226,6 @@ class ConversationService:
                 pr_number=row.pr_number,
                 pr_url=row.pr_url,
                 created_at=row.created_at,
-                run_started_at=row.run_started_at,
                 updated_at=row.updated_at,
             )
             for row, count in summaries
@@ -325,7 +312,7 @@ class ConversationService:
 
     async def _run(self, managed: ManagedConversation, trigger) -> None:
         self._emit_status(managed, "running")
-        await self._persist_status(managed, run_started=True)
+        await self._persist_status(managed)
         async with managed.lock:
             await asyncio.to_thread(trigger)
             # Stopped mid-run (and didn't reach `finish`): discard the turn so the
@@ -336,7 +323,7 @@ class ConversationService:
         await self._maybe_ai_title(managed)
         await self._maybe_distill_skill(managed)
         self._emit_status(managed)
-        await self._persist_status(managed, run_started=False)
+        await self._persist_status(managed)
 
     async def _rollback_cancelled_turn(self, managed: ManagedConversation) -> None:
         """Drop the last user message and everything after it (the cancelled turn),
@@ -398,16 +385,16 @@ class ConversationService:
         self, managed: ManagedConversation, initial_message: str | None
     ) -> None:
         self._emit_status(managed, "running")
-        await self._persist_status(managed, run_started=True)
+        await self._persist_status(managed)
         async with managed.lock:
             await asyncio.to_thread(managed.bootstrap)
             if managed.conversation.status == Status.ERROR:
                 self._emit_status(managed)
-                await self._persist_status(managed, run_started=False)
+                await self._persist_status(managed)
                 return
             if initial_message:
                 managed.conversation.send_message(initial_message)
                 await asyncio.to_thread(managed.conversation.run)
         await self._maybe_distill_skill(managed)
         self._emit_status(managed)
-        await self._persist_status(managed, run_started=False)
+        await self._persist_status(managed)
