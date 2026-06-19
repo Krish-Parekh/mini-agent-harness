@@ -15,12 +15,10 @@ from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier, PolicyProvider
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.skills import SkillLibrary
 from miniagent.tools.base import Tool, ToolRegistry
 from miniagent.tools.bash import BashAction, BashObservation, BashTool
 from miniagent.tools.file_edit import FileEditAction, FileEditObservation, FileEditTool
 from miniagent.tools.finish import FinishTool
-from miniagent.tools.skill import ReadSkillTool
 
 if TYPE_CHECKING:
     pass
@@ -104,9 +102,6 @@ def _describe_worker_activity(event: ActionEvent) -> str | None:
         path = str(event.arguments.get("path", ""))
         if event.arguments.get("command") == "view":
             return f"Reading {path}" if path else "Reading file"
-    if event.tool_name == "read_skill":
-        name = str(event.arguments.get("name", ""))
-        return f"Reading skill {name}" if name else "Reading skill"
     if event.tool_name == "finish":
         return "Writing summary"
     return None
@@ -128,14 +123,12 @@ class FanoutTool(Tool):
         llm: LLM,
         repo: str | None = None,
         branch: str | None = None,
-        skills: SkillLibrary | None = None,
         policy: PolicyProvider | None = None,
         max_iterations: int = 8,
     ) -> None:
         self.llm = llm
         self.repo = repo
         self.branch = branch
-        self.skills = skills
         self.policy = policy or PolicyClassifier(llm)
         self.max_iterations = max_iterations
 
@@ -222,7 +215,6 @@ class FanoutTool(Tool):
             system_prompt=_WORKER_SYSTEM_PROMPT,
             repo=self.repo,
             branch=self.branch,
-            skills=self.skills,
             policy=self.policy,
             task_router=StaticTaskClassifier(),
         )
@@ -259,8 +251,6 @@ class FanoutTool(Tool):
             ReadOnlyFileEditTool(),
             FinishTool(),
         ]
-        if self.skills is not None:
-            tools.append(ReadSkillTool(self.skills, self.repo))
         return ToolRegistry(tools)
 
     @staticmethod

@@ -22,7 +22,7 @@ from backend.schemas import (
     StatusUpdate,
 )
 from miniagent.conversation import Status
-from miniagent.events import ActionEvent, Event, Events, MessageEvent
+from miniagent.events import Event, Events, MessageEvent
 
 _EVENT_ADAPTER: TypeAdapter[Event] = TypeAdapter(Events)
 
@@ -150,9 +150,10 @@ class ConversationService:
         conv = managed.conversation
         conv.plan_mode = False
         conv.implementing_plan = True
-        conv.send_message(
-            "The plan is approved. Implement it now, following the steps in order."
+        plan_text = (
+            conv.plan.render() if conv.plan is not None else "(no plan recorded)"
         )
+        conv.send_message(f"The plan is approved. Implement it now.\n\n{plan_text}")
         self._spawn(self._run(managed, conv.run))
 
     async def confirm(
@@ -321,7 +322,6 @@ class ConversationService:
             if conv.cancel_event.is_set() and conv.status != Status.FINISHED:
                 await self._rollback_cancelled_turn(managed)
         await self._maybe_ai_title(managed)
-        await self._maybe_distill_skill(managed)
         self._emit_status(managed)
         await self._persist_status(managed)
 
@@ -363,24 +363,6 @@ class ConversationService:
             managed.title = title
             managed._ai_titled = True
 
-    async def _maybe_distill_skill(self, managed: ManagedConversation) -> None:
-        """After a substantial finished run, distill a reusable skill into the
-        library. Best-effort: distillation never fails the run."""
-        library = self._manager.skills
-        conv = managed.conversation
-        if library is None or managed._distilled or conv.status != Status.FINISHED:
-            return
-        # Only distill runs that actually did work — skip trivial Q&A.
-        if sum(1 for e in conv.events if isinstance(e, ActionEvent)) < 2:
-            return
-        try:
-            name = await asyncio.to_thread(managed.distill_skill, library)
-        except Exception as exc:  # distillation is best-effort — never fail the run
-            print(f"[distill] failed for {conv.id}: {exc}")
-            return
-        if name:
-            managed._distilled = True
-
     async def _start(
         self, managed: ManagedConversation, initial_message: str | None
     ) -> None:
@@ -395,6 +377,5 @@ class ConversationService:
             if initial_message:
                 managed.conversation.send_message(initial_message)
                 await asyncio.to_thread(managed.conversation.run)
-        await self._maybe_distill_skill(managed)
         self._emit_status(managed)
         await self._persist_status(managed)

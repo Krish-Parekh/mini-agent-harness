@@ -17,6 +17,7 @@ from miniagent.events import (
     LLMUsageEvent,
     MessageEvent,
     ObservationEvent,
+    WorkspaceSketchEvent,
 )
 from miniagent.llm import LLM, LLMResponse, ToolCall
 from miniagent.policy import PolicyClassifier, PolicyProvider
@@ -38,7 +39,6 @@ from miniagent.tools.plan import Plan
 if TYPE_CHECKING:
     from miniagent.conversation import Conversation
     from miniagent.sandbox.base import Sandbox
-    from miniagent.skills import SkillLibrary
 
 ToolOutcome: TypeAlias = Literal["ok", "finished", "paused"]
 
@@ -50,9 +50,6 @@ _MAX_MESSAGE_CHARS = 12_000
 # stuck detector pauses the run.
 _NUDGE_AFTER_REPEATS = 2
 
-# Repo-authored agent context, first match wins (AGENTS.md is the open standard).
-_INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md")
-_MAX_INSTRUCTIONS_CHARS = 5_000
 _MAX_FILE_SKETCH_CHARS = 2_000
 
 _CONDENSE_AFTER_TOKENS = 32_000
@@ -68,20 +65,6 @@ class ToolResult:
     error: bool
     duration_ms: int | None = None
     details: dict | None = None
-
-
-def _instructions_block(sandbox: Sandbox) -> str:
-    """The repo's own agent instructions, when its authors wrote any."""
-    for name in _INSTRUCTION_FILES:
-        try:
-            content = sandbox.read_file(name).strip()
-        except Exception:
-            continue
-        if content:
-            return f"\n\n## Repository instructions ({name})\n" + clip(
-                content, _MAX_INSTRUCTIONS_CHARS
-            )
-    return ""
 
 
 def _file_sketch(sandbox: Sandbox) -> str:
@@ -120,7 +103,6 @@ class Agent:
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         repo: str | None = None,
         branch: str | None = None,
-        skills: SkillLibrary | None = None,
         policy: PolicyProvider | None = None,
         task_router: TaskRouteProvider | None = None,
     ) -> None:
@@ -129,7 +111,6 @@ class Agent:
         self.system_prompt = system_prompt
         self.repo = repo
         self.branch = branch
-        self.skills = skills
         self.policy = policy or PolicyClassifier(llm)
         self.task_router = task_router or TaskClassifier(llm)
 
@@ -152,6 +133,7 @@ class Agent:
             )
             return
 
+        self._ensure_workspace_sketch(conversation, sandbox)
         self._maybe_condense(conversation, sandbox)
         messages = self._build_messages(conversation, sandbox)
         response = self.llm.complete(messages, self.tools.all())
@@ -191,8 +173,9 @@ class Agent:
     def _context_block(self, conversation: Conversation, sandbox: Sandbox) -> str:
         """Workspace context appended to the system prompt every turn.
 
-        Read at message-build time, not construction time: bootstrap moves the
-        sandbox into the worktree after the agent is built.
+        Kept intentionally small. Larger orientation data, like the tracked-file
+        sketch, is added once to the conversation history instead of repeated on
+        every agent step.
         """
         lines = ["\n\n# Workspace"]
         if self.repo:
@@ -200,30 +183,22 @@ class Agent:
             lines.append(f"- repository: {self.repo}{branch}")
         lines.append(f"- working directory: {sandbox.workspace_dir}")
         lines.append("Relative paths resolve against the working directory.")
-        block = "\n".join(lines)
-        block += _instructions_block(sandbox)
-        block += _file_sketch(sandbox)
-        if conversation.implementing_plan:
-            result = sandbox.run_command("git status --porcelain", timeout=10)
-            status = result.stdout.strip()
-            if result.exit_code == 0 and status:
-                block += "\n\n## Uncommitted changes (git status --porcelain)\n"
-                block += clip(status, 1_500)
-        return block
-
-    def _skills_block(self) -> str:
-        if self.skills is None:
-            return ""
-        refs = self.skills.index(self.repo)
-        if not refs:
-            return ""
-        lines = [
-            "\n\n# Skills",
-            "Reusable knowledge distilled from previous sessions. If one looks",
-            "relevant, call `read_skill` with its name before working in that area.",
-        ]
-        lines.extend(f"- {ref.name}: {ref.description}" for ref in refs)
         return "\n".join(lines)
+
+    @staticmethod
+    def _has_workspace_sketch(conversation: Conversation) -> bool:
+        return any(
+            isinstance(event, WorkspaceSketchEvent) for event in conversation.events
+        )
+
+    def _ensure_workspace_sketch(
+        self, conversation: Conversation, sandbox: Sandbox
+    ) -> None:
+        if self._has_workspace_sketch(conversation):
+            return
+        sketch = _file_sketch(sandbox).strip()
+        if sketch:
+            conversation.add_event(WorkspaceSketchEvent(content=sketch))
 
     def _route_block(self, conversation: Conversation) -> str:
         if conversation.route == TaskRoute.QUESTION:
@@ -317,15 +292,12 @@ class Agent:
         system_prompt = (
             self.system_prompt
             + self._context_block(conversation, sandbox)
-            + self._skills_block()
             + self._route_block(conversation)
         )
         if conversation.plan_mode:
             system_prompt += PLAN_MODE_DIRECTIVE
-        elif conversation.implementing_plan and conversation.plan is not None:
-            system_prompt += IMPLEMENT_PLAN_DIRECTIVE.format(
-                plan=conversation.plan.render()
-            )
+        elif conversation.implementing_plan:
+            system_prompt += IMPLEMENT_PLAN_DIRECTIVE
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         compacted = conversation.compacted_event_ids()
         for event in conversation.events:
@@ -476,8 +448,6 @@ class Agent:
             return False
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") == "view"
-        if action_event.tool_name == "read_skill":
-            return True
         if action_event.tool_name in ("web_search", "fetch_url"):
             return True
         if action_event.tool_name == "bash":

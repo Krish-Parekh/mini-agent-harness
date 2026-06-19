@@ -12,9 +12,12 @@ import {
 } from "lucide-react";
 import type { ActionEvent, ObservationEvent } from "@/lib/events";
 import {
-  ChainOfThoughtSearchResult,
-  ChainOfThoughtSearchResults,
-} from "@/components/ai-elements/chain-of-thought";
+  Avatar,
+  AvatarFallback,
+  AvatarGroup,
+  AvatarGroupCount,
+  AvatarImage,
+} from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
 export type FileChange = {
@@ -48,19 +51,60 @@ export type ToolView = {
 type Args = Record<string, unknown>;
 type ToolRenderer = (args: Args) => ToolView;
 
-const TAVILY_SEARCH_ENDPOINT = "https://api.tavily.com/search";
+function hostnameFromUrl(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
 
-function EndpointRow({
-  method,
-  endpoint,
-}: {
-  method: string;
-  endpoint: string;
-}) {
+function faviconUrl(hostname: string): string {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=16`;
+}
+
+function SourceAvatars({ results }: { results: { url: string; title?: string }[] }) {
+  const seen = new Set<string>();
+  const sources: { host: string; url: string; title?: string }[] = [];
+  for (const result of results) {
+    const host = hostnameFromUrl(result.url);
+    if (seen.has(host)) continue;
+    seen.add(host);
+    sources.push({ host, url: result.url, title: result.title });
+  }
+  if (sources.length === 0) return null;
+
+  const max = 6;
+  const shown = sources.slice(0, max);
+  const overflow = sources.length - max;
+
   return (
-    <p className="font-mono text-[11px] text-muted-foreground">
-      <span className="text-foreground/70">{method}</span> {endpoint}
-    </p>
+    <div className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
+      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        Sources
+      </p>
+      <AvatarGroup className="-space-x-1">
+        {shown.map(({ host, url, title }) => (
+          <a
+            key={host}
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            title={title?.trim() || host}
+          >
+            <Avatar size="sm" className="size-5 after:border-0">
+              <AvatarImage src={faviconUrl(host)} alt={host} />
+              <AvatarFallback className="text-[9px] font-medium">
+                {host[0]?.toUpperCase() ?? "?"}
+              </AvatarFallback>
+            </Avatar>
+          </a>
+        ))}
+        {overflow > 0 && (
+          <AvatarGroupCount className="size-5 text-[9px]">+{overflow}</AvatarGroupCount>
+        )}
+      </AvatarGroup>
+    </div>
   );
 }
 
@@ -156,16 +200,6 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
       icon: SearchIcon,
       verb: "Web search",
       target: query,
-      preview: (
-        <ScrollablePreview className="space-y-2">
-          <EndpointRow method="POST" endpoint={TAVILY_SEARCH_ENDPOINT} />
-          {query ? (
-            <p className="text-xs text-muted-foreground">
-              query: <span className="text-foreground">{query}</span>
-            </p>
-          ) : null}
-        </ScrollablePreview>
-      ),
     };
   },
   fetch_url: (a) => {
@@ -174,11 +208,6 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
       icon: GlobeIcon,
       verb: "Fetch URL",
       target: url,
-      preview: url ? (
-        <ScrollablePreview className="space-y-2">
-          <EndpointRow method="GET" endpoint={url} />
-        </ScrollablePreview>
-      ) : undefined,
     };
   },
   web_research: (a) => ({
@@ -208,89 +237,13 @@ export function toolObservationDetail(
   if (!details) return undefined;
 
   if (toolName === "web_search") {
-    const endpoint = String(details.endpoint ?? TAVILY_SEARCH_ENDPOINT);
-    const method = String(details.method ?? "POST");
-    const query = String(details.query ?? "");
     const results = (details.results as WebSearchResultDetail[] | undefined) ?? [];
-    const answer =
-      typeof details.answer === "string" && details.answer.trim()
-        ? details.answer
-        : null;
-
-    return (
-      <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
-        <EndpointRow method={method} endpoint={endpoint} />
-        {query ? (
-          <p className="text-xs text-muted-foreground">
-            query: <span className="text-foreground">{query}</span>
-          </p>
-        ) : null}
-        {answer ? (
-          <p className="text-xs leading-relaxed text-foreground">{answer}</p>
-        ) : null}
-        {results.length > 0 ? (
-          <div className="space-y-2">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Result URLs
-            </p>
-            <ul className="space-y-2">
-              {results.map((result) => (
-                <li key={result.url} className="space-y-0.5">
-                  <ExternalUrl href={result.url}>
-                    {result.title?.trim() || result.url}
-                  </ExternalUrl>
-                  <p className="truncate font-mono text-[11px] text-muted-foreground">
-                    {result.url}
-                  </p>
-                  {result.snippet ? (
-                    <p className="line-clamp-2 text-xs text-muted-foreground">
-                      {result.snippet}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-            <ChainOfThoughtSearchResults>
-              {results.map((result) => {
-                let hostname = result.url;
-                try {
-                  hostname = new URL(result.url).hostname;
-                } catch {
-                  // keep full URL
-                }
-                return (
-                  <ChainOfThoughtSearchResult key={result.url}>
-                    <a href={result.url} target="_blank" rel="noreferrer">
-                      {hostname}
-                    </a>
-                  </ChainOfThoughtSearchResult>
-                );
-              })}
-            </ChainOfThoughtSearchResults>
-          </div>
-        ) : !obs.error ? (
-          <p className="text-xs text-muted-foreground">No result URLs returned.</p>
-        ) : null}
-      </div>
-    );
+    if (results.length === 0) return undefined;
+    return <SourceAvatars results={results} />;
   }
 
   if (toolName === "fetch_url") {
-    const url = String(details.url ?? "");
-    const method = String(details.method ?? "GET");
-    if (!url) return undefined;
-    return (
-      <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 p-3">
-        <EndpointRow method={method} endpoint={url} />
-        {!obs.error && obs.content ? (
-          <ScrollablePreview>
-            <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
-              {obs.content.replace(/^url: [^\n]+\ncontent:\n/, "")}
-            </pre>
-          </ScrollablePreview>
-        ) : null}
-      </div>
-    );
+    return undefined;
   }
 
   return undefined;

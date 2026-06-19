@@ -21,7 +21,7 @@ from miniagent.tools.bash import BashTool
 from miniagent.tools.fanout import FanoutAction, FanoutTask, FanoutTool, ReadOnlyFileEditTool
 from miniagent.tools.file_edit import FileEditAction, FileEditTool
 from miniagent.tools.finish import FinishTool
-from miniagent.tools.plan import PresentPlanTool
+from miniagent.tools.plan import Plan, PlanStep, PresentPlanTool
 
 
 class ScriptedLLM:
@@ -30,6 +30,7 @@ class ScriptedLLM:
         self._tokens = tokens
         self._lock = threading.Lock()
         self.calls: list[list[dict]] = []
+        self.model = "test-model"
 
     def complete(self, messages, tools=None):
         with self._lock:
@@ -492,6 +493,28 @@ def test_condensation_summary_preserves_failure_evidence(sandbox):
     assert "summary of old work" in content
     assert "Failure/error evidence to preserve" in content
     assert "stopped: repeated empty result" in content
+
+
+def test_implementing_plan_system_prompt_does_not_repeat_full_plan(sandbox):
+    agent = agent_with([], [FinishTool()])
+    conversation = Conversation(agent=agent, sandbox=sandbox)
+    conversation.implementing_plan = True
+    conversation.plan = Plan(
+        title="Test plan",
+        steps=[
+            PlanStep(
+                title="Edit the target file",
+                files=["target.py"],
+                description="This full step text should live in conversation history.",
+            )
+        ],
+    )
+
+    system = agent._build_messages(conversation, sandbox)[0]["content"]
+
+    assert "Approved plan implementation" in system
+    assert "Edit the target file" not in system
+    assert "target.py" not in system
 
 
 def test_verification_gate_rejects_finish_after_unverified_edit(sandbox):

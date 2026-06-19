@@ -11,8 +11,6 @@ import {
   type ConversationInfo,
   type GitHubStatus,
   type Repo,
-  type SkillBody,
-  type SkillInfo,
 } from "@/lib/api";
 
 export const queryKeys = {
@@ -22,9 +20,6 @@ export const queryKeys = {
   conversation: (id: string) => ["conversation", id] as const,
   events: (id: string) => ["events", id] as const,
   files: (id: string) => ["files", id] as const,
-  skills: ["skills"] as const,
-  skillBody: (name: string, repo: string | null) =>
-    ["skills", "body", name, repo] as const,
 };
 
 export function useGitHubStatus() {
@@ -143,16 +138,3 @@ export function useFiles(id: string, enabled = true) {
   });
 }
 
-export function useSkills() {
-  return useQuery<SkillInfo[]>({
-    queryKey: queryKeys.skills,
-    queryFn: api.skills,
-  });
-}
-
-export function useSkillBody(name: string, repo: string | null) {
-  return useQuery<SkillBody>({
-    queryKey: queryKeys.skillBody(name, repo),
-    queryFn: () => api.skillBody(name, repo),
-  });
-}

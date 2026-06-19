@@ -82,15 +82,6 @@ export type FileDiff = { path: string; patch: string };
 
 export type FileContent = { path: string; content: string };
 
-export type SkillInfo = {
-  name: string;
-  description: string;
-  scope: "repo" | "global";
-  repo: string | null;
-};
-
-export type SkillBody = { name: string; content: string };
-
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -198,15 +189,6 @@ export const api = {
     fetch(
       `${API}/conversations/${id}/files/content?path=${encodeURIComponent(path)}`,
     ).then((r) => json<FileContent>(r)),
-
-  skills: () => fetch(`${API}/skills`).then((r) => json<SkillInfo[]>(r)),
-
-  // repo is a query param (not path) because repo full names contain a slash.
-  skillBody: (name: string, repo?: string | null) => {
-    const params = new URLSearchParams({ name });
-    if (repo) params.set("repo", repo);
-    return fetch(`${API}/skills/body?${params}`).then((r) => json<SkillBody>(r));
-  },
 
   wsUrl: (id: string) =>
     `${API.replace(/^http/, "ws")}/conversations/${id}/ws`,

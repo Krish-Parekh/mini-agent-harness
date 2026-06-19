@@ -1,7 +1,6 @@
 - [x] Adding planning options
 - [x] Add option to raise PR once in final stage
 - [ ] Need to do context engineering in terms of conversation summary 
-- [ ] Implement Skill distillation from the self-learning agent
 - [ ] Add proper database to store chats, messages instead of static JSONL (adds complexity but lets keep this as our last tasks once we get good judgement of schema).
 - [ ] Token persistance is required for github, later we need to allow mini agent to make commits.
 - [ ] Implement Fanout architecture for sub-agents

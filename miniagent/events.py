@@ -96,6 +96,15 @@ class CondensationEvent(Event):
         return {"role": "user", "content": f"[conversation summary]\n{self.summary}"}
 
 
+class WorkspaceSketchEvent(Event):
+    kind: Literal["workspace_sketch"] = "workspace_sketch"
+    source: Source = "environment"
+    content: str
+
+    def to_chat_message(self) -> dict:
+        return {"role": "user", "content": f"[workspace sketch]\n{self.content}"}
+
+
 class LLMUsageEvent(Event):
     kind: Literal["llm_usage"] = "llm_usage"
     source: Source = "agent"
@@ -134,6 +143,7 @@ Events: TypeAlias = Annotated[
         ActionEvent,
         ObservationEvent,
         CondensationEvent,
+        WorkspaceSketchEvent,
         LLMUsageEvent,
         FanoutWorkerEvent,
         ErrorEvent,
