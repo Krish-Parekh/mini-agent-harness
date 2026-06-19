@@ -17,6 +17,7 @@ export type ObservationEvent = AgentEvent & {
   tool_call_id?: string;
   content?: string;
   error?: boolean;
+  details?: Record<string, unknown> | null;
 };
 
 export type ErrorEvent = AgentEvent & {

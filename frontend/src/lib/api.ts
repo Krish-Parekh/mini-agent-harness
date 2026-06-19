@@ -66,6 +66,7 @@ export type AgentEvent = {
   content?: string;
   error?: boolean;
   duration_ms?: number | null;
+  details?: Record<string, unknown> | null;
   // error
   message?: string;
 };

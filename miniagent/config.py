@@ -33,3 +33,5 @@ class Settings(BaseSettings):
         "postgresql+psycopg://miniagent:miniagent@localhost:5432/miniagent",
         validation_alias=AliasChoices("DATABASE_URL"),
     )
+
+    tavily_api_key: str = Field("", validation_alias=AliasChoices("TAVILY_API_KEY"))

@@ -27,6 +27,9 @@ from miniagent.tools.ask import AskUserTool
 from miniagent.tools.fanout import FanoutTool
 from miniagent.tools.plan import Plan, PresentPlanTool, UpdatePlanTool
 from miniagent.tools.skill import ReadSkillTool
+from miniagent.tools.fetch_url import FetchUrlTool
+from miniagent.tools.web_research import WebResearchTool
+from miniagent.tools.web_search import WebSearchTool
 from miniagent.skills import SkillLibrary
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
@@ -93,18 +96,27 @@ def _build_agent(
             max_tokens=512,
         )
     )
-    tools = ToolRegistry(
-        [
-            BashTool(),
-            FileEditTool(),
-            FinishTool(),
-            PresentPlanTool(),
-            UpdatePlanTool(),
-            AskUserTool(),
-            *([ReadSkillTool(skills, repo)] if skills is not None else []),
-            FanoutTool(llm, repo, branch, skills, policy),
-        ]
-    )
+    tool_list: list = [
+        BashTool(),
+        FileEditTool(),
+        FinishTool(),
+        PresentPlanTool(),
+        UpdatePlanTool(),
+        AskUserTool(),
+        *([ReadSkillTool(skills, repo)] if skills is not None else []),
+        FanoutTool(llm, repo, branch, skills, policy),
+    ]
+    if settings.tavily_api_key:
+        web_search = WebSearchTool(settings.tavily_api_key)
+        fetch_url = FetchUrlTool()
+        tool_list.extend(
+            [
+                web_search,
+                fetch_url,
+                WebResearchTool(llm, web_search, fetch_url),
+            ]
+        )
+    tools = ToolRegistry(tool_list)
     return Agent(
         llm=llm,
         tools=tools,

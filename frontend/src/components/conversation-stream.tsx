@@ -20,7 +20,13 @@ import {
   type FanoutWorkerState,
   buildFanoutWorkerMap,
 } from "@/lib/fanout-workers";
-import { ScrollablePreview, type ToolView, toolView } from "@/lib/tool-views";
+import {
+  ExternalUrl,
+  ScrollablePreview,
+  type ToolView,
+  toolObservationDetail,
+  toolView,
+} from "@/lib/tool-views";
 import { formatDuration, formatElapsed, useElapsed } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { useConversation } from "@/components/ai-elements/conversation";
@@ -110,8 +116,18 @@ function StepLabel({
           >
             {view.target}
           </button>
+        ) : /^https?:\/\//.test(view.target) ? (
+          <ExternalUrl
+            href={view.target}
+            className="truncate font-mono text-muted-foreground text-xs"
+          >
+            {view.target}
+          </ExternalUrl>
         ) : (
-          <span className="truncate font-mono text-muted-foreground text-xs">
+          <span
+            className="truncate font-mono text-muted-foreground text-xs"
+            title={view.target}
+          >
             {view.target}
           </span>
         ))}
@@ -125,14 +141,20 @@ function stepTiming(
   running: boolean,
   elapsedMs: number,
 ): string | undefined {
-  if (action.tool_name !== "bash") return undefined;
-  if (running) return `Running ${formatElapsed(elapsedMs)}`;
-  if (!obs) return undefined;
-  const ms =
-    obs.duration_ms != null
-      ? obs.duration_ms
-      : (obs.timestamp - action.timestamp) * 1000;
-  return formatDuration(ms);
+  if (
+    action.tool_name === "bash" ||
+    action.tool_name === "web_search" ||
+    action.tool_name === "fetch_url"
+  ) {
+    if (running) return `Running ${formatElapsed(elapsedMs)}`;
+    if (!obs) return undefined;
+    const ms =
+      obs.duration_ms != null
+        ? obs.duration_ms
+        : (obs.timestamp - action.timestamp) * 1000;
+    return formatDuration(ms);
+  }
+  return undefined;
 }
 
 function FanoutWorkersPanel({
@@ -213,6 +235,10 @@ function ChainStep({
   const elapsed = useElapsed(running ? action.timestamp * 1000 : null, running);
   const timing = stepTiming(action, obs, running, elapsed);
   const isError = obs?.error || orphaned;
+  const observationDetail =
+    obs && isObservation(obs)
+      ? toolObservationDetail(action.tool_name, obs)
+      : undefined;
 
   return (
     <ChainOfThoughtStep
@@ -241,6 +267,8 @@ function ChainStep({
           </pre>
         </ScrollablePreview>
       )}
+      {observationDetail}
+      {!obs && !isPending && view.preview}
       {action.tool_name === "fanout" && fanoutWorkers && fanoutWorkers.length > 0 && (
         <FanoutWorkersPanel
           workers={fanoutWorkers}

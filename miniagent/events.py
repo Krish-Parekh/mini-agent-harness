@@ -75,6 +75,8 @@ class ObservationEvent(Event):
     # Wall-clock the tool took to run, when the tool measures it (e.g. bash).
     # Surfaced structurally so the UI can show timing without parsing `content`.
     duration_ms: int | None = None
+    # Structured payload for the UI (endpoints, result URLs, etc.).
+    details: dict[str, Any] | None = None
 
     def to_chat_message(self) -> dict:
         return {

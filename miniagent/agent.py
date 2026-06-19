@@ -67,6 +67,7 @@ class ToolResult:
     content: str
     error: bool
     duration_ms: int | None = None
+    details: dict | None = None
 
 
 def _instructions_block(sandbox: Sandbox) -> str:
@@ -477,6 +478,8 @@ class Agent:
             return action_event.arguments.get("command") == "view"
         if action_event.tool_name == "read_skill":
             return True
+        if action_event.tool_name in ("web_search", "fetch_url"):
+            return True
         if action_event.tool_name == "bash":
             return self.policy.classify_bash(
                 action_event.arguments.get("command", "")
@@ -513,6 +516,7 @@ class Agent:
                 result.content,
                 result.error,
                 result.duration_ms,
+                result.details,
             )
 
     def _execute_action(
@@ -605,6 +609,7 @@ class Agent:
             result.content,
             result.error,
             result.duration_ms,
+            result.details,
         )
         if result.error:
             return False
@@ -676,7 +681,7 @@ class Agent:
             plan.steps[action.step - 1].status = action.status
 
         try:
-            if call.name == "fanout" and conversation is not None:
+            if call.name in ("fanout", "web_research") and conversation is not None:
                 observation = tool.execute(
                     action,
                     sandbox,
@@ -697,6 +702,7 @@ class Agent:
             content,
             getattr(observation, "error", False),
             getattr(observation, "duration_ms", None),
+            observation.ui_details(),
         )
 
     def _blocked_in_plan_mode(self, action_event: ActionEvent) -> bool:
@@ -746,6 +752,7 @@ class Agent:
         content: str,
         error: bool,
         duration_ms: int | None = None,
+        details: dict | None = None,
     ) -> None:
         # A weak model can get stuck re-issuing an identical call — a failing
         # str_replace, an invalid-args retry — and burn every iteration on it.
@@ -766,5 +773,6 @@ class Agent:
                 content=content,
                 error=error,
                 duration_ms=duration_ms,
+                details=details,
             )
         )
