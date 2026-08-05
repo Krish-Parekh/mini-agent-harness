@@ -81,7 +81,11 @@ class Conversation:
         return self._stuck_detector
 
     def send_message(
-        self, text: str, plan_mode: bool = False, route: TaskRoute | None = None
+        self,
+        text: str,
+        plan_mode: bool = False,
+        route: TaskRoute | None = None,
+        client_event_id: str | None = None,
     ) -> None:
         # Only ever turn it on here; plan approval clears it. A plain reply
         # (answering a question, refining the plan) keeps the existing mode.
@@ -90,7 +94,9 @@ class Conversation:
         self.route = route or self.agent.classify_task_route(
             text, plan_mode=self.plan_mode
         )
-        self.add_event(MessageEvent(role="user", text=text))
+        self.add_event(
+            MessageEvent(role="user", text=text, client_event_id=client_event_id)
+        )
 
     def add_event(self, event: Event) -> None:
         self.events.append(event)

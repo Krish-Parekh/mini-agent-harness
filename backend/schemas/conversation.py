@@ -22,6 +22,7 @@ class SendMessageRequest(BaseModel):
     text: str
     model: str | None = None
     plan_mode: bool = False
+    client_event_id: str | None = None
 
 
 class ConfirmRequest(BaseModel):

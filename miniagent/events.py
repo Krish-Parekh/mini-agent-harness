@@ -31,6 +31,7 @@ class MessageEvent(Event):
     source: Source = "user"
     role: Literal["user", "assistant", "system"]
     text: str
+    client_event_id: str | None = None
 
     def to_chat_message(self) -> dict:
         return {"role": self.role, "content": self.text}
