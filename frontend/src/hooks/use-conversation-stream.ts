@@ -20,16 +20,8 @@ const BUSY = new Set<ConversationStatus>([
   "waiting_for_confirmation",
 ]);
 
-/**
- * Owns a conversation's live state: the event websocket (connect, reconnect,
- * dedupe), run status, changed files, and everything derivable from the event
- * log. Pages consume this and stay presentational.
- */
 export function useConversationStream(id: string) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
-  // Only set by the websocket (status seed on connect + live updates). Until
-  // it arrives we fall back to the REST status below, so the chat opens in its
-  // real state instead of a stale "idle".
   const [wsStatus, setStatus] = useState<ConversationStatus | null>(null);
   const [changes, setChanges] = useState<ChangedFile[]>([]);
   const [wsGone, setWsGone] = useState(false);
@@ -45,23 +37,24 @@ export function useConversationStream(id: string) {
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let unmounted = false;
+    let authFailures = 0;
 
-    function connect() {
-      ws = new WebSocket(api.wsUrl(id));
+    async function connect() {
+      const protocols = await api.wsProtocols();
+      if (unmounted) return;
+      ws = new WebSocket(api.wsUrl(id), protocols);
       ws.onopen = () => setConnected(true);
       ws.onmessage = (msg) => {
         let data;
         try {
           data = JSON.parse(msg.data);
         } catch {
-          // One malformed frame must not take the socket down with it.
           console.warn("Dropped malformed websocket frame", msg.data);
           return;
         }
         if (data.kind === "status") {
           const next = data.status as ConversationStatus;
           setStatus(next);
-          // A stop settled: the backend trimmed the cancelled turn, so resync.
           if (stopping.current && !BUSY.has(next)) {
             stopping.current = false;
             api
@@ -80,17 +73,16 @@ export function useConversationStream(id: string) {
       };
       ws.onclose = (e) => {
         setConnected(false);
-        // 4404: deleted mid-session. Stop reconnecting and fall through to the
-        // not-found screen rather than looping against a gone conversation.
         if (e.code === 4404) {
           setWsGone(true);
           return;
         }
+        if (e.code === 4401 && ++authFailures > 2) return;
         if (unmounted) return;
-        reconnectTimer = setTimeout(connect, 1000);
+        reconnectTimer = setTimeout(() => void connect(), 1000);
       };
     }
-    connect();
+    void connect();
 
     return () => {
       unmounted = true;
@@ -115,12 +107,9 @@ export function useConversationStream(id: string) {
     api
       .changes(id)
       .then(setChanges)
-      // Keyed toast: a flapping backend yields one toast, not one per retry.
       .catch((e) => toast.error(messageFor(e), { id: "refresh-changes" }));
   }, [id]);
 
-  // Git is the source of truth for changed files; refetch whenever a tool
-  // finishes (each observation), since bash can touch files too.
   useEffect(() => {
     refreshChanges();
   }, [refreshChanges, observationByCall.size]);
@@ -139,7 +128,6 @@ export function useConversationStream(id: string) {
     return undefined;
   }, [events, observationByCall]);
 
-  // The agent's last `ask_user` that the user hasn't replied to yet.
   const pendingQuestion = useMemo(() => {
     let candidate: AgentEvent | undefined;
     for (const e of events) {
@@ -149,7 +137,6 @@ export function useConversationStream(id: string) {
     return candidate;
   }, [events]);
 
-  // The agent's last presented plan that the user hasn't responded to yet.
   const pendingPlan = useMemo(() => {
     let candidate: AgentEvent | undefined;
     for (const e of events) {
@@ -167,9 +154,6 @@ export function useConversationStream(id: string) {
     return undefined;
   }, [events]);
 
-  // Live statuses for the latest plan's steps: seeded from its `present_plan`
-  // arguments, then folded forward with each `update_plan` call. Replayed
-  // events on reconnect rebuild the same state, so this survives refresh.
   const livePlan = useMemo(() => {
     let planEvent: AgentEvent | undefined;
     for (const e of events) {

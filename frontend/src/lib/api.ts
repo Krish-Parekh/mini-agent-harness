@@ -1,6 +1,21 @@
+import { accessToken } from "@/lib/supabase";
+
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
-export type GitHubStatus = { connected: boolean; login: string | null };
+export type GitHubConnection = {
+  connected: boolean;
+  login: string | null;
+  avatar_url: string | null;
+  connected_at: string | null;
+};
+
+export type AuthUser = {
+  id: string;
+  email: string | null;
+  avatar_url: string | null;
+};
+
+export type AuthState = { user: AuthUser; github: GitHubConnection };
 
 export type Repo = {
   full_name: string;
@@ -56,10 +71,8 @@ export type AgentEvent = {
   timestamp: number;
   source: string;
   kind: "message" | "action" | "observation" | "error" | string;
-  // message
   role?: "user" | "assistant" | "system";
   text?: string;
-  // action / observation
   tool_name?: string;
   arguments?: Record<string, unknown>;
   tool_call_id?: string;
@@ -67,7 +80,6 @@ export type AgentEvent = {
   error?: boolean;
   duration_ms?: number | null;
   details?: Record<string, unknown> | null;
-  // error
   message?: string;
 };
 
@@ -98,98 +110,85 @@ export class ApiError extends Error {
 
 const jsonHeaders = { "content-type": "application/json" };
 
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = await accessToken();
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return json<T>(await fetch(`${API}${path}`, { ...init, headers }));
+}
+
+const post = <T>(path: string, body?: unknown) =>
+  request<T>(path, {
+    method: "POST",
+    ...(body === undefined
+      ? {}
+      : { headers: jsonHeaders, body: JSON.stringify(body) }),
+  });
+
 export const api = {
-  loginUrl: () => `${API}/auth/github/login`,
+  syncAuth: (providerToken?: string | null) =>
+    post<AuthState>("/auth/sync", { provider_token: providerToken ?? null }),
 
-  githubStatus: () =>
-    fetch(`${API}/auth/github/status`).then((r) => json<GitHubStatus>(r)),
+  me: () => request<AuthState>("/auth/me"),
 
-  logout: () =>
-    fetch(`${API}/auth/github/logout`, { method: "POST" }).then((r) =>
-      json<{ connected: boolean }>(r),
-    ),
+  disconnectGitHub: () =>
+    post<{ connected: boolean }>("/auth/github/disconnect"),
 
-  repos: () => fetch(`${API}/auth/github/repos`).then((r) => json<Repo[]>(r)),
+  repos: () => request<Repo[]>("/auth/github/repos"),
 
-  importRepo: (repo: string) =>
-    fetch(`${API}/auth/github/import`, {
-      method: "POST",
-      headers: jsonHeaders,
-      body: JSON.stringify({ repo }),
-    }).then((r) => json<Repo>(r)),
+  importRepo: (repo: string) => post<Repo>("/auth/github/import", { repo }),
 
   createConversation: (body: { repo: string; branch?: string | null }) =>
-    fetch(`${API}/conversations`, {
-      method: "POST",
-      headers: jsonHeaders,
-      body: JSON.stringify(body),
-    }).then((r) => json<ConversationInfo>(r)),
+    post<ConversationInfo>("/conversations", body),
 
-  conversations: () =>
-    fetch(`${API}/conversations`).then((r) => json<ConversationInfo[]>(r)),
+  conversations: () => request<ConversationInfo[]>("/conversations"),
 
   deleteConversation: (id: string) =>
-    fetch(`${API}/conversations/${id}`, { method: "DELETE" }).then((r) =>
-      json<{ deleted: string }>(r),
-    ),
+    request<{ deleted: string }>(`/conversations/${id}`, { method: "DELETE" }),
 
   conversation: (id: string) =>
-    fetch(`${API}/conversations/${id}`).then((r) => json<ConversationInfo>(r)),
+    request<ConversationInfo>(`/conversations/${id}`),
 
-  events: (id: string) =>
-    fetch(`${API}/conversations/${id}/events`).then((r) => json<AgentEvent[]>(r)),
+  events: (id: string) => request<AgentEvent[]>(`/conversations/${id}/events`),
 
   sendMessage: (id: string, text: string, model?: string, planMode?: boolean) =>
-    fetch(`${API}/conversations/${id}/messages`, {
-      method: "POST",
-      headers: jsonHeaders,
-      body: JSON.stringify({
-        text,
-        ...(model ? { model } : {}),
-        ...(planMode ? { plan_mode: true } : {}),
-      }),
-    }).then((r) => json<ConversationInfo>(r)),
+    post<ConversationInfo>(`/conversations/${id}/messages`, {
+      text,
+      ...(model ? { model } : {}),
+      ...(planMode ? { plan_mode: true } : {}),
+    }),
 
-  stop: (id: string) =>
-    fetch(`${API}/conversations/${id}/stop`, { method: "POST" }).then((r) =>
-      json<ConversationInfo>(r),
-    ),
+  stop: (id: string) => post<ConversationInfo>(`/conversations/${id}/stop`),
 
-  createPr: (id: string) =>
-    fetch(`${API}/conversations/${id}/pr`, { method: "POST" }).then((r) =>
-      json<ConversationInfo>(r),
-    ),
+  createPr: (id: string) => post<ConversationInfo>(`/conversations/${id}/pr`),
 
   approvePlan: (id: string) =>
-    fetch(`${API}/conversations/${id}/plan/approve`, { method: "POST" }).then(
-      (r) => json<ConversationInfo>(r),
-    ),
+    post<ConversationInfo>(`/conversations/${id}/plan/approve`),
 
   confirm: (id: string, approve: boolean, reason?: string) =>
-    fetch(`${API}/conversations/${id}/confirm`, {
-      method: "POST",
-      headers: jsonHeaders,
-      body: JSON.stringify({ approve, ...(reason ? { reason } : {}) }),
-    }).then((r) => json<ConversationInfo>(r)),
+    post<ConversationInfo>(`/conversations/${id}/confirm`, {
+      approve,
+      ...(reason ? { reason } : {}),
+    }),
 
-  changes: (id: string) =>
-    fetch(`${API}/conversations/${id}/changes`).then((r) =>
-      json<ChangedFile[]>(r),
-    ),
+  changes: (id: string) => request<ChangedFile[]>(`/conversations/${id}/changes`),
 
   fileDiff: (id: string, path: string) =>
-    fetch(
-      `${API}/conversations/${id}/changes/diff?path=${encodeURIComponent(path)}`,
-    ).then((r) => json<FileDiff>(r)),
+    request<FileDiff>(
+      `/conversations/${id}/changes/diff?path=${encodeURIComponent(path)}`,
+    ),
 
-  files: (id: string) =>
-    fetch(`${API}/conversations/${id}/files`).then((r) => json<string[]>(r)),
+  files: (id: string) => request<string[]>(`/conversations/${id}/files`),
 
   fileContent: (id: string, path: string) =>
-    fetch(
-      `${API}/conversations/${id}/files/content?path=${encodeURIComponent(path)}`,
-    ).then((r) => json<FileContent>(r)),
+    request<FileContent>(
+      `/conversations/${id}/files/content?path=${encodeURIComponent(path)}`,
+    ),
 
-  wsUrl: (id: string) =>
-    `${API.replace(/^http/, "ws")}/conversations/${id}/ws`,
+  wsUrl: (id: string) => `${API.replace(/^http/, "ws")}/conversations/${id}/ws`,
+
+  wsProtocols: async (): Promise<string[] | undefined> => {
+    const token = await accessToken();
+    return token ? ["bearer", token] : undefined;
+  },
 };
