@@ -120,6 +120,61 @@ async def test_ownership_survives_an_event_upsert(repos):
     assert await conversations.get("c1", b) is None
 
 
+async def _record(repo: ConversationRepository, cid, owner, seq, **extra):
+    await repo.record_event(
+        cid=cid,
+        user_id=owner,
+        repo="octocat/hello",
+        branch="main",
+        status="running",
+        title=None,
+        workspace_dir="/tmp/ws",
+        plan=None,
+        implementing_plan=False,
+        event_id=f"{cid}-e{seq}",
+        seq=seq,
+        source="user",
+        kind="message",
+        payload={"kind": "message", "text": f"m{seq}"},
+        **extra,
+    )
+
+
+async def test_list_events_after_seq_returns_only_later_events(repos):
+    conversations, _, a, _ = repos
+    await _make_conversation(conversations, "c1", a)
+    for seq in (1, 2, 3):
+        await _record(conversations, "c1", a, seq)
+
+    assert [r.seq for r in await conversations.list_events("c1")] == [1, 2, 3]
+    assert [r.seq for r in await conversations.list_events("c1", after_seq=1)] == [2, 3]
+    assert [r.seq for r in await conversations.list_events("c1", after_seq=3)] == []
+
+
+async def test_client_event_id_is_persisted_and_unique_per_conversation(repos):
+    conversations, _, a, _ = repos
+    await _make_conversation(conversations, "c1", a)
+    await _record(conversations, "c1", a, 1, client_event_id="draft-1")
+
+    rows = await conversations.list_events("c1")
+    assert rows[0].client_event_id == "draft-1"
+
+    with pytest.raises(Exception):
+        await _record(conversations, "c1", a, 2, client_event_id="draft-1")
+
+
+async def test_events_without_a_client_event_id_do_not_collide(repos):
+    conversations, _, a, _ = repos
+    await _make_conversation(conversations, "c1", a)
+    await _record(conversations, "c1", a, 1)
+    await _record(conversations, "c1", a, 2)
+
+    assert [r.client_event_id for r in await conversations.list_events("c1")] == [
+        None,
+        None,
+    ]
+
+
 async def test_connection_roundtrip_and_delete(repos):
     _, connections, a, _ = repos
     await connections.upsert(
