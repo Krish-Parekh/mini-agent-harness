@@ -205,11 +205,10 @@ export const api = {
 
   events: (id: string) => request<AgentEvent[]>(`/conversations/${id}/events`),
 
-  sendMessage: (id: string, text: string, model?: string, planMode?: boolean) =>
+  sendMessage: (id: string, text: string, model?: string) =>
     post<ConversationInfo>(`/conversations/${id}/messages`, {
       text,
       ...(model ? { model } : {}),
-      ...(planMode ? { plan_mode: true } : {}),
     }),
 
   stop: (id: string) => post<ConversationInfo>(`/conversations/${id}/stop`),

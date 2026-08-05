@@ -44,7 +44,7 @@ import {
   ModelSelectorName,
   ModelSelectorTrigger,
 } from "@/components/ai-elements/model-selector";
-import { AlertTriangleIcon, CheckIcon, ClipboardListIcon } from "lucide-react";
+import { AlertTriangleIcon, CheckIcon } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -89,7 +89,6 @@ export default function ChatPage({
   const [input, setInput] = useState("");
   const [model, setModel] = useState(MODELS[0].id);
   const [modelOpen, setModelOpen] = useState(false);
-  const [planMode, setPlanMode] = useState(false);
   const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
     null,
   );
@@ -164,14 +163,11 @@ export default function ChatPage({
     setInput("");
     const prev = status;
     setStatus("running");
-    const wasPlanMode = planMode;
-    setPlanMode(false);
     try {
-      await api.sendMessage(id, text, model, wasPlanMode);
+      await api.sendMessage(id, text, model);
     } catch (e) {
       setOptimisticUserText(null);
       setInput(text);
-      setPlanMode(wasPlanMode);
       setStatus(prev);
       toast.error(messageFor(e));
     }
@@ -304,9 +300,7 @@ export default function ChatPage({
                 ? "Approve or reject the action above…"
                 : showQuestion
                   ? "Or reply directly…"
-                  : planMode
-                    ? "Describe what to plan…"
-                    : "Send a message…"
+                  : "Send a message…"
             }
             disabled={busy}
           />
@@ -351,16 +345,6 @@ export default function ChatPage({
                 </ModelSelectorList>
               </ModelSelectorContent>
             </ModelSelector>
-            <PromptInputButton
-              variant={planMode ? "default" : "ghost"}
-              onClick={() => setPlanMode((on) => !on)}
-              aria-pressed={planMode}
-              disabled={waiting}
-              title="Plan first: explore and propose a plan before making changes"
-            >
-              <ClipboardListIcon className="size-4" />
-              Plan
-            </PromptInputButton>
           </PromptInputTools>
           <PromptInputSubmit
             status={busy ? "streaming" : status === "error" ? "error" : undefined}
