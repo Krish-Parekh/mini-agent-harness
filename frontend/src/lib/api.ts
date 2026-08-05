@@ -91,6 +91,27 @@ export type ChangedFile = {
   status: "added" | "modified" | "deleted";
 };
 
+export type ContextNote = { text: string; at: number };
+
+export type ConversationContext = {
+  repo: string | null;
+  branch: string | null;
+  workspace_dir: string | null;
+  model: string;
+  status: ConversationStatus;
+  workspace_sketch: ContextNote | null;
+  condensation: ContextNote | null;
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    cost_usd: number;
+  };
+  last_error: { message: string; trace_id: string | null; at: number } | null;
+  session_changes: { files: number; additions: number; deletions: number };
+  counts: { events: number; user_turns: number };
+};
+
 export type FileDiff = { path: string; patch: string };
 
 export type FileContent = { path: string; content: string };
@@ -230,6 +251,9 @@ export const api = {
       approve,
       ...(reason ? { reason } : {}),
     }),
+
+  context: (id: string) =>
+    request<ConversationContext>(`/conversations/${id}/context`),
 
   changes: (id: string) => request<ChangedFile[]>(`/conversations/${id}/changes`),
 

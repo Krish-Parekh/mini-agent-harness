@@ -5,9 +5,10 @@ import { toast } from "sonner";
 
 import Link from "next/link";
 
-import { api } from "@/lib/api";
+import { api, type ConversationStatus } from "@/lib/api";
 import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
 import { ConversationTimeline } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
@@ -53,6 +54,42 @@ const MODELS = [
   { id: "gpt-4.1", name: "GPT-4.1" },
   { id: "gpt-4.1-mini", name: "GPT-4.1 mini" },
 ];
+
+const STATUS_STYLES: Record<ConversationStatus, string> = {
+  idle: "bg-muted text-muted-foreground",
+  running: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  waiting_for_confirmation: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  finished: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  stuck: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  error: "bg-destructive/10 text-destructive",
+};
+
+const STATUS_LABELS: Record<ConversationStatus, string> = {
+  idle: "Idle",
+  running: "Running",
+  waiting_for_confirmation: "Waiting for you",
+  finished: "Finished",
+  stuck: "Stuck",
+  error: "Error",
+};
+
+function StatusChip({ status }: { status: ConversationStatus }) {
+  return (
+    <span
+      className={cn(
+        "flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+        STATUS_STYLES[status],
+      )}
+    >
+      {status === "running" ? (
+        <Spinner className="size-3" />
+      ) : (
+        <span className="size-1.5 rounded-full bg-current" />
+      )}
+      {STATUS_LABELS[status]}
+    </span>
+  );
+}
 
 export default function ChatPage({
   params,
@@ -178,6 +215,7 @@ export default function ChatPage({
                 {conversation.repo}
               </span>
             )}
+            {exists && <StatusChip status={status} />}
             {exists && !connected && (
               <span className="flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 <Spinner className="size-3" />

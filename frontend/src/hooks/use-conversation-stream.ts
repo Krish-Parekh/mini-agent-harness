@@ -1,6 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "@tanstack/react-db";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -15,7 +16,7 @@ import {
 } from "@/lib/api";
 import { eventsCollection } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
-import { useConversation } from "@/lib/queries";
+import { queryKeys, useConversation } from "@/lib/queries";
 
 const BUSY = new Set<ConversationStatus>([
   "running",
@@ -23,6 +24,7 @@ const BUSY = new Set<ConversationStatus>([
 ]);
 
 export function useConversationStream(id: string) {
+  const queryClient = useQueryClient();
   const collection = eventsCollection(id);
   const { data: rows } = useLiveQuery(() => collection, [id]);
   const events = useMemo(
@@ -127,6 +129,12 @@ export function useConversationStream(id: string) {
   useEffect(() => {
     refreshChanges();
   }, [refreshChanges, observationByCall.size]);
+
+  // Context is a snapshot, so it only refreshes when a turn crosses a
+  // boundary — deliberately not polled.
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.context(id) });
+  }, [queryClient, id, status]);
 
   const lastUnresolvedAction = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {

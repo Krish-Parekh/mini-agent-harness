@@ -7,7 +7,13 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { api, ApiError, type ConversationInfo, type Repo } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  type ConversationContext,
+  type ConversationInfo,
+  type Repo,
+} from "@/lib/api";
 import { conversationsCollection, createConversation } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
 
@@ -15,6 +21,7 @@ export const queryKeys = {
   repos: ["repos"] as const,
   conversations: ["conversations"] as const,
   conversation: (id: string) => ["conversation", id] as const,
+  context: (id: string) => ["context", id] as const,
   events: (id: string) => ["events", id] as const,
   files: (id: string) => ["files", id] as const,
 };
@@ -95,6 +102,14 @@ export function useStartChat() {
     },
     onSuccess: (conversation) => router.push(`/chat/${conversation.id}`),
     onError: (e) => toast.error(messageFor(e)),
+  });
+}
+
+export function useConversationContext(id: string, enabled = true) {
+  return useQuery<ConversationContext>({
+    queryKey: queryKeys.context(id),
+    queryFn: () => api.context(id),
+    enabled,
   });
 }
 

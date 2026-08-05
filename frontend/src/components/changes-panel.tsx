@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { api, type ChangedFile } from "@/lib/api";
+import { ContextPanel } from "@/components/context-panel";
 import { langForPath } from "@/lib/lang";
+import { useConversationContext } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
@@ -22,7 +24,7 @@ import {
   GitPullRequestIcon,
 } from "@hugeicons/core-free-icons";
 
-type Tab = "all" | "changes";
+type Tab = "all" | "changes" | "context";
 
 const MIN_WIDTH = 320;
 const DEFAULT_WIDTH = 384;
@@ -269,6 +271,10 @@ export function ChangesPanel({
   onSynced?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("changes");
+  const { data: context, isPending: contextPending } = useConversationContext(
+    conversationId,
+    tab === "context",
+  );
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [allFiles, setAllFiles] = useState<string[] | null>(null);
   // The PR from a just-completed create; otherwise fall back to props. Derived
@@ -469,10 +475,18 @@ export function ChangesPanel({
               </span>
             )}
           </TabButton>
-          
+          <TabButton active={tab === "context"} onClick={() => setTab("context")}>
+            Context
+          </TabButton>
         </div>
       </div>
-      {selectedPath ? (
+      {tab === "context" ? (
+        <ContextPanel
+          conversationId={conversationId}
+          context={context}
+          isPending={contextPending}
+        />
+      ) : selectedPath ? (
         changed ? (
           <FileDiffView
             key={selectedPath}

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
+import { FailureReference } from "@/components/context-panel";
 import {
   Empty,
   EmptyContent,
@@ -18,10 +19,12 @@ export function ErrorFallback({
   error,
   retry,
   title = "Something went wrong",
+  conversationId,
 }: {
   error: Error & { digest?: string };
   retry: () => void;
   title?: string;
+  conversationId?: string;
 }) {
   useEffect(() => {
     console.error(error);
@@ -41,7 +44,14 @@ export function ErrorFallback({
               : "An unexpected error occurred. Your work is safe — try again."}
           </EmptyDescription>
         </EmptyHeader>
-        <EmptyContent>
+        <EmptyContent className="gap-4">
+          {(conversationId || error.digest) && (
+            <FailureReference
+              conversationId={conversationId ?? "—"}
+              traceId={error.digest}
+              className="text-left"
+            />
+          )}
           <Button onClick={retry}>Try again</Button>
         </EmptyContent>
       </Empty>
