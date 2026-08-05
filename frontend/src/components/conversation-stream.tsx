@@ -620,33 +620,8 @@ function groupEvents(events: AgentEvent[]): Group[] {
   return groups;
 }
 
-export const OPTIMISTIC_USER_ID = "optimistic-user";
-
-function withOptimisticUser(
-  events: AgentEvent[],
-  text: string | null | undefined,
-): AgentEvent[] {
-  if (!text?.trim()) return events;
-  const lastUser = [...events]
-    .reverse()
-    .find((e) => isMessage(e) && e.role === "user");
-  if (lastUser?.text === text) return events;
-  return [
-    ...events,
-    {
-      id: OPTIMISTIC_USER_ID,
-      timestamp: Date.now() / 1000,
-      source: "user",
-      kind: "message",
-      role: "user",
-      text,
-    },
-  ];
-}
-
 export type ConversationTimelineProps = {
   events: AgentEvent[];
-  optimisticUserText?: string | null;
   observationByCall: Map<string, AgentEvent>;
   status: ConversationStatus;
   pendingId?: string;
@@ -661,7 +636,6 @@ export type ConversationTimelineProps = {
 
 export function ConversationTimeline({
   events,
-  optimisticUserText,
   observationByCall,
   status,
   pendingId,
@@ -673,10 +647,7 @@ export function ConversationTimeline({
   onBuild,
   onSelectFile,
 }: ConversationTimelineProps) {
-  const groups = useMemo(
-    () => groupEvents(withOptimisticUser(events, optimisticUserText)),
-    [events, optimisticUserText],
-  );
+  const groups = useMemo(() => groupEvents(events), [events]);
   const fanoutWorkersByCall = useMemo(
     () => buildFanoutWorkerMap(events),
     [events],

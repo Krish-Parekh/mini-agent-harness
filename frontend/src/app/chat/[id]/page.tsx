@@ -1,17 +1,15 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import Link from "next/link";
 
 import { api } from "@/lib/api";
+import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
-import {
-  ConversationTimeline,
-  OPTIMISTIC_USER_ID,
-} from "@/components/conversation-stream";
+import { ConversationTimeline } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
 import { QuestionCard, type Question } from "@/components/question-card";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -95,18 +93,7 @@ export default function ChatPage({
   const selectedModel = MODELS.find((m) => m.id === model);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
-  const [optimisticUserText, setOptimisticUserText] = useState<string | null>(
-    null,
-  );
   const lastSentText = useRef("");
-
-  useEffect(() => {
-    if (!optimisticUserText) return;
-    const lastUser = [...events]
-      .reverse()
-      .find((e) => e.kind === "message" && e.role === "user");
-    if (lastUser?.text === optimisticUserText) setOptimisticUserText(null);
-  }, [events, optimisticUserText]);
 
   const showQuestion =
     !!pendingQuestion &&
@@ -132,45 +119,41 @@ export default function ChatPage({
     });
   }
 
-  async function sendAnswer(text: string) {
-    if (busy) return;
+  async function submit(text: string, restoreInput: boolean) {
     lastSentText.current = text;
-    setOptimisticUserText(text);
     const prev = status;
     setStatus("running");
     try {
-      await api.sendMessage(id, text, model);
+      await sendMessage({
+        conversationId: id,
+        clientEventId: crypto.randomUUID(),
+        text,
+        model,
+      }).isPersisted.promise;
     } catch (e) {
-      setOptimisticUserText(null);
+      if (restoreInput) setInput(text);
       setStatus(prev);
       toast.error(messageFor(e));
     }
+  }
+
+  async function sendAnswer(text: string) {
+    if (busy) return;
+    await submit(text, false);
   }
 
   function stop() {
     if (!busy) return;
     // Restore the prompt right away; the turn is trimmed once status settles.
     if (lastSentText.current) setInput(lastSentText.current);
-    setOptimisticUserText(null);
     stopRun();
   }
 
   async function send(message: PromptInputMessage) {
     const text = message.text.trim();
     if (!text || busy) return;
-    lastSentText.current = text;
-    setOptimisticUserText(text);
     setInput("");
-    const prev = status;
-    setStatus("running");
-    try {
-      await api.sendMessage(id, text, model);
-    } catch (e) {
-      setOptimisticUserText(null);
-      setInput(text);
-      setStatus(prev);
-      toast.error(messageFor(e));
-    }
+    await submit(text, true);
   }
 
   if (missing) {
@@ -229,7 +212,6 @@ export default function ChatPage({
             <ConversationContent className="space-y-6 px-0 py-0">
               <ConversationTimeline
                 events={events}
-                optimisticUserText={optimisticUserText}
                 observationByCall={observationByCall}
                 status={status}
                 pendingId={waiting ? lastUnresolvedAction?.id : undefined}
@@ -241,12 +223,7 @@ export default function ChatPage({
                 onReject={() => optimisticRun(() => api.confirm(id, false))}
                 onSelectFile={openFile}
               />
-              <ConversationScrollAnchor
-                turnKey={
-                  optimisticUserText ? OPTIMISTIC_USER_ID : lastUserTurnId
-                }
-                optimisticTurnId={OPTIMISTIC_USER_ID}
-              />
+              <ConversationScrollAnchor turnKey={lastUserTurnId} />
             </ConversationContent>
             <ConversationScrollButton />
           </Conversation>

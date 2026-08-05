@@ -1,11 +1,15 @@
+import { useLiveQuery } from "@tanstack/react-db";
 import {
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 import { api, ApiError, type ConversationInfo, type Repo } from "@/lib/api";
+import { conversationsCollection, createConversation } from "@/lib/collections";
+import { messageFor } from "@/lib/errors";
 
 export const queryKeys = {
   repos: ["repos"] as const,
@@ -39,10 +43,20 @@ export function useImportRepo() {
 }
 
 export function useConversations() {
-  return useQuery<ConversationInfo[]>({
-    queryKey: queryKeys.conversations,
-    queryFn: api.conversations,
-  });
+  const { data, isLoading, status } = useLiveQuery(
+    () => conversationsCollection,
+  );
+  const sorted = data
+    ? [...data].sort((a, b) =>
+        (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
+      )
+    : undefined;
+  return {
+    data: sorted,
+    isPending: isLoading,
+    isError: status === "error",
+    refetch: () => conversationsCollection.utils.refetch(),
+  };
 }
 
 export function useConversation(id: string) {
@@ -57,39 +71,30 @@ export function useConversation(id: string) {
 export function useDeleteConversation() {
   const router = useRouter();
   const pathname = usePathname();
-  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.deleteConversation(id),
-    onSuccess: (_, id) => {
-      queryClient.setQueryData<ConversationInfo[]>(
-        queryKeys.conversations,
-        (prev) => prev?.filter((c) => c.id !== id),
-      );
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
+    mutationFn: async (id: string) => {
+      await conversationsCollection.delete(id).isPersisted.promise;
+      return id;
+    },
+    onSuccess: (id) => {
       if (pathname === `/chat/${id}`) router.push("/");
     },
+    onError: (e) => toast.error(messageFor(e)),
   });
 }
 
 export function useStartChat() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (source: Repo | { repo: string; branch: string | null }) => {
       const body =
         "full_name" in source
           ? { repo: source.full_name, branch: source.default_branch }
           : { repo: source.repo, branch: source.branch };
-      return api.createConversation(body);
+      return createConversation(body);
     },
-    onSuccess: (conversation) => {
-      queryClient.setQueryData<ConversationInfo[]>(
-        queryKeys.conversations,
-        (prev) => [conversation, ...(prev ?? [])],
-      );
-      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
-      router.push(`/chat/${conversation.id}`);
-    },
+    onSuccess: (conversation) => router.push(`/chat/${conversation.id}`),
+    onError: (e) => toast.error(messageFor(e)),
   });
 }
 

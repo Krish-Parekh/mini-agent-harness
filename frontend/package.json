@@ -19,6 +19,8 @@
     "@streamdown/math": "^1.0.2",
     "@streamdown/mermaid": "^1.0.2",
     "@supabase/supabase-js": "^2.111.0",
+    "@tanstack/query-db-collection": "^1.2.1",
+    "@tanstack/react-db": "^0.1.95",
     "@tanstack/react-query": "^5.101.0",
     "ai": "^6.0.197",
     "class-variance-authority": "^0.7.1",

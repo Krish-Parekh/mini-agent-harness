@@ -1,5 +1,6 @@
 "use client";
 
+import { useLiveQuery } from "@tanstack/react-db";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -12,6 +13,7 @@ import {
   type PlanStep,
   type StepStatus,
 } from "@/lib/api";
+import { eventsCollection } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
 import { useConversation } from "@/lib/queries";
 
@@ -21,7 +23,12 @@ const BUSY = new Set<ConversationStatus>([
 ]);
 
 export function useConversationStream(id: string) {
-  const [events, setEvents] = useState<AgentEvent[]>([]);
+  const collection = eventsCollection(id);
+  const { data: rows } = useLiveQuery(() => collection, [id]);
+  const events = useMemo(
+    () => (rows ? [...rows].sort((a, b) => a.timestamp - b.timestamp) : []),
+    [rows],
+  );
   const [streamStatus, setStatus] = useState<ConversationStatus | null>(null);
   const [changes, setChanges] = useState<ChangedFile[]>([]);
   const [streamGone, setStreamGone] = useState(false);
@@ -49,17 +56,13 @@ export function useConversationStream(id: string) {
         if (stopping.current && !BUSY.has(next)) {
           stopping.current = false;
           cursor.current = null;
-          api
-            .events(id)
-            .then(setEvents)
+          collection.utils
+            .refetch()
             .catch((e) => toast.error(messageFor(e), { id: "resync-events" }));
         }
         return;
       }
-      const ev = JSON.parse(frame.data) as AgentEvent;
-      setEvents((prev) =>
-        prev.some((e) => e.id === ev.id) ? prev : [...prev, ev],
-      );
+      collection.utils.writeUpsert(JSON.parse(frame.data) as AgentEvent);
     }
 
     async function connect() {
@@ -99,7 +102,7 @@ export function useConversationStream(id: string) {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       controller.abort();
     };
-  }, [id, exists]);
+  }, [id, exists, collection]);
 
   const status: ConversationStatus =
     streamStatus ?? conversation?.status ?? "idle";

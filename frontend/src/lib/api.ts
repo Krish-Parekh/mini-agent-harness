@@ -71,6 +71,7 @@ export type AgentEvent = {
   timestamp: number;
   source: string;
   kind: "message" | "action" | "observation" | "error" | string;
+  client_event_id?: string | null;
   role?: "user" | "assistant" | "system";
   text?: string;
   tool_name?: string;
@@ -205,10 +206,16 @@ export const api = {
 
   events: (id: string) => request<AgentEvent[]>(`/conversations/${id}/events`),
 
-  sendMessage: (id: string, text: string, model?: string) =>
+  sendMessage: (
+    id: string,
+    text: string,
+    model?: string,
+    clientEventId?: string,
+  ) =>
     post<ConversationInfo>(`/conversations/${id}/messages`, {
       text,
       ...(model ? { model } : {}),
+      ...(clientEventId ? { client_event_id: clientEventId } : {}),
     }),
 
   stop: (id: string) => post<ConversationInfo>(`/conversations/${id}/stop`),
