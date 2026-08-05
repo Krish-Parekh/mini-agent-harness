@@ -20,13 +20,27 @@ from backend.runtime import changes, pulls
 from backend.runtime.workspaces import BRANCH_PREFIX
 from backend.schemas import (
     ChangedFile,
+    ContextChanges,
+    ContextCounts,
+    ContextError,
+    ContextNote,
+    ContextUsage,
+    ConversationContext,
     ConversationInfo,
     FileContent,
     FileDiff,
     StatusUpdate,
 )
 from miniagent.conversation import Status
-from miniagent.events import ErrorEvent, Event, Events, MessageEvent
+from miniagent.events import (
+    CondensationEvent,
+    ErrorEvent,
+    Event,
+    Events,
+    LLMUsageEvent,
+    MessageEvent,
+    WorkspaceSketchEvent,
+)
 
 _EVENT_ADAPTER: TypeAdapter[Event] = TypeAdapter(Events)
 _PERSIST_ATTEMPTS = 3
@@ -78,29 +92,23 @@ class ConversationService:
         while True:
             managed, event, seq = await self._persist_queue.get()
             try:
-                await self._write_event(managed, event, seq)
-            except asyncio.CancelledError:
-                self._persist_queue.task_done()
-                raise
-            except Exception as exc:
-                self._report_persist_failure(managed, event, exc)
-                self._persist_queue.task_done()
-            else:
+                with logfire.span(
+                    "persist.event",
+                    conversation_id=managed.conversation.id,
+                    event_id=event.id,
+                    kind=event.kind,
+                    seq=seq,
+                ):
+                    try:
+                        await self._write_event(managed, event, seq)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        self._report_persist_failure(managed, event, exc)
+            finally:
                 self._persist_queue.task_done()
 
     async def _write_event(
-        self, managed: ManagedConversation, event: Event, seq: int
-    ) -> None:
-        with logfire.span(
-            "persist.event",
-            conversation_id=managed.conversation.id,
-            event_id=event.id,
-            kind=event.kind,
-            seq=seq,
-        ):
-            await self._write_event_with_retry(managed, event, seq)
-
-    async def _write_event_with_retry(
         self, managed: ManagedConversation, event: Event, seq: int
     ) -> None:
         async for attempt in AsyncRetrying(
@@ -347,6 +355,53 @@ class ConversationService:
         if managed.title:
             lines.append(f"\n{managed.title}")
         return "\n".join(lines)
+
+    def context(self, managed: ManagedConversation) -> ConversationContext:
+        conv = managed.conversation
+        events = conv.events
+        usage = ContextUsage()
+        sketch: ContextNote | None = None
+        condensation: ContextNote | None = None
+        last_error: ContextError | None = None
+        user_turns = 0
+
+        for event in events:
+            if isinstance(event, LLMUsageEvent):
+                usage.prompt_tokens += event.prompt_tokens
+                usage.completion_tokens += event.completion_tokens
+                usage.total_tokens += event.total_tokens
+                usage.cost_usd += event.cost_usd
+            elif isinstance(event, WorkspaceSketchEvent):
+                sketch = ContextNote(text=event.content, at=event.timestamp)
+            elif isinstance(event, CondensationEvent):
+                condensation = ContextNote(text=event.summary, at=event.timestamp)
+            elif isinstance(event, ErrorEvent):
+                last_error = ContextError(
+                    message=event.message,
+                    trace_id=event.trace_id,
+                    at=event.timestamp,
+                )
+            elif isinstance(event, MessageEvent) and event.role == "user":
+                user_turns += 1
+
+        files = self.list_changes(managed)
+        return ConversationContext(
+            repo=managed.repo,
+            branch=managed.branch,
+            workspace_dir=managed.sandbox.workspace_dir,
+            model=conv.agent.llm.model,
+            status=conv.status.value,
+            workspace_sketch=sketch,
+            condensation=condensation,
+            usage=usage,
+            last_error=last_error,
+            session_changes=ContextChanges(
+                files=len(files),
+                additions=sum(f.additions for f in files),
+                deletions=sum(f.deletions for f in files),
+            ),
+            counts=ContextCounts(events=len(events), user_turns=user_turns),
+        )
 
     def list_changes(self, managed: ManagedConversation) -> list[ChangedFile]:
         if managed.repo is None:

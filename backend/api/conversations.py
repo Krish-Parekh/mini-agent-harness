@@ -17,6 +17,7 @@ from backend.api.streaming import stream_conversation
 from backend.schemas import (
     ChangedFile,
     ConfirmRequest,
+    ConversationContext,
     ConversationInfo,
     CreateConversationRequest,
     FileContent,
@@ -60,6 +61,11 @@ async def get_conversation(managed: ManagedDep, service: ServiceDep):
 @router.get("/conversations/{cid}/events")
 async def get_events(managed: ManagedDep):
     return [event.model_dump() for event in managed.conversation.events]
+
+
+@router.get("/conversations/{cid}/context", response_model=ConversationContext)
+async def get_context(managed: ManagedDep, service: ServiceDep):
+    return service.context(managed)
 
 
 @router.get("/conversations/{cid}/changes", response_model=list[ChangedFile])

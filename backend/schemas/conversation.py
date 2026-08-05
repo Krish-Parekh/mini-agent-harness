@@ -57,6 +57,49 @@ class FileContent(BaseModel):
     content: str
 
 
+class ContextNote(BaseModel):
+    text: str
+    at: float
+
+
+class ContextUsage(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float = 0.0
+
+
+class ContextError(BaseModel):
+    message: str
+    trace_id: str | None = None
+    at: float
+
+
+class ContextChanges(BaseModel):
+    files: int = 0
+    additions: int = 0
+    deletions: int = 0
+
+
+class ContextCounts(BaseModel):
+    events: int = 0
+    user_turns: int = 0
+
+
+class ConversationContext(BaseModel):
+    repo: str | None = None
+    branch: str | None = None
+    workspace_dir: str | None = None
+    model: str
+    status: str
+    workspace_sketch: ContextNote | None = None
+    condensation: ContextNote | None = None
+    usage: ContextUsage
+    last_error: ContextError | None = None
+    session_changes: ContextChanges
+    counts: ContextCounts
+
+
 class ConversationInfo(BaseModel):
     id: str
     status: str

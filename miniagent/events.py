@@ -7,6 +7,8 @@ from typing import Annotated, Any, Literal, Union, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from miniagent.tracing import current_trace_id
+
 Source: TypeAlias = Literal["user", "agent", "environment"]
 
 
@@ -131,6 +133,7 @@ class ErrorEvent(Event):
     kind: Literal["error"] = "error"
     source: Source = "environment"
     message: str
+    trace_id: str | None = Field(default_factory=current_trace_id)
 
     def to_chat_message(self) -> dict:
         # User role: mid-history system messages are inconsistently honored,
