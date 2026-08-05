@@ -22,76 +22,87 @@ const BUSY = new Set<ConversationStatus>([
 
 export function useConversationStream(id: string) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [wsStatus, setStatus] = useState<ConversationStatus | null>(null);
+  const [streamStatus, setStatus] = useState<ConversationStatus | null>(null);
   const [changes, setChanges] = useState<ChangedFile[]>([]);
-  const [wsGone, setWsGone] = useState(false);
+  const [streamGone, setStreamGone] = useState(false);
   const [connected, setConnected] = useState(false);
   const stopping = useRef(false);
+  const cursor = useRef<string | null>(null);
 
   const { data: conversation, error } = useConversation(id);
   const exists = !!conversation;
-  const missing = wsGone || (error instanceof ApiError && error.status === 404);
+  const missing =
+    streamGone || (error instanceof ApiError && error.status === 404);
 
   useEffect(() => {
     if (!exists) return;
-    let ws: WebSocket | null = null;
+    const controller = new AbortController();
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let unmounted = false;
     let authFailures = 0;
 
+    function handle(frame: { event: string; data: string; id: string | null }) {
+      if (frame.id) cursor.current = frame.id;
+      if (frame.event === "status") {
+        const next = JSON.parse(frame.data).status as ConversationStatus;
+        setStatus(next);
+        if (stopping.current && !BUSY.has(next)) {
+          stopping.current = false;
+          cursor.current = null;
+          api
+            .events(id)
+            .then(setEvents)
+            .catch((e) => toast.error(messageFor(e), { id: "resync-events" }));
+        }
+        return;
+      }
+      const ev = JSON.parse(frame.data) as AgentEvent;
+      setEvents((prev) =>
+        prev.some((e) => e.id === ev.id) ? prev : [...prev, ev],
+      );
+    }
+
     async function connect() {
-      const protocols = await api.wsProtocols();
-      if (unmounted) return;
-      ws = new WebSocket(api.wsUrl(id), protocols);
-      ws.onopen = () => setConnected(true);
-      ws.onmessage = (msg) => {
-        let data;
-        try {
-          data = JSON.parse(msg.data);
-        } catch {
-          console.warn("Dropped malformed websocket frame", msg.data);
-          return;
-        }
-        if (data.kind === "status") {
-          const next = data.status as ConversationStatus;
-          setStatus(next);
-          if (stopping.current && !BUSY.has(next)) {
-            stopping.current = false;
-            api
-              .events(id)
-              .then(setEvents)
-              .catch((e) =>
-                toast.error(messageFor(e), { id: "resync-events" }),
-              );
+      try {
+        setConnected(true);
+        for await (const frame of api.eventStream(
+          id,
+          cursor.current,
+          controller.signal,
+        )) {
+          try {
+            handle(frame);
+          } catch {
+            console.warn("Dropped malformed stream frame", frame);
           }
+        }
+      } catch (e) {
+        if (controller.signal.aborted || unmounted) return;
+        if (e instanceof ApiError && e.status === 404) {
+          setConnected(false);
+          setStreamGone(true);
           return;
         }
-        const ev = data as AgentEvent;
-        setEvents((prev) =>
-          prev.some((e) => e.id === ev.id) ? prev : [...prev, ev],
-        );
-      };
-      ws.onclose = (e) => {
-        setConnected(false);
-        if (e.code === 4404) {
-          setWsGone(true);
+        if (e instanceof ApiError && e.status === 401 && ++authFailures > 2) {
+          setConnected(false);
           return;
         }
-        if (e.code === 4401 && ++authFailures > 2) return;
-        if (unmounted) return;
-        reconnectTimer = setTimeout(() => void connect(), 1000);
-      };
+      }
+      setConnected(false);
+      if (unmounted) return;
+      reconnectTimer = setTimeout(() => void connect(), 1000);
     }
     void connect();
 
     return () => {
       unmounted = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      ws?.close();
+      controller.abort();
     };
   }, [id, exists]);
 
-  const status: ConversationStatus = wsStatus ?? conversation?.status ?? "idle";
+  const status: ConversationStatus =
+    streamStatus ?? conversation?.status ?? "idle";
   const busy = BUSY.has(status);
   const waiting = status === "waiting_for_confirmation";
 

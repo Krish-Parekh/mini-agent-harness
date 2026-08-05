@@ -125,6 +125,60 @@ const post = <T>(path: string, body?: unknown) =>
       : { headers: jsonHeaders, body: JSON.stringify(body) }),
   });
 
+export type StreamFrame = { event: string; data: string; id: string | null };
+
+function parseFrame(block: string): StreamFrame | null {
+  let event = "message";
+  let id: string | null = null;
+  const data: string[] = [];
+  for (const line of block.split("\n")) {
+    if (line === "" || line.startsWith(":")) continue;
+    const colon = line.indexOf(":");
+    const field = colon === -1 ? line : line.slice(0, colon);
+    const value = colon === -1 ? "" : line.slice(colon + 1).replace(/^ /, "");
+    if (field === "event") event = value;
+    else if (field === "id") id = value;
+    else if (field === "data") data.push(value);
+  }
+  return data.length ? { event, data: data.join("\n"), id } : null;
+}
+
+async function* readEventStream(
+  path: string,
+  lastEventId: string | null,
+  signal: AbortSignal,
+): AsyncGenerator<StreamFrame> {
+  const token = await accessToken();
+  const headers = new Headers({ Accept: "text/event-stream" });
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (lastEventId) headers.set("Last-Event-ID", lastEventId);
+
+  const res = await fetch(`${API}${path}`, { headers, signal });
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => "");
+    throw new ApiError(res.status, detail);
+  }
+
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      buffer += value;
+      let split = buffer.indexOf("\n\n");
+      while (split !== -1) {
+        const frame = parseFrame(buffer.slice(0, split));
+        buffer = buffer.slice(split + 2);
+        if (frame) yield frame;
+        split = buffer.indexOf("\n\n");
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
 export const api = {
   syncAuth: (providerToken?: string | null) =>
     post<AuthState>("/auth/sync", { provider_token: providerToken ?? null }),
@@ -185,10 +239,6 @@ export const api = {
       `/conversations/${id}/files/content?path=${encodeURIComponent(path)}`,
     ),
 
-  wsUrl: (id: string) => `${API.replace(/^http/, "ws")}/conversations/${id}/ws`,
-
-  wsProtocols: async (): Promise<string[] | undefined> => {
-    const token = await accessToken();
-    return token ? ["bearer", token] : undefined;
-  },
+  eventStream: (id: string, lastEventId: string | null, signal: AbortSignal) =>
+    readEventStream(`/conversations/${id}/events/stream`, lastEventId, signal),
 };
