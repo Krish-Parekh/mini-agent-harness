@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
+import logfire
 from pydantic import ValidationError
 
 from miniagent.classification import TaskClassifier, TaskRoute, TaskRouteProvider
@@ -120,6 +121,14 @@ class Agent:
         return self.task_router.classify_task_route(text)
 
     def step(self, conversation: Conversation, sandbox: Sandbox) -> None:
+        with logfire.span(
+            "agent.step",
+            conversation_id=conversation.id,
+            model=self.llm.model,
+        ):
+            self._step(conversation, sandbox)
+
+    def _step(self, conversation: Conversation, sandbox: Sandbox) -> None:
         pending = conversation.pending_action()
         if pending is not None:
             self._run_tool(
@@ -136,7 +145,17 @@ class Agent:
         self._ensure_workspace_sketch(conversation, sandbox)
         self._maybe_condense(conversation, sandbox)
         messages = self._build_messages(conversation, sandbox)
-        response = self.llm.complete(messages, self.tools.all())
+        with logfire.span("llm.complete", model=self.llm.model) as llm_span:
+            response = self.llm.complete(messages, self.tools.all())
+            llm_span.set_attribute("prompt_tokens", response.usage.prompt_tokens)
+            llm_span.set_attribute(
+                "completion_tokens", response.usage.completion_tokens
+            )
+            llm_span.set_attribute("total_tokens", response.usage.total_tokens)
+            llm_span.set_attribute("cost_usd", response.cost)
+            llm_span.set_attribute(
+                "tool_calls", [c.name for c in response.tool_calls or []]
+            )
         self._record_llm_usage(conversation, response, "step")
 
         if response.text:
@@ -651,15 +670,20 @@ class Agent:
             plan.steps[action.step - 1].status = action.status
 
         try:
-            if call.name in ("fanout", "web_research") and conversation is not None:
-                observation = tool.execute(
-                    action,
-                    sandbox,
-                    conversation=conversation,
-                    tool_call_id=call.id,
-                )
-            else:
-                observation = tool.execute(action, sandbox)
+            with logfire.span(
+                "tool.execute",
+                tool=call.name,
+                cwd=getattr(sandbox, "working_dir", None),
+            ):
+                if call.name in ("fanout", "web_research") and conversation is not None:
+                    observation = tool.execute(
+                        action,
+                        sandbox,
+                        conversation=conversation,
+                        tool_call_id=call.id,
+                    )
+                else:
+                    observation = tool.execute(action, sandbox)
         except Exception as exc:
             return ToolResult(f"Tool error: {exc}", True)
 
