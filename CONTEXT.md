@@ -5,7 +5,7 @@ A coding agent users run against their GitHub repositories. Users authenticate, 
 ## Language
 
 **User**:
-A person who signs in with GitHub OAuth and owns their conversations and connected repositories.
+A person authenticated by Supabase Auth via the GitHub provider, identified by `auth.users.id`, who owns their Conversations and holds at most one GitHub connection. GitHub OAuth is the only way in — signing in for the first time is signing up.
 _Avoid_: Account, member
 
 **Repository**:
