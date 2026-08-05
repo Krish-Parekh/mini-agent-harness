@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+import logfire
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,6 +10,7 @@ from backend import models  # noqa: F401
 from backend.api.auth import router as auth_router
 from backend.api.conversations import router
 from backend.api.github import router as github_router
+from backend.core import observability
 from backend.core.db import make_engine, make_sessionmaker
 from backend.core.jwt import SupabaseJWTVerifier
 from backend.repository import (
@@ -21,6 +23,7 @@ from backend.service import AuthService, ConversationService
 from miniagent.config import Settings
 
 settings = Settings()
+observability.configure(settings)
 
 
 @asynccontextmanager
@@ -48,6 +51,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="MiniAgent Server", lifespan=lifespan)
+logfire.instrument_fastapi(app, capture_headers=False)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_url],

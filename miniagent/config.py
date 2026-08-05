@@ -31,3 +31,13 @@ class Settings(BaseSettings):
     )
 
     tavily_api_key: str = Field("", validation_alias=AliasChoices("TAVILY_API_KEY"))
+
+    langfuse_base_url: str = Field(
+        "", validation_alias=AliasChoices("LANGFUSE_BASE_URL")
+    )
+    langfuse_public_key: str = Field(
+        "", validation_alias=AliasChoices("LANGFUSE_PUBLIC_KEY")
+    )
+    langfuse_secret_key: str = Field(
+        "", validation_alias=AliasChoices("LANGFUSE_SECRET_KEY")
+    )
