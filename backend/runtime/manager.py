@@ -111,11 +111,6 @@ class EventBroker:
 
 
 class ManagedConversation:
-    """A live conversation: the agent loop's Conversation + sandbox + broker.
-
-    `on_event` fans each event out to live subscribers and to the persistence
-    hook the service installs; it carries no knowledge of how persistence works.
-    """
 
     def __init__(
         self,
@@ -123,6 +118,7 @@ class ManagedConversation:
         sandbox: LocalSandbox,
         broker: EventBroker,
         workspaces: WorkspaceManager,
+        user_id: uuid.UUID,
         repo: str | None = None,
         branch: str | None = None,
         token: str | None = None,
@@ -131,6 +127,7 @@ class ManagedConversation:
         self.sandbox = sandbox
         self.broker = broker
         self._workspaces = workspaces
+        self.user_id = user_id
         self.repo = repo
         self.branch = branch
         self._token = token
@@ -149,7 +146,6 @@ class ManagedConversation:
         self.broker.publish(event)
 
     def set_model(self, model: str) -> None:
-        """Switch the model for subsequent agent steps (LLM reads it per call)."""
         self.conversation.agent.llm.model = model
 
     def _maybe_set_title(self, event: Event) -> None:
@@ -171,8 +167,6 @@ class ManagedConversation:
         )
 
     def build_title(self) -> str | None:
-        """Concise title from the transcript. Blocking (litellm) — call in a
-        worker thread."""
         transcript = self._title_transcript()
         if not transcript:
             return None
@@ -199,8 +193,6 @@ class ManagedConversation:
         return "\n".join(lines[:12])
 
     def bootstrap(self) -> None:
-        """Set up this conversation's isolated worktree (cloning the repo once
-        if needed) before the agent runs. Runs in a worker thread."""
         if not self.repo:
             return
         try:
@@ -217,7 +209,6 @@ class ManagedConversation:
 
 
 class ConversationManager:
-    """In-memory registry and factory of live conversations. No persistence."""
 
     def __init__(
         self,
@@ -234,6 +225,8 @@ class ConversationManager:
 
     def create(
         self,
+        *,
+        user_id: uuid.UUID,
         repo: str | None = None,
         branch: str | None = None,
         workspace_dir: str | None = None,
@@ -245,7 +238,7 @@ class ConversationManager:
             ws = str(self._workspaces.worktree_dir(cid))
         else:
             ws = workspace_dir or self._settings.workspace_dir
-        managed = self._build(cid, ws, confirm_mode, repo, branch, token)
+        managed = self._build(cid, ws, confirm_mode, user_id, repo, branch, token)
         return managed
 
     def release_workspace(self, cid: str, repo: str | None) -> None:
@@ -255,6 +248,7 @@ class ConversationManager:
         self,
         *,
         cid: str,
+        user_id: uuid.UUID,
         repo: str | None,
         branch: str | None,
         workspace_dir: str | None,
@@ -265,9 +259,10 @@ class ConversationManager:
         implementing_plan: bool = False,
         pr_number: int | None = None,
         pr_url: str | None = None,
+        token: str | None = None,
     ) -> ManagedConversation:
         ws = workspace_dir or self._settings.workspace_dir
-        managed = self._build(cid, ws, "risky", repo, branch, None)
+        managed = self._build(cid, ws, "risky", user_id, repo, branch, token)
         managed.conversation.events = events
         managed.conversation.plan = Plan.model_validate(plan) if plan else None
         managed.conversation.implementing_plan = implementing_plan
@@ -287,6 +282,7 @@ class ConversationManager:
         cid: str,
         workspace_dir: str,
         confirm_mode: ConfirmMode,
+        user_id: uuid.UUID,
         repo: str | None,
         branch: str | None,
         token: str | None,
@@ -300,7 +296,14 @@ class ConversationManager:
             id=cid,
         )
         managed = ManagedConversation(
-            conversation, sandbox, EventBroker(loop), self._workspaces, repo, branch, token
+            conversation,
+            sandbox,
+            EventBroker(loop),
+            self._workspaces,
+            user_id,
+            repo,
+            branch,
+            token,
         )
         managed.persist_hook = self._persist_hook
         conversation.on_event = managed.on_event
