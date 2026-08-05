@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from functools import partial
 from typing import Any, Callable
 
@@ -11,7 +12,7 @@ from backend.runtime.manager import (
     ConversationManager,
     ManagedConversation,
 )
-from backend.repository import ConversationRepository
+from backend.repository import ConversationRepository, GitHubConnectionRepository
 from backend.runtime import changes, pulls
 from backend.runtime.workspaces import BRANCH_PREFIX
 from backend.schemas import (
@@ -28,15 +29,16 @@ _EVENT_ADAPTER: TypeAdapter[Event] = TypeAdapter(Events)
 
 
 class ConversationService:
-    """Use-case layer: orchestrates the runtime (manager) and persistence
-    (repository), and owns the single-writer worker that drains events to the DB.
-    """
 
     def __init__(
-        self, manager: ConversationManager, repository: ConversationRepository
+        self,
+        manager: ConversationManager,
+        repository: ConversationRepository,
+        connections: GitHubConnectionRepository,
     ) -> None:
         self._manager = manager
         self._repo = repository
+        self._connections = connections
         self._persist_queue: asyncio.Queue[tuple[ManagedConversation, Event, int]] = (
             asyncio.Queue()
         )
@@ -44,14 +46,12 @@ class ConversationService:
         self._persist_task: asyncio.Task | None = None
         self._tasks: set[asyncio.Task] = set()
 
-    # --- startup -----------------------------------------------------------
 
     def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._manager.set_persist_hook(self._enqueue_persist)
         self._persist_task = asyncio.create_task(self._persistence_worker())
 
-    # --- persistence (single writer) --------------------------------------
 
     def _enqueue_persist(
         self, managed: ManagedConversation, event: Event, seq: int
@@ -75,6 +75,7 @@ class ConversationService:
             try:
                 await self._repo.record_event(
                     cid=managed.conversation.id,
+                    user_id=managed.user_id,
                     repo=managed.repo,
                     branch=managed.branch,
                     status=managed.conversation.status.value,
@@ -87,13 +88,12 @@ class ConversationService:
                     kind=event.kind,
                     payload=event.model_dump(),
                 )
-            except Exception as exc:  # best-effort durability for v1
+            except Exception as exc:
                 print(f"[persist] failed to write event {event.id}: {exc}")
             finally:
                 self._persist_queue.task_done()
 
     def _emit_status(self, managed: ManagedConversation, status: str | None = None) -> None:
-        """Push the conversation's status to live WS subscribers (push, not poll)."""
         managed.broker.publish(
             StatusUpdate(status=status or managed.conversation.status.value)
         )
@@ -101,6 +101,7 @@ class ConversationService:
     async def _persist_status(self, managed: ManagedConversation) -> None:
         await self._repo.upsert_conversation(
             cid=managed.conversation.id,
+            user_id=managed.user_id,
             repo=managed.repo,
             branch=managed.branch,
             status=managed.conversation.status.value,
@@ -109,11 +110,11 @@ class ConversationService:
             **self._plan_state(managed),
         )
 
-    # --- use cases ---------------------------------------------------------
 
     def create(
         self,
         *,
+        user_id: uuid.UUID,
         repo: str | None,
         branch: str | None,
         workspace_dir: str | None,
@@ -122,6 +123,7 @@ class ConversationService:
         initial_message: str | None,
     ) -> ManagedConversation:
         managed = self._manager.create(
+            user_id=user_id,
             repo=repo,
             branch=branch,
             workspace_dir=workspace_dir,
@@ -166,18 +168,12 @@ class ConversationService:
         self._spawn(self._run(managed, trigger))
 
     async def stop(self, managed: ManagedConversation) -> bool:
-        """Stop a running/paused turn and roll it back so the prompt can be re-edited.
-
-        Returns False if there was nothing to stop."""
         conv = managed.conversation
         if conv.status == Status.RUNNING:
-            # Signal the live loop and kill any in-flight bash; the in-flight
-            # `_run` task does the rollback + idle status once the thread exits.
             conv.request_cancel()
             managed.sandbox.kill_running()
             return True
         if conv.status == Status.WAITING_FOR_CONFIRMATION:
-            # No loop is running while paused, so settle it here.
             conv.set_idle()
             await self._rollback_cancelled_turn(managed)
             self._emit_status(managed)
@@ -185,20 +181,26 @@ class ConversationService:
             return True
         return False
 
-    async def get_or_revive(self, cid: str) -> ManagedConversation | None:
+    async def get_or_revive(
+        self, cid: str, user_id: uuid.UUID
+    ) -> ManagedConversation | None:
         managed = self._manager.get(cid)
         if managed is not None:
-            return managed
-        return await self._revive(cid)
+            return managed if managed.user_id == user_id else None
+        return await self._revive(cid, user_id)
 
-    async def _revive(self, cid: str) -> ManagedConversation | None:
-        row = await self._repo.get(cid)
+    async def _revive(
+        self, cid: str, user_id: uuid.UUID
+    ) -> ManagedConversation | None:
+        row = await self._repo.get(cid, user_id)
         if row is None:
             return None
         event_rows = await self._repo.list_events(cid)
         events = [_EVENT_ADAPTER.validate_python(r.payload) for r in event_rows]
         return self._manager.register_revived(
             cid=cid,
+            user_id=row.user_id,
+            token=await self._connections.token_for(row.user_id),
             repo=row.repo,
             branch=row.branch,
             workspace_dir=row.workspace_dir,
@@ -211,8 +213,8 @@ class ConversationService:
             pr_url=row.pr_url,
         )
 
-    async def list_infos(self) -> list[ConversationInfo]:
-        summaries = await self._repo.list_summaries()
+    async def list_infos(self, user_id: uuid.UUID) -> list[ConversationInfo]:
+        summaries = await self._repo.list_summaries(user_id)
         return [
             ConversationInfo(
                 id=row.id,
@@ -232,15 +234,18 @@ class ConversationService:
             for row, count in summaries
         ]
 
-    async def delete(self, cid: str) -> bool:
-        row = await self._repo.get(cid)
+    async def delete(self, cid: str, user_id: uuid.UUID) -> bool:
+        row = await self._repo.get(cid, user_id)
+        live = self._manager.get(cid)
+        if row is None and (live is None or live.user_id != user_id):
+            return False
         managed = self._manager.remove(cid)
         if managed is not None:
             managed.conversation.set_finished()
             await asyncio.to_thread(managed.sandbox.close)
         repo = (managed.repo if managed else None) or (row.repo if row else None)
         await asyncio.to_thread(self._manager.release_workspace, cid, repo)
-        deleted = await self._repo.delete(cid)
+        deleted = await self._repo.delete(cid, user_id)
         return deleted or managed is not None
 
     def info(self, managed: ManagedConversation) -> ConversationInfo:
@@ -262,8 +267,6 @@ class ConversationService:
     async def create_pr(
         self, managed: ManagedConversation, token: str
     ) -> ConversationInfo:
-        """Commit + push this conversation's branch. Opens a PR the first time;
-        later calls just push, which refreshes the existing PR automatically."""
         conv = managed.conversation
         head = f"{BRANCH_PREFIX}/{conv.id}"
         title = managed.title or f"MiniAgent changes for {managed.repo}"
@@ -304,7 +307,6 @@ class ConversationService:
     def file_content(self, managed: ManagedConversation, path: str) -> FileContent:
         return changes.file_content(managed.sandbox, path)
 
-    # --- agent runs --------------------------------------------------------
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -316,8 +318,6 @@ class ConversationService:
         await self._persist_status(managed)
         async with managed.lock:
             await asyncio.to_thread(trigger)
-            # Stopped mid-run (and didn't reach `finish`): discard the turn so the
-            # user can re-edit and resend their prompt.
             conv = managed.conversation
             if conv.cancel_event.is_set() and conv.status != Status.FINISHED:
                 await self._rollback_cancelled_turn(managed)
@@ -326,8 +326,6 @@ class ConversationService:
         await self._persist_status(managed)
 
     async def _rollback_cancelled_turn(self, managed: ManagedConversation) -> None:
-        """Drop the last user message and everything after it (the cancelled turn),
-        in memory and in the DB, so the conversation reads as if it never ran."""
         conv = managed.conversation
         events = conv.events
         idx = self._last_user_index(events)
@@ -336,8 +334,6 @@ class ConversationService:
         removed = events[idx:]
         conv.events = events[:idx]
         managed._seq = len(conv.events)
-        # Flush any still-queued writes for this turn before deleting, so a late
-        # persist can't re-insert a row we just removed.
         await self._persist_queue.join()
         await self._repo.delete_events(conv.id, [e.id for e in removed])
 
@@ -350,13 +346,11 @@ class ConversationService:
         return None
 
     async def _maybe_ai_title(self, managed: ManagedConversation) -> None:
-        """Upgrade the heuristic title to an AI one once there are enough turns.
-        Best-effort: on failure we keep the heuristic title and retry next run."""
         if managed._ai_titled or managed.user_turns() < AI_TITLE_AFTER_TURNS:
             return
         try:
             title = await asyncio.to_thread(managed.build_title)
-        except Exception as exc:  # title is cosmetic — never fail the run
+        except Exception as exc:
             print(f"[title] generation failed for {managed.conversation.id}: {exc}")
             return
         if title:

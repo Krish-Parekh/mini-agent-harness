@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
@@ -10,7 +11,6 @@ from backend.models import ConversationRow, EventRow
 
 
 class ConversationRepository:
-    """All database access for conversations and their events lives here."""
 
     def __init__(self, sessionmaker: async_sessionmaker[AsyncSession]) -> None:
         self._sessionmaker = sessionmaker
@@ -19,6 +19,7 @@ class ConversationRepository:
         self,
         *,
         cid: str,
+        user_id: uuid.UUID,
         repo: str | None,
         branch: str | None,
         status: str,
@@ -32,11 +33,11 @@ class ConversationRepository:
         kind: str,
         payload: dict[str, Any],
     ) -> None:
-        """Append an event and refresh its conversation row in one transaction."""
         async with self._sessionmaker() as sess:
             await self._upsert(
                 sess,
                 cid=cid,
+                user_id=user_id,
                 repo=repo,
                 branch=branch,
                 status=status,
@@ -63,6 +64,7 @@ class ConversationRepository:
         self,
         *,
         cid: str,
+        user_id: uuid.UUID,
         repo: str | None,
         branch: str | None,
         status: str,
@@ -75,6 +77,7 @@ class ConversationRepository:
             await self._upsert(
                 sess,
                 cid=cid,
+                user_id=user_id,
                 repo=repo,
                 branch=branch,
                 status=status,
@@ -90,6 +93,7 @@ class ConversationRepository:
         sess: AsyncSession,
         *,
         cid: str,
+        user_id: uuid.UUID,
         repo: str | None,
         branch: str | None,
         status: str,
@@ -100,6 +104,7 @@ class ConversationRepository:
     ) -> None:
         values: dict[str, Any] = dict(
             id=cid,
+            user_id=user_id,
             repo=repo,
             branch=branch,
             status=status,
@@ -124,9 +129,10 @@ class ConversationRepository:
             )
         )
 
-    async def get(self, cid: str) -> ConversationRow | None:
+    async def get(self, cid: str, user_id: uuid.UUID) -> ConversationRow | None:
         async with self._sessionmaker() as sess:
-            return await sess.get(ConversationRow, cid)
+            row = await sess.get(ConversationRow, cid)
+            return row if row is not None and row.user_id == user_id else None
 
     async def set_pr(self, cid: str, pr_number: int, pr_url: str) -> None:
         async with self._sessionmaker() as sess:
@@ -158,21 +164,24 @@ class ConversationRepository:
             )
             return list(result.scalars().all())
 
-    async def list_summaries(self) -> list[tuple[ConversationRow, int]]:
+    async def list_summaries(
+        self, user_id: uuid.UUID
+    ) -> list[tuple[ConversationRow, int]]:
         async with self._sessionmaker() as sess:
             stmt = (
                 select(ConversationRow, func.count(EventRow.id))
                 .outerjoin(EventRow, EventRow.conversation_id == ConversationRow.id)
+                .where(ConversationRow.user_id == user_id)
                 .group_by(ConversationRow.id)
                 .order_by(ConversationRow.updated_at.desc())
             )
             result = await sess.execute(stmt)
             return [(row, count) for row, count in result.all()]
 
-    async def delete(self, cid: str) -> bool:
+    async def delete(self, cid: str, user_id: uuid.UUID) -> bool:
         async with self._sessionmaker() as sess:
             row = await sess.get(ConversationRow, cid)
-            if row is None:
+            if row is None or row.user_id != user_id:
                 return False
             await sess.delete(row)
             await sess.commit()

@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, WebSocket
 
-from backend.api.deps import GitHubDep, ManagedDep, ServiceDep, get_service
-from backend.api.streaming import stream_conversation
+from backend.api.deps import (
+    CallerGitHubToken,
+    CurrentUser,
+    ManagedDep,
+    RequiredGitHub,
+    ServiceDep,
+)
+from backend.api.streaming import authenticate_socket, stream_conversation
 from backend.schemas import (
     ChangedFile,
     ConfirmRequest,
@@ -20,22 +26,26 @@ router = APIRouter()
 
 @router.post("/conversations", response_model=ConversationInfo)
 async def create_conversation(
-    body: CreateConversationRequest, service: ServiceDep, github: GitHubDep
+    body: CreateConversationRequest,
+    service: ServiceDep,
+    user: CurrentUser,
+    token: CallerGitHubToken,
 ):
     managed = service.create(
+        user_id=user.id,
         repo=body.repo,
         branch=body.branch,
         workspace_dir=body.workspace_dir,
         confirm_mode=body.confirm_mode,
-        token=github.token,
+        token=token,
         initial_message=body.initial_message,
     )
     return service.info(managed)
 
 
 @router.get("/conversations", response_model=list[ConversationInfo])
-async def list_conversations(service: ServiceDep):
-    return await service.list_infos()
+async def list_conversations(service: ServiceDep, user: CurrentUser):
+    return await service.list_infos(user.id)
 
 
 @router.get("/conversations/{cid}", response_model=ConversationInfo)
@@ -111,25 +121,25 @@ async def stop_conversation(managed: ManagedDep, service: ServiceDep):
 
 
 @router.post("/conversations/{cid}/pr", response_model=ConversationInfo)
-async def create_pr(managed: ManagedDep, service: ServiceDep, github: GitHubDep):
+async def create_pr(managed: ManagedDep, service: ServiceDep, gh: RequiredGitHub):
     if managed.repo is None:
         raise HTTPException(status_code=409, detail="conversation has no repository")
-    if github.token is None:
-        raise HTTPException(status_code=401, detail="GitHub is not connected")
-    return await service.create_pr(managed, github.token)
+    return await service.create_pr(managed, gh.token)
 
 
 @router.delete("/conversations/{cid}")
-async def delete_conversation(cid: str, service: ServiceDep):
-    if not await service.delete(cid):
+async def delete_conversation(cid: str, service: ServiceDep, user: CurrentUser):
+    if not await service.delete(cid, user.id):
         raise HTTPException(status_code=404, detail="conversation not found")
     return {"deleted": cid}
 
 
 @router.websocket("/conversations/{cid}/ws")
 async def conversation_ws(websocket: WebSocket, cid: str):
-    service = get_service(websocket)
-    managed = await service.get_or_revive(cid)
+    user = await authenticate_socket(websocket)
+    if user is None:
+        return
+    managed = await websocket.app.state.service.get_or_revive(cid, user.id)
     if managed is None:
         await websocket.close(code=4404)
         return
