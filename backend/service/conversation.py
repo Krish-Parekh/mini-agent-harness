@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from functools import partial
 from typing import Any, Callable
 
+import logfire
 from pydantic import TypeAdapter
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential_jitter
 
 from backend.runtime.manager import (
     AI_TITLE_AFTER_TURNS,
@@ -23,9 +26,11 @@ from backend.schemas import (
     StatusUpdate,
 )
 from miniagent.conversation import Status
-from miniagent.events import Event, Events, MessageEvent
+from miniagent.events import ErrorEvent, Event, Events, MessageEvent
 
 _EVENT_ADAPTER: TypeAdapter[Event] = TypeAdapter(Events)
+_PERSIST_ATTEMPTS = 3
+_log = logging.getLogger(__name__)
 
 
 class ConversationService:
@@ -73,6 +78,37 @@ class ConversationService:
         while True:
             managed, event, seq = await self._persist_queue.get()
             try:
+                await self._write_event(managed, event, seq)
+            except asyncio.CancelledError:
+                self._persist_queue.task_done()
+                raise
+            except Exception as exc:
+                self._report_persist_failure(managed, event, exc)
+                self._persist_queue.task_done()
+            else:
+                self._persist_queue.task_done()
+
+    async def _write_event(
+        self, managed: ManagedConversation, event: Event, seq: int
+    ) -> None:
+        with logfire.span(
+            "persist.event",
+            conversation_id=managed.conversation.id,
+            event_id=event.id,
+            kind=event.kind,
+            seq=seq,
+        ):
+            await self._write_event_with_retry(managed, event, seq)
+
+    async def _write_event_with_retry(
+        self, managed: ManagedConversation, event: Event, seq: int
+    ) -> None:
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(_PERSIST_ATTEMPTS),
+            wait=wait_exponential_jitter(initial=0.1, max=2.0),
+            reraise=True,
+        ):
+            with attempt:
                 await self._repo.record_event(
                     cid=managed.conversation.id,
                     user_id=managed.user_id,
@@ -87,11 +123,31 @@ class ConversationService:
                     source=event.source,
                     kind=event.kind,
                     payload=event.model_dump(),
+                    client_event_id=getattr(event, "client_event_id", None),
                 )
-            except Exception as exc:
-                print(f"[persist] failed to write event {event.id}: {exc}")
-            finally:
-                self._persist_queue.task_done()
+
+    def _report_persist_failure(
+        self, managed: ManagedConversation, event: Event, exc: Exception
+    ) -> None:
+        _log.error(
+            "event persistence failed after %s attempts: conversation=%s event=%s: %s",
+            _PERSIST_ATTEMPTS,
+            managed.conversation.id,
+            event.id,
+            exc,
+        )
+        managed.conversation.status = Status.ERROR
+        managed.broker.publish_event(
+            ErrorEvent(
+                message=(
+                    f"Failed to save event {event.id} after {_PERSIST_ATTEMPTS}"
+                    " attempts. This conversation is out of sync with the database"
+                    " and has been stopped."
+                )
+            ),
+            seq=None,
+        )
+        self._emit_status(managed, Status.ERROR.value)
 
     def _emit_status(self, managed: ManagedConversation, status: str | None = None) -> None:
         managed.broker.publish(
@@ -142,10 +198,13 @@ class ConversationService:
         text: str,
         model: str | None = None,
         plan_mode: bool = False,
+        client_event_id: str | None = None,
     ) -> None:
         if model:
             managed.set_model(model)
-        managed.conversation.send_message(text, plan_mode=plan_mode)
+        managed.conversation.send_message(
+            text, plan_mode=plan_mode, client_event_id=client_event_id
+        )
         self._spawn(self._run(managed, managed.conversation.run))
 
     async def approve_plan(self, managed: ManagedConversation) -> None:
