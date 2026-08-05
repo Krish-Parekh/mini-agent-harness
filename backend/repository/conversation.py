@@ -32,6 +32,7 @@ class ConversationRepository:
         source: str,
         kind: str,
         payload: dict[str, Any],
+        client_event_id: str | None = None,
     ) -> None:
         async with self._sessionmaker() as sess:
             await self._upsert(
@@ -54,6 +55,7 @@ class ConversationRepository:
                     seq=seq,
                     source=source,
                     kind=kind,
+                    client_event_id=client_event_id,
                     payload=payload,
                 )
                 .on_conflict_do_nothing(index_elements=[EventRow.id])
@@ -155,13 +157,14 @@ class ConversationRepository:
             )
             await sess.commit()
 
-    async def list_events(self, cid: str) -> list[EventRow]:
+    async def list_events(
+        self, cid: str, after_seq: int | None = None
+    ) -> list[EventRow]:
+        stmt = select(EventRow).where(EventRow.conversation_id == cid)
+        if after_seq is not None:
+            stmt = stmt.where(EventRow.seq > after_seq)
         async with self._sessionmaker() as sess:
-            result = await sess.execute(
-                select(EventRow)
-                .where(EventRow.conversation_id == cid)
-                .order_by(EventRow.seq)
-            )
+            result = await sess.execute(stmt.order_by(EventRow.seq))
             return list(result.scalars().all())
 
     async def list_summaries(
