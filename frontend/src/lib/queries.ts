@@ -65,6 +65,7 @@ export function useDeleteConversation() {
         queryKeys.conversations,
         (prev) => prev?.filter((c) => c.id !== id),
       );
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       if (pathname === `/chat/${id}`) router.push("/");
     },
   });
@@ -86,6 +87,7 @@ export function useStartChat() {
         queryKeys.conversations,
         (prev) => [conversation, ...(prev ?? [])],
       );
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       router.push(`/chat/${conversation.id}`);
     },
   });
