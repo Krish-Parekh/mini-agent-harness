@@ -18,15 +18,12 @@ class Settings(BaseSettings):
     temperature: float = 0.0
     workspace_dir: str = "./workspace"
 
-    # GitHub OAuth App (read without the MINIAGENT_ prefix, like OPENAI_API_KEY).
-    github_client_id: str = Field(
-        "", validation_alias=AliasChoices("GITHUB_CLIENT_ID")
+    supabase_url: str = Field("", validation_alias=AliasChoices("SUPABASE_URL"))
+
+    frontend_url: str = Field(
+        "http://localhost:3000",
+        validation_alias=AliasChoices("FRONTEND_URL"),
     )
-    github_client_secret: str = Field(
-        "", validation_alias=AliasChoices("GITHUB_CLIENT_SECRET")
-    )
-    public_base_url: str = "http://127.0.0.1:8000"
-    frontend_url: str = "http://localhost:3000"
 
     database_url: str = Field(
         "postgresql+psycopg://miniagent:miniagent@localhost:5432/miniagent",
