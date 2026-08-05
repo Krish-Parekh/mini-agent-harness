@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+import uuid
+
 from sqlalchemy import ForeignKey, Integer, Text, UniqueConstraint, func, text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.core.db import Base
@@ -14,6 +16,11 @@ class ConversationRow(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
     repo: Mapped[str | None] = mapped_column(Text)
     branch: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
