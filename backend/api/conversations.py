@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, WebSocket
+from collections.abc import AsyncIterable
+from typing import Annotated
+
+from fastapi import APIRouter, Header, HTTPException
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from backend.api.deps import (
     CallerGitHubToken,
@@ -9,7 +13,7 @@ from backend.api.deps import (
     RequiredGitHub,
     ServiceDep,
 )
-from backend.api.streaming import authenticate_socket, stream_conversation
+from backend.api.streaming import stream_conversation
 from backend.schemas import (
     ChangedFile,
     ConfirmRequest,
@@ -87,7 +91,9 @@ async def send_message(
             status_code=409,
             detail="conversation is waiting for confirmation; use /confirm",
         )
-    await service.send_message(managed, body.text, body.model, body.plan_mode)
+    await service.send_message(
+        managed, body.text, body.model, body.plan_mode, body.client_event_id
+    )
     return service.info(managed)
 
 
@@ -134,13 +140,12 @@ async def delete_conversation(cid: str, service: ServiceDep, user: CurrentUser):
     return {"deleted": cid}
 
 
-@router.websocket("/conversations/{cid}/ws")
-async def conversation_ws(websocket: WebSocket, cid: str):
-    user = await authenticate_socket(websocket)
-    if user is None:
-        return
-    managed = await websocket.app.state.service.get_or_revive(cid, user.id)
-    if managed is None:
-        await websocket.close(code=4404)
-        return
-    await stream_conversation(websocket, managed)
+@router.get(
+    "/conversations/{cid}/events/stream", response_class=EventSourceResponse
+)
+async def conversation_event_stream(
+    managed: ManagedDep,
+    last_event_id: Annotated[int | None, Header()] = None,
+) -> AsyncIterable[ServerSentEvent]:
+    async for frame in stream_conversation(managed, last_event_id):
+        yield frame

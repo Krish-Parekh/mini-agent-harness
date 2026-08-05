@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from miniagent.agent import Agent
 from miniagent.classification import TaskClassifier
@@ -92,22 +93,31 @@ def _build_agent(
     )
 
 
+@dataclass(frozen=True)
+class StreamFrame:
+    event: Event
+    seq: int | None
+
+
 class EventBroker:
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
-        self._subscribers: set[asyncio.Queue[Event]] = set()
+        self._subscribers: set[asyncio.Queue[Any]] = set()
 
-    def subscribe(self) -> asyncio.Queue[Event]:
-        queue: asyncio.Queue[Event] = asyncio.Queue()
+    def subscribe(self) -> asyncio.Queue[Any]:
+        queue: asyncio.Queue[Any] = asyncio.Queue()
         self._subscribers.add(queue)
         return queue
 
-    def unsubscribe(self, queue: asyncio.Queue[Event]) -> None:
+    def unsubscribe(self, queue: asyncio.Queue[Any]) -> None:
         self._subscribers.discard(queue)
 
-    def publish(self, event: Event) -> None:
+    def publish(self, item: Any) -> None:
         for queue in list(self._subscribers):
-            self._loop.call_soon_threadsafe(queue.put_nowait, event)
+            self._loop.call_soon_threadsafe(queue.put_nowait, item)
+
+    def publish_event(self, event: Event, seq: int | None) -> None:
+        self.publish(StreamFrame(event=event, seq=seq))
 
 
 class ManagedConversation:
@@ -143,7 +153,7 @@ class ManagedConversation:
         self._seq += 1
         self._maybe_set_title(event)
         self.persist_hook(self, event, self._seq)
-        self.broker.publish(event)
+        self.broker.publish_event(event, self._seq)
 
     def set_model(self, model: str) -> None:
         self.conversation.agent.llm.model = model
