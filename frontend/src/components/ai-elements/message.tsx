@@ -6,6 +6,14 @@ import {
   ButtonGroupText,
 } from "@/components/ui/button-group";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -323,6 +331,47 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
+// Streamdown renders its link-safety modal inline, which lands a <div> inside
+// the paragraph's <p> and breaks hydration. Portal it to the body instead.
+function LinkSafetyDialog({
+  isOpen,
+  onClose,
+  onConfirm,
+  url,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  url: string;
+}) {
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Open external link?</DialogTitle>
+          <DialogDescription className="break-all">{url}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm}>Open link</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const linkSafety = {
+  enabled: true,
+  renderModal: (props: {
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    url: string;
+  }) => <LinkSafetyDialog {...props} />,
+};
+
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
@@ -331,6 +380,7 @@ export const MessageResponse = memo(
         className
       )}
       plugins={streamdownPlugins}
+      linkSafety={linkSafety}
       {...props}
     />
   ),
