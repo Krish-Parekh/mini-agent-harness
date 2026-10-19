@@ -22,6 +22,7 @@ from backend.repository import (
     SkillRepository,
 )
 from backend.service.extension import McpService, SkillService, render_skills
+from miniagent.tracing import trace_attributes
 from backend.runtime import changes, pulls
 from backend.runtime.workspaces import BRANCH_PREFIX
 from backend.schemas import (
@@ -46,6 +47,7 @@ from miniagent.events import (
     Events,
     LLMUsageEvent,
     MessageEvent,
+    RepoInstructionsEvent,
     WorkspaceSketchEvent,
 )
 
@@ -230,9 +232,10 @@ class ConversationService:
     ) -> None:
         if model:
             managed.set_model(model)
-        managed.conversation.send_message(
-            text, plan_mode=plan_mode, client_event_id=client_event_id
-        )
+        with self._turn_span(managed, "agent.route"):
+            managed.conversation.send_message(
+                text, plan_mode=plan_mode, client_event_id=client_event_id
+            )
         self._spawn(self._run(managed, managed.conversation.run))
 
     async def approve_plan(self, managed: ManagedConversation) -> None:
@@ -395,6 +398,7 @@ class ConversationService:
         sketch: ContextNote | None = None
         condensation: ContextNote | None = None
         last_error: ContextError | None = None
+        repo_instructions: list[str] = []
         user_turns = 0
 
         for event in events:
@@ -402,10 +406,13 @@ class ConversationService:
                 usage.prompt_tokens += event.prompt_tokens
                 usage.completion_tokens += event.completion_tokens
                 usage.total_tokens += event.total_tokens
+                usage.cached_prompt_tokens += event.cached_prompt_tokens
                 usage.cost_usd += event.cost_usd
+            elif isinstance(event, RepoInstructionsEvent):
+                repo_instructions = event.paths
             elif isinstance(event, WorkspaceSketchEvent):
                 sketch = ContextNote(text=event.content, at=event.timestamp)
-            elif isinstance(event, CondensationEvent):
+            elif isinstance(event, CondensationEvent) and not event.pruned_only:
                 condensation = ContextNote(text=event.summary, at=event.timestamp)
             elif isinstance(event, ErrorEvent):
                 last_error = ContextError(
@@ -430,6 +437,7 @@ class ConversationService:
             model=conv.agent.llm.model,
             status=conv.status.value,
             workspace_sketch=sketch,
+            repo_instructions=repo_instructions,
             condensation=condensation,
             usage=usage,
             last_error=last_error,
@@ -473,7 +481,8 @@ class ConversationService:
                 managed.extend_sandbox, self._manager.sandbox_lifetime_s
             )
             await self._load_extensions(managed)
-            await asyncio.to_thread(trigger)
+            with self._turn_span(managed):
+                await asyncio.to_thread(trigger)
             conv = managed.conversation
             if conv.cancel_event.is_set() and conv.status != Status.FINISHED:
                 await self._rollback_cancelled_turn(managed)
@@ -513,11 +522,33 @@ class ConversationService:
             managed.title = title
             managed._ai_titled = True
 
+    @staticmethod
+    def _turn_span(managed: ManagedConversation, name: str = "agent.turn"):
+        cid = managed.conversation.id
+        last_user = next(
+            (
+                e.text
+                for e in reversed(managed.conversation.events)
+                if isinstance(e, MessageEvent) and e.role == "user"
+            ),
+            None,
+        )
+        span = logfire.span(name, conversation_id=cid)
+        span.set_attributes(
+            trace_attributes(
+                session_id=cid,
+                user_id=str(managed.user_id) if managed.user_id else None,
+                name=managed.title or "conversation turn",
+                input=last_user,
+            )
+        )
+        return span
+
     async def _load_extensions(self, managed: ManagedConversation) -> None:
         if self._skills is None or self._mcp is None:
             return
         cid = managed.conversation.id
-        included, skipped = await SkillService(self._skills).enabled_bodies(cid)
+        included, skipped = await SkillService(self._skills).enabled_catalog(cid)
         skipped_ids = {skill.id for skill in skipped}
         for skill in skipped:
             if skill.id in managed.skills_skipped:
@@ -525,8 +556,8 @@ class ConversationService:
             managed.conversation.add_event(
                 ErrorEvent(
                     message=(
-                        f"Skill '{skill.name}' was skipped: it does not fit the "
-                        "context budget for this conversation."
+                        f"Skill '{skill.name}' was skipped: the skill list for "
+                        "this conversation is over its size budget."
                     )
                 )
             )
@@ -534,7 +565,10 @@ class ConversationService:
         rows = await McpService(self._mcp).enabled(cid)
         targets = {row.id: McpService.target(row) for row in rows}
         await asyncio.to_thread(
-            managed.apply_extensions, render_skills(included), targets
+            managed.apply_extensions,
+            render_skills(included),
+            {skill.name: skill.body for skill in included},
+            targets,
         )
 
     async def _start(
@@ -551,6 +585,7 @@ class ConversationService:
                 return
             if initial_message:
                 managed.conversation.send_message(initial_message)
-                await asyncio.to_thread(managed.conversation.run)
+                with self._turn_span(managed):
+                    await asyncio.to_thread(managed.conversation.run)
         self._emit_status(managed)
         await self._persist_status(managed)

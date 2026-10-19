@@ -19,7 +19,13 @@ class ScriptedLLM:
     def __init__(self) -> None:
         self.calls = 0
 
-    def complete(self, messages, tools=None):
+    def context_window(self) -> int:
+        return 1_000_000
+
+    def count_tokens(self, messages, tools=None) -> int:
+        return 0
+
+    def complete(self, messages, tools=None, phase="agent"):
         self.calls += 1
         return LLMResponse(
             tool_calls=[ToolCall(id=f"c{self.calls}", name="bash", arguments={"command": "echo hi"})]
@@ -84,7 +90,10 @@ def test_expired_sandbox_ends_the_turn_instead_of_reaching_the_model() -> None:
     assert llm.calls == 1
     errors = [e for e in conversation.events if isinstance(e, ErrorEvent)]
     assert errors[-1].message.startswith("sandbox_expired:")
-    assert not any(isinstance(e, ObservationEvent) for e in conversation.events)
+    observations = [e for e in conversation.events if isinstance(e, ObservationEvent)]
+    assert len(observations) == 1
+    assert observations[0].error
+    assert observations[0].content.startswith("Not executed: sandbox_expired.")
 
 
 def test_unreachable_sandbox_is_reported_as_unavailable() -> None:

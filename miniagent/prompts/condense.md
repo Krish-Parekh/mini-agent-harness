@@ -1,13 +1,26 @@
-You summarize MiniAgent conversation history so future turns keep the useful state
-without replaying every old message and tool result.
+The conversation above is about to be compacted. Write a summary that replaces the older part of it, so future steps keep the useful state without replaying every old message and tool result.
 
-Return a concise but complete summary. Preserve:
-- the user's goal and constraints
-- decisions already made
-- files, commands, and tool results that matter
-- failed tool calls, error messages, repeated/oscillating actions, and things
-  that were tried but did not work
-- current plan/progress and unresolved blockers
-- verification already run and its outcome
+Do not call any tools. Reply with the summary only, using exactly these sections:
 
-Do not invent facts. If something is uncertain, say so briefly.
+## Primary request
+The user's goal, constraints, and any later changes to it.
+
+## Files and code touched
+Paths read or changed, with what matters about each.
+
+## Errors and fixes
+Failed tool calls, error messages, approaches that did not work, and how each was resolved or why it is still open.
+
+## Decisions
+Choices already made, and why.
+
+## Pending work
+What is still to do, including verification not yet run.
+
+## Current state
+Where the work stands right now, including verification already run and its outcome.
+
+## Next step
+The single next action.
+
+If an earlier `[conversation summary]` is present, merge its content into these sections rather than copying it as a block. Do not invent facts; if something is uncertain, say so briefly.

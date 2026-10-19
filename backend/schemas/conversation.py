@@ -66,6 +66,7 @@ class ContextUsage(BaseModel):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cached_prompt_tokens: int = 0
     cost_usd: float = 0.0
 
 
@@ -95,6 +96,7 @@ class ConversationContext(BaseModel):
     model: str
     status: str
     workspace_sketch: ContextNote | None = None
+    repo_instructions: list[str] = []
     condensation: ContextNote | None = None
     usage: ContextUsage
     last_error: ContextError | None = None

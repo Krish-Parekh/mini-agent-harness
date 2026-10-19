@@ -26,6 +26,12 @@ class McpToolSpec:
 
 
 @dataclass(frozen=True)
+class McpServerInfo:
+    tools: list[McpToolSpec]
+    instructions: str = ""
+
+
+@dataclass(frozen=True)
 class McpTarget:
     name: str
     url: str
@@ -38,7 +44,7 @@ class McpTarget:
         return {}
 
 
-async def discover(target: McpTarget) -> list[McpToolSpec]:
+async def discover(target: McpTarget) -> McpServerInfo:
     try:
         async with asyncio.timeout(DISCOVER_TIMEOUT):
             client = httpx2.AsyncClient(headers=target.headers())
@@ -47,12 +53,12 @@ async def discover(target: McpTarget) -> list[McpToolSpec]:
                     target.url, http_client=client
                 ) as (read, write):
                     async with ClientSession(read, write) as session:
-                        await session.initialize()
+                        init = await session.initialize()
                         result = await session.list_tools()
     except Exception as exc:
         raise McpError(str(exc)) from exc
 
-    return [
+    tools = [
         McpToolSpec(
             name=tool.name,
             description=tool.description or "",
@@ -61,6 +67,7 @@ async def discover(target: McpTarget) -> list[McpToolSpec]:
         )
         for tool in result.tools
     ]
+    return McpServerInfo(tools=tools, instructions=(init.instructions or "").strip())
 
 
 async def call(target: McpTarget, tool: str, arguments: dict[str, Any]) -> str:

@@ -103,11 +103,13 @@ export type ConversationContext = {
   model: string;
   status: ConversationStatus;
   workspace_sketch: ContextNote | null;
+  repo_instructions: string[];
   condensation: ContextNote | null;
   usage: {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    cached_prompt_tokens: number;
     cost_usd: number;
   };
   last_error: { message: string; trace_id: string | null; at: number } | null;
@@ -144,10 +146,18 @@ export type FileDiff = { path: string; patch: string };
 
 export type FileContent = { path: string; content: string };
 
+async function readDetail(res: Response): Promise<string> {
+  const text = await res.text().catch(() => "");
+  try {
+    const body = JSON.parse(text);
+    if (typeof body?.detail === "string") return body.detail;
+  } catch {}
+  return text;
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, await readDetail(res));
   }
   return res.json() as Promise<T>;
 }
@@ -205,8 +215,7 @@ async function* readEventStream(
 
   const res = await fetch(`${API}${path}`, { headers, signal });
   if (!res.ok || !res.body) {
-    const detail = await res.text().catch(() => "");
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, await readDetail(res));
   }
 
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();

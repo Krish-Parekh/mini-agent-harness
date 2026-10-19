@@ -23,6 +23,7 @@ from miniagent.sandbox.workspace import WorkspaceError, clone_repo
 from backend.runtime import mcp
 from backend.runtime.workspaces import BRANCH_PREFIX, WorkspaceManager
 from miniagent.tools.mcp import MAX_TOOLS as MAX_MCP_TOOLS, McpTool
+from miniagent.tools.skill import SkillTool
 from miniagent.tools.bash import BashTool
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.file_edit import FileEditTool
@@ -37,6 +38,8 @@ from miniagent.tools.web_search import WebSearchTool
 PersistHook = Callable[["ManagedConversation", Event, int], None]
 
 _log = logging.getLogger(__name__)
+
+MCP_INSTRUCTIONS_MAX_CHARS = 1_000
 
 
 def _mcp_invoker(target: mcp.McpTarget):
@@ -166,6 +169,7 @@ class ManagedConversation:
         self.persist_hook: PersistHook = lambda *_: None
         self.mcp_tools: dict[str, list[str]] = {}
         self.mcp_skipped: set[str] = set()
+        self.mcp_instructions: dict[str, tuple[str, str]] = {}
         self.skills_skipped: set[str] = set()
 
     def on_event(self, event: Event) -> None:
@@ -199,11 +203,14 @@ class ManagedConversation:
         transcript = self._title_transcript()
         if not transcript:
             return None
-        response = self.conversation.agent.llm.complete(
+        agent = self.conversation.agent
+        llm = getattr(agent.policy, "llm", agent.llm)
+        response = llm.complete(
             [
                 {"role": "system", "content": _TITLE_SYSTEM},
                 {"role": "user", "content": transcript},
-            ]
+            ],
+            phase="title",
         )
         text = (response.text or "").strip().strip('"').strip()
         snippet = text.splitlines()[0][:60] if text else ""
@@ -222,14 +229,23 @@ class ManagedConversation:
         return "\n".join(lines[:12])
 
     def apply_extensions(
-        self, skills_block: str, targets: dict[str, mcp.McpTarget]
+        self,
+        skill_catalog: str,
+        skill_bodies: dict[str, str],
+        targets: dict[str, mcp.McpTarget],
     ) -> None:
-        self.conversation.agent.skills_block = skills_block
-        registry = self.conversation.agent.tools
+        agent = self.conversation.agent
+        agent.skills_block = skill_catalog
+        registry = agent.tools
+        if skill_bodies:
+            registry.register(SkillTool(skill_bodies))
+        else:
+            registry.unregister(SkillTool.name)
         for connection_id in list(self.mcp_tools):
             if connection_id not in targets:
                 for name in self.mcp_tools.pop(connection_id):
                     registry.unregister(name)
+                self.mcp_instructions.pop(connection_id, None)
         self.mcp_skipped &= targets.keys()
 
         registered = sum(len(names) for names in self.mcp_tools.values())
@@ -238,7 +254,8 @@ class ManagedConversation:
                 continue
             try:
                 with logfire.span("mcp.discover", connection=target.name) as span:
-                    specs = mcp.bridge.run(mcp.discover(target))
+                    info = mcp.bridge.run(mcp.discover(target))
+                    specs = info.tools
                     span.set_attribute("tool_count", len(specs))
             except mcp.McpError as exc:
                 self.mcp_skipped.add(connection_id)
@@ -279,6 +296,12 @@ class ManagedConversation:
                 names.append(tool.name)
             self.mcp_tools[connection_id] = names
             registered += len(names)
+            if info.instructions:
+                self.mcp_instructions[connection_id] = (
+                    target.name,
+                    info.instructions[:MCP_INSTRUCTIONS_MAX_CHARS],
+                )
+        agent.mcp_instructions = dict(self.mcp_instructions.values())
 
     def bootstrap(self) -> None:
         if not self.repo:

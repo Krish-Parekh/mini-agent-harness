@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import uuid
+
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from dataclasses import dataclass
 
 import pytest

@@ -13,7 +13,8 @@ MAX_SKILL_BYTES = 256 * 1024
 IMPORT_TIMEOUT = 10.0
 MAX_REDIRECTS = 3
 ALLOWED_PREFIXES = ("text/", "application/json")
-SKILL_BUDGET_CHARS = 8_000
+SKILL_CATALOG_BUDGET_CHARS = 2_000
+MCP_INSTRUCTIONS_MAX_CHARS = 1_000
 
 
 class ImportError_(Exception):
@@ -96,14 +97,16 @@ class SkillService:
                 f"A skill named '{fields['name']}' already exists."
             ) from None
 
-    async def enabled_bodies(self, cid: str) -> tuple[list[SkillRow], list[SkillRow]]:
+    async def enabled_catalog(
+        self, cid: str
+    ) -> tuple[list[SkillRow], list[SkillRow]]:
         enabled = await self._skills.enabled_for_conversation(cid)
         included: list[SkillRow] = []
         skipped: list[SkillRow] = []
         used = 0
         for skill in enabled:
-            cost = len(skill.body)
-            if used + cost > SKILL_BUDGET_CHARS:
+            cost = len(catalog_line(skill)) + 1
+            if used + cost > SKILL_CATALOG_BUDGET_CHARS:
                 skipped.append(skill)
                 continue
             included.append(skill)
@@ -111,14 +114,13 @@ class SkillService:
         return included, skipped
 
 
+def catalog_line(skill: SkillRow) -> str:
+    description = " ".join(skill.description.split()) or "no description"
+    return f"- {skill.name}: {description}"
+
+
 def render_skills(skills: list[SkillRow]) -> str:
-    if not skills:
-        return ""
-    blocks = [
-        f"## {skill.name}\n{skill.description}\n\n{skill.body}".strip()
-        for skill in skills
-    ]
-    return "\n\n".join(blocks)
+    return "\n".join(catalog_line(skill) for skill in skills)
 
 
 class McpService:
@@ -137,10 +139,10 @@ class McpService:
 
     async def test(self, row: McpConnectionRow) -> tuple[bool, list[str], str | None]:
         try:
-            tools = await mcp_client.discover(self.target(row))
+            info = await mcp_client.discover(self.target(row))
         except mcp_client.McpError as exc:
             return False, [], str(exc)
-        return True, [tool.name for tool in tools], None
+        return True, [tool.name for tool in info.tools], None
 
     async def enabled(self, cid: str) -> list[McpConnectionRow]:
         return await self._connections.enabled_for_conversation(cid)

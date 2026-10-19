@@ -94,9 +94,29 @@ class CondensationEvent(Event):
     source: Source = "agent"
     summary: str
     replaced_event_ids: list[str]
+    elided_event_ids: list[str] = Field(default_factory=list)
+    trigger: Literal["threshold", "overflow"] = "threshold"
+    pruned_only: bool = False
+
+    def to_chat_message(self) -> dict | None:
+        if self.pruned_only:
+            return None
+        return {"role": "user", "content": f"[conversation summary]\n{self.summary}"}
+
+
+class RepoInstructionsEvent(Event):
+    kind: Literal["repo_instructions"] = "repo_instructions"
+    source: Source = "environment"
+    paths: list[str]
+    content: str
+    truncated: bool = False
 
     def to_chat_message(self) -> dict:
-        return {"role": "user", "content": f"[conversation summary]\n{self.summary}"}
+        names = ", ".join(self.paths)
+        return {
+            "role": "user",
+            "content": f"[repository instructions from {names}]\n{self.content}",
+        }
 
 
 class WorkspaceSketchEvent(Event):
@@ -116,6 +136,8 @@ class LLMUsageEvent(Event):
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cached_prompt_tokens: int = 0
+    cache_creation_tokens: int = 0
     cost_usd: float = 0.0
 
 
@@ -148,6 +170,7 @@ Events: TypeAlias = Annotated[
         ObservationEvent,
         CondensationEvent,
         WorkspaceSketchEvent,
+        RepoInstructionsEvent,
         LLMUsageEvent,
         FanoutWorkerEvent,
         ErrorEvent,

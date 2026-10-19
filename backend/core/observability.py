@@ -26,6 +26,19 @@ def _langfuse_endpoint(settings: Settings) -> tuple[str, str] | None:
     return endpoint, f"Authorization=Basic {auth}"
 
 
+_EXPORTED_PREFIXES = ("langfuse.", "gen_ai.")
+
+
+def _keep_exported_fields(match: logfire.ScrubMatch):
+    if (
+        len(match.path) >= 2
+        and match.path[0] == "attributes"
+        and str(match.path[1]).startswith(_EXPORTED_PREFIXES)
+    ):
+        return match.value
+    return None
+
+
 def configure(settings: Settings) -> bool:
     target = _langfuse_endpoint(settings)
     if target is not None:
@@ -37,6 +50,7 @@ def configure(settings: Settings) -> bool:
         service_name=_SERVICE_NAME,
         send_to_logfire=False,
         console=False,
+        scrubbing=logfire.ScrubbingOptions(callback=_keep_exported_fields),
     )
 
     if target is None:

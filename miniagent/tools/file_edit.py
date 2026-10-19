@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import posixpath
 from typing import Literal
 
 from miniagent.sandbox.base import Sandbox
@@ -29,20 +31,55 @@ class FileEditObservation(Observation):
         return self.output
 
 
+class FileObservations:
+    def __init__(self) -> None:
+        self._hashes: dict[str, str] = {}
+
+    @staticmethod
+    def key(path: str, sandbox: Sandbox) -> str:
+        if not posixpath.isabs(path):
+            path = posixpath.join(sandbox.workspace_dir, path)
+        return posixpath.normpath(path)
+
+    @staticmethod
+    def digest(content: str) -> str:
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    def record(self, path: str, sandbox: Sandbox, content: str) -> None:
+        self._hashes[self.key(path, sandbox)] = self.digest(content)
+
+    def problem(self, path: str, sandbox: Sandbox, content: str) -> str | None:
+        seen = self._hashes.get(self.key(path, sandbox))
+        if seen is None:
+            return f"File not viewed yet: view {path} first, then retry."
+        if seen != self.digest(content):
+            return (
+                f"{path} changed since you last viewed it (another edit or the "
+                "user). View it again, then retry."
+            )
+        return None
+
+
 class FileEditTool(Tool):
     name = "file_edit"
     description = (
         "View, create, or edit a file in the workspace. "
         "command='view' returns the file's raw text exactly as stored (no line "
         "numbers); pass view_range=[start, end] (1-based, end -1 = EOF) for a "
-        "slice. command='create' writes content to a new file. "
+        "slice. command='create' writes content to a new file (overwriting an "
+        "existing file requires viewing it first). "
         "command='str_replace' replaces a unique old_str with new_str — old_str "
         "must match the raw file bytes exactly (copy from view output, never "
         "include line-number prefixes) and appear exactly once, so include "
-        "enough surrounding context to be unique."
+        "enough surrounding context to be unique. Edit only files you have viewed "
+        "in this conversation; if a file changed since your last view, view it "
+        "again before editing."
     )
     action_type = FileEditAction
     observation_type = FileEditObservation
+
+    def __init__(self) -> None:
+        self.observed = FileObservations()
 
     def execute(self, action: FileEditAction, sandbox: Sandbox) -> FileEditObservation:
         if action.command == "view":
@@ -56,6 +93,7 @@ class FileEditTool(Tool):
             content = sandbox.read_file(action.path)
         except FileNotFoundError:
             return self._fail(f"File not found: {action.path}")
+        self.observed.record(action.path, sandbox, content)
         if not content:
             return FileEditObservation(output="(empty file)")
         if action.view_range is None:
@@ -83,8 +121,21 @@ class FileEditTool(Tool):
     def _create(self, action: FileEditAction, sandbox: Sandbox) -> FileEditObservation:
         if action.content is None:
             return self._fail("create requires 'content'")
+        try:
+            existing = sandbox.read_file(action.path)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None and self.observed.problem(
+            action.path, sandbox, existing
+        ):
+            return self._fail(
+                f"{action.path} already exists. View it and use str_replace, or "
+                "view it and create again to overwrite."
+            )
         sandbox.write_file(action.path, action.content)
-        return FileEditObservation(output=f"Created {action.path}")
+        self.observed.record(action.path, sandbox, action.content)
+        verb = "Overwrote" if existing is not None else "Created"
+        return FileEditObservation(output=f"{verb} {action.path}")
 
     def _str_replace(
         self, action: FileEditAction, sandbox: Sandbox
@@ -95,6 +146,9 @@ class FileEditTool(Tool):
             content = sandbox.read_file(action.path)
         except FileNotFoundError:
             return self._fail(f"File not found: {action.path}")
+        problem = self.observed.problem(action.path, sandbox, content)
+        if problem:
+            return self._fail(problem)
 
         new_str = action.new_str or ""
         new_content, count = apply_str_replace(content, action.old_str, new_str)
@@ -108,6 +162,7 @@ class FileEditTool(Tool):
             )
 
         sandbox.write_file(action.path, new_content)
+        self.observed.record(action.path, sandbox, new_content)
         return FileEditObservation(output=f"Edited {action.path}")
 
     @staticmethod

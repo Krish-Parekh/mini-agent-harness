@@ -13,7 +13,7 @@ from backend.runtime import mcp as mcp_client
 from backend.runtime.manager import ManagedConversation
 from backend.models import McpConnectionRow, SkillRow
 from backend.service.extension import (
-    SKILL_BUDGET_CHARS,
+    SKILL_CATALOG_BUDGET_CHARS,
     ImportError_,
     SkillService,
     render_skills,
@@ -116,30 +116,36 @@ def skill(name: str, body: str) -> SkillRow:
     )
 
 
-async def test_skill_budget_skips_whole_skills_never_truncates():
+async def test_skill_catalog_budget_skips_whole_skills():
     repo = FakeSkillRepository()
     owner = uuid.uuid4()
-    big = await repo.create(
-        user_id=owner, name="big", description="", body="x" * (SKILL_BUDGET_CHARS - 10)
+    long = await repo.create(
+        user_id=owner,
+        name="long",
+        description="d" * (SKILL_CATALOG_BUDGET_CHARS - 40),
+        body="x",
     )
-    second = await repo.create(user_id=owner, name="second", description="", body="y" * 100)
-    repo.enabled["c1"] = [big.id, second.id]
+    second = await repo.create(
+        user_id=owner, name="second", description="e" * 100, body="y"
+    )
+    repo.enabled["c1"] = [long.id, second.id]
 
-    included, skipped = await SkillService(repo).enabled_bodies("c1")
+    included, skipped = await SkillService(repo).enabled_catalog("c1")
 
-    assert [s.name for s in included] == ["big"]
+    assert [s.name for s in included] == ["long"]
     assert [s.name for s in skipped] == ["second"]
-    assert included[0].body == "x" * (SKILL_BUDGET_CHARS - 10)
 
 
-async def test_skills_within_budget_are_all_included():
+async def test_large_bodies_do_not_count_against_the_catalog():
     repo = FakeSkillRepository()
     owner = uuid.uuid4()
     for i in range(3):
-        row = await repo.create(user_id=owner, name=f"s{i}", description="", body="z" * 100)
+        row = await repo.create(
+            user_id=owner, name=f"s{i}", description="short", body="z" * 50_000
+        )
         repo.enabled.setdefault("c1", []).append(row.id)
 
-    included, skipped = await SkillService(repo).enabled_bodies("c1")
+    included, skipped = await SkillService(repo).enabled_catalog("c1")
 
     assert len(included) == 3
     assert skipped == []
@@ -149,9 +155,12 @@ def test_render_skills_is_empty_for_no_skills():
     assert render_skills([]) == ""
 
 
-def test_render_skills_includes_every_body():
-    rendered = render_skills([skill("a", "body-a"), skill("b", "body-b")])
-    assert "body-a" in rendered and "body-b" in rendered
+def test_render_skills_lists_names_and_descriptions_not_bodies():
+    a = skill("a", "body-a")
+    a.description = "Review\n  carefully"
+    rendered = render_skills([a, skill("b", "body-b")])
+    assert rendered == "- a: Review carefully\n- b: no description"
+    assert "body-a" not in rendered
 
 
 async def test_import_rejects_plain_http():
@@ -273,14 +282,18 @@ def test_mcp_tools_are_risky_under_the_confirm_policy():
 
 def _host():
     events: list = []
-    agent = SimpleNamespace(skills_block="", tools=ToolRegistry([_PlainTool()]))
+    agent = SimpleNamespace(
+        skills_block="", mcp_instructions={}, tools=ToolRegistry([_PlainTool()])
+    )
     conversation = SimpleNamespace(agent=agent, add_event=events.append)
-    host = SimpleNamespace(conversation=conversation, mcp_tools={}, mcp_skipped=set())
+    host = SimpleNamespace(
+        conversation=conversation, mcp_tools={}, mcp_skipped=set(), mcp_instructions={}
+    )
     return host, events
 
 
-def _apply(host, targets, skills_block=""):
-    ManagedConversation.apply_extensions(host, skills_block, targets)
+def _apply(host, targets, skills_block="", skill_bodies=None):
+    ManagedConversation.apply_extensions(host, skills_block, skill_bodies or {}, targets)
 
 
 def _specs(*names):
@@ -299,7 +312,9 @@ def servers(monkeypatch):
         result = catalog[target.name]
         if isinstance(result, Exception):
             raise result
-        return result
+        if isinstance(result, mcp_client.McpServerInfo):
+            return result
+        return mcp_client.McpServerInfo(tools=result)
 
     monkeypatch.setattr(runtime_manager.mcp, "discover", discover)
     return catalog
@@ -507,10 +522,12 @@ async def test_enabling_a_skill_round_trips(client, user_a):
 
 async def test_an_over_budget_skill_is_flagged_skipped(client, user_a):
     client._transport.app.state.service.add("conv-a", uuid.UUID(user_a.sub))
-    for name, size in (("small", 10), ("huge", SKILL_BUDGET_CHARS)):
+    for name, size in (("small", 10), ("huge", SKILL_CATALOG_BUDGET_CHARS)):
         row = (
             await client.post(
-                "/skills", json={"name": name, "body": "x" * size}, headers=bearer("token-a")
+                "/skills",
+                json={"name": name, "description": "d" * size, "body": "x"},
+                headers=bearer("token-a"),
             )
         ).json()
         await client.put(
@@ -610,3 +627,31 @@ def test_discovery_reads_the_read_only_hint(servers):
     tools = host.conversation.agent.tools
     assert tools["mcp__linear__search"].read_only
     assert not tools["mcp__linear__create"].read_only
+
+
+def test_enabled_skills_register_the_skill_tool_and_disable_removes_it(servers):
+    host, _ = _host()
+    _apply(host, {}, skills_block="- review: be thorough", skill_bodies={"review": "BODY"})
+    tools = host.conversation.agent.tools
+    assert "skill" in tools
+    assert tools["skill"].execute(tools["skill"].action_type(name="review"), None).content == "BODY"
+    unknown = tools["skill"].execute(tools["skill"].action_type(name="nope"), None)
+    assert unknown.error and "review" in unknown.content
+
+    _apply(host, {})
+    assert "skill" not in host.conversation.agent.tools
+    assert host.conversation.agent.skills_block == ""
+
+
+def test_server_instructions_reach_the_agent_and_leave_with_the_server(servers):
+    servers["linear"] = mcp_client.McpServerInfo(
+        tools=_specs("search"), instructions="Prefer search before create." + "x" * 2_000
+    )
+    host, _ = _host()
+    _apply(host, {"c1": _target("linear")})
+    text = host.conversation.agent.mcp_instructions["linear"]
+    assert text.startswith("Prefer search before create.")
+    assert len(text) == 1_000
+
+    _apply(host, {})
+    assert host.conversation.agent.mcp_instructions == {}

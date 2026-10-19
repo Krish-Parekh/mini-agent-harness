@@ -1,13 +1,25 @@
 from __future__ import annotations
 
-from miniagent.sandbox.base import Sandbox
+import posixpath
+import shlex
+
+from pydantic import Field
+
+from miniagent.sandbox.base import CommandResult, Sandbox
 from miniagent.schema import Action, Observation
 from miniagent.tools.base import Tool
 
 
 class BashAction(Action):
+    description: str = Field(
+        "", description="5-10 word summary of what the command does, shown to the user."
+    )
     command: str
-    timeout: int = 30
+    workdir: str | None = Field(
+        None,
+        description="Directory to run in, relative to the workspace. Use instead of `cd x && ...`.",
+    )
+    timeout: int = Field(30, ge=1, le=600)
 
 
 class BashObservation(Observation):
@@ -40,16 +52,43 @@ class BashTool(Tool):
         "git work. Keep output small — prefer `| head -50` and narrow test "
         "invocations over full suites. Never start interactive commands "
         "(editors, REPLs, watch mode). The default `timeout` is 30 seconds; "
-        "pass a larger value (120-600) for installs, builds, or test suites."
+        "pass a larger value (120-600) for installs, builds, or test suites. "
+        "Set `description` to a short summary of the command, and `workdir` "
+        "instead of starting the command with `cd`. Before `rm` or `mv`, check "
+        "the resolved target path, and guard variables with `${VAR:?}` so an "
+        "empty value cannot widen the target. If the sandbox denies a command, "
+        "do not retry the same effect another way."
     )
     action_type = BashAction
     observation_type = BashObservation
 
     def execute(self, action: BashAction, sandbox: Sandbox) -> BashObservation:
-        result = sandbox.run_command(action.command, timeout=action.timeout)
-        return BashObservation(
-            stdout=result.stdout,
-            stderr=result.stderr,
-            exit_code=result.exit_code,
-            duration_ms=result.duration_ms,
-        )
+        command = action.command
+        if action.workdir:
+            workdir = _inside_workspace(action.workdir, sandbox.workspace_dir)
+            if workdir is None:
+                return _rejected(f"workdir {action.workdir} is outside the workspace.")
+            command = f"cd -- {shlex.quote(workdir)} && {command}"
+        result = sandbox.run_command(command, timeout=action.timeout)
+        return _observation(result)
+
+
+def _inside_workspace(workdir: str, workspace: str) -> str | None:
+    root = posixpath.normpath(workspace)
+    target = posixpath.normpath(posixpath.join(root, workdir))
+    if target != root and not target.startswith(root + "/"):
+        return None
+    return target
+
+
+def _rejected(message: str) -> BashObservation:
+    return BashObservation(stdout="", stderr=message, exit_code=2)
+
+
+def _observation(result: CommandResult) -> BashObservation:
+    return BashObservation(
+        stdout=result.stdout,
+        stderr=result.stderr,
+        exit_code=result.exit_code,
+        duration_ms=result.duration_ms,
+    )

@@ -317,9 +317,21 @@ export function ContextPanel({
             value={usage.completion_tokens.toLocaleString()}
           />
           <Row label="Total" value={usage.total_tokens.toLocaleString()} />
+          {usage.prompt_tokens > 0 && (
+            <Row
+              label="Cache hits"
+              value={`${Math.round((usage.cached_prompt_tokens / usage.prompt_tokens) * 100)}% of prompt`}
+            />
+          )}
           {usage.cost_usd > 0 && (
             <Row label="Cost" value={`$${usage.cost_usd.toFixed(4)}`} />
           )}
+        </Section>
+      )}
+
+      {context.repo_instructions.length > 0 && (
+        <Section title="Repository instructions">
+          <p className="text-sm">{context.repo_instructions.join(", ")}</p>
         </Section>
       )}
 

@@ -84,7 +84,7 @@ async def list_conversation_skills(
     managed: ManagedDep, user: CurrentUser, skills: SkillsDep
 ):
     owned = await skills.list_for_user(user.id)
-    included, skipped = await SkillService(skills).enabled_bodies(
+    included, skipped = await SkillService(skills).enabled_catalog(
         managed.conversation.id
     )
     enabled = {row.id for row in included}

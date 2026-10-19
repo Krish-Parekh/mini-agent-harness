@@ -132,10 +132,11 @@ export function ExternalUrl({
 const TOOL_VIEWS: Record<string, ToolRenderer> = {
   bash: (a) => {
     const command = String(a.command ?? "");
+    const description = String(a.description ?? "").trim();
     return {
       icon: TerminalIcon,
       verb: "Bash",
-      target: command,
+      target: description || command,
       preview: (
         <ScrollablePreview>
           <pre className="overflow-x-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-xs">

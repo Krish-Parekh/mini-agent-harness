@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 from pydantic import AliasChoices, Field
@@ -15,8 +16,8 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    model: str = "gpt-4o-mini"
-    policy_model: str = "gpt-4o-mini"
+    model: str = "anthropic/claude-sonnet-5-5"
+    policy_model: str = "anthropic/claude-haiku-5-5"
     max_tokens: int = 4096
     temperature: float = 0.0
     workspace_dir: str = "./workspace"
@@ -34,6 +35,10 @@ class Settings(BaseSettings):
     )
 
     tavily_api_key: str = Field("", validation_alias=AliasChoices("TAVILY_API_KEY"))
+
+    anthropic_api_key: str = Field(
+        "", validation_alias=AliasChoices("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
+    )
 
     langfuse_base_url: str = Field(
         "", validation_alias=AliasChoices("LANGFUSE_BASE_URL")
@@ -75,3 +80,8 @@ class Settings(BaseSettings):
     space_template: str = "code-runtime:latest"
     space_allow_internet: bool = True
     space_egress_profiles: str = ""
+
+
+def export_provider_keys(settings: Settings) -> None:
+    if settings.anthropic_api_key:
+        os.environ.setdefault("ANTHROPIC_API_KEY", settings.anthropic_api_key)

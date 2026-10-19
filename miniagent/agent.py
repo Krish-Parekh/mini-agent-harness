@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,10 +20,11 @@ from miniagent.events import (
     LLMUsageEvent,
     MessageEvent,
     ObservationEvent,
+    RepoInstructionsEvent,
     WorkspaceSketchEvent,
 )
-from miniagent.llm import LLM, LLMResponse, ToolCall
-from miniagent.policy import PolicyClassifier, PolicyProvider
+from miniagent.llm import LLM, ContextOverflow, LLMResponse, ToolCall
+from miniagent.policy import BashContext, PolicyClassifier, PolicyProvider
 from miniagent.prompts import (
     CONDENSE_SYSTEM_PROMPT,
     DEFAULT_SYSTEM_PROMPT,
@@ -36,6 +39,7 @@ from miniagent.prompts import (
 from miniagent.sandbox.base import SandboxError
 from miniagent.text import clip
 from miniagent.tools.base import ToolRegistry
+from miniagent.tracing import bind_context, tool_attributes, tool_result_attributes
 from miniagent.tools.mcp import NAME_PREFIX as MCP_PREFIX, McpTool
 from miniagent.tools.plan import Plan
 
@@ -55,11 +59,23 @@ _NUDGE_AFTER_REPEATS = 2
 
 _MAX_FILE_SKETCH_CHARS = 2_000
 
-_CONDENSE_AFTER_TOKENS = 32_000
+COMPACT_AT = 0.8
+PRUNE_TARGET = 0.6
+RETAIN_SHARE = 0.16
+ELIDE_ABOVE_CHARS = 2_000
 _MIN_CONDENSE_EVENTS = 12
-_MAX_CONDENSE_TRANSCRIPT_CHARS = 60_000
 _MAX_FAILURE_EVIDENCE_CHARS = 8_000
 _MAX_FAILURE_ITEM_CHARS = 1_000
+
+
+_log = logging.getLogger(__name__)
+
+REPO_INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md")
+REPO_INSTRUCTIONS_MAX_CHARS = 8_000
+SPILL_THRESHOLD_CHARS = 12_000
+SPILL_PREVIEW_CHARS = 6_000
+SPILL_ROOT = ".miniagent"
+SPILL_DIR = f"{SPILL_ROOT}/outputs"
 
 
 @dataclass(frozen=True)
@@ -98,6 +114,74 @@ def _file_sketch(sandbox: Sandbox) -> str:
     )
 
 
+def _elided_placeholder(event: ObservationEvent) -> str:
+    where = (event.details or {}).get("spill_path") or "re-run the call if needed"
+    return f"[old tool output: {len(event.content):,} chars elided — see {where}]"
+
+
+def _spill_oversized(call: ToolCall, result: ToolResult, sandbox: Sandbox) -> ToolResult:
+    content = result.content
+    if len(content) <= SPILL_THRESHOLD_CHARS:
+        return result
+    path = f"{SPILL_DIR}/{call.id}.txt"
+    try:
+        with logfire.span("tool.spill", path=path, chars=len(content)):
+            _exclude_from_git(sandbox)
+            sandbox.write_file(path, content)
+    except Exception as exc:
+        _log.warning("could not spill %s output: %s", call.name, exc)
+        return dataclasses.replace(
+            result,
+            content=clip(content, SPILL_PREVIEW_CHARS) + "\n[full output unavailable]",
+        )
+    note = (
+        f"\n[output truncated: {len(content):,} chars total. Full output: {path}. "
+        "Use file_edit view with view_range, or bash grep/sed, to read the rest]"
+    )
+    details = {**(result.details or {}), "spill_path": path, "full_chars": len(content)}
+    return dataclasses.replace(
+        result, content=clip(content, SPILL_PREVIEW_CHARS) + note, details=details
+    )
+
+
+def _exclude_from_git(sandbox: Sandbox) -> None:
+    sandbox.run_command(
+        'p="$(git rev-parse --git-path info/exclude 2>/dev/null)" && '
+        'mkdir -p "$(dirname "$p")" && '
+        f'(grep -qxF "{SPILL_ROOT}/" "$p" 2>/dev/null || echo "{SPILL_ROOT}/" >> "$p")',
+        timeout=15,
+    )
+
+
+def _pair_tool_calls(messages: list[dict]) -> list[dict]:
+    repaired: list[dict] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        repaired.append(message)
+        index += 1
+        call_ids = [c["id"] for c in message.get("tool_calls") or []]
+        if message.get("role") != "assistant" or not call_ids:
+            continue
+        answered: set[str] = set()
+        while index < len(messages) and messages[index].get("role") == "tool":
+            answered.add(messages[index].get("tool_call_id"))
+            repaired.append(messages[index])
+            index += 1
+        for call_id in call_ids:
+            if call_id in answered:
+                continue
+            _log.warning("tool call %s had no result; closing it", call_id)
+            repaired.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": "Not executed. Re-issue the call if it is still needed.",
+                }
+            )
+    return repaired
+
+
 class Agent:
     def __init__(
         self,
@@ -117,6 +201,7 @@ class Agent:
         self.policy = policy or PolicyClassifier(llm)
         self.task_router = task_router or TaskClassifier(llm)
         self.skills_block = ""
+        self.mcp_instructions: dict[str, str] = {}
 
     def classify_task_route(self, text: str, plan_mode: bool = False) -> TaskRoute:
         if plan_mode:
@@ -127,11 +212,34 @@ class Agent:
         with logfire.span(
             "agent.step",
             conversation_id=conversation.id,
-            model=self.llm.model,
+            agent_model=self.llm.model,
+            **{"langfuse.observation.type": "span"},
         ):
             self._step(conversation, sandbox)
 
+    def _bind_policy_context(
+        self, conversation: Conversation, sandbox: Sandbox
+    ) -> None:
+        bind = getattr(self.policy, "bind_context", None)
+        if bind is None:
+            return
+
+        def context() -> BashContext:
+            recent = [
+                e.text
+                for e in conversation.events
+                if isinstance(e, MessageEvent) and e.role == "user"
+            ][-3:]
+            return BashContext(
+                cwd=sandbox.workspace_dir,
+                repo=self.repo,
+                recent_user_messages=tuple(recent),
+            )
+
+        bind(context)
+
     def _step(self, conversation: Conversation, sandbox: Sandbox) -> None:
+        self._bind_policy_context(conversation, sandbox)
         pending = conversation.pending_action()
         if pending is not None:
             self._run_tool(
@@ -146,19 +254,21 @@ class Agent:
             return
 
         self._ensure_workspace_sketch(conversation, sandbox)
+        self._ensure_repo_instructions(conversation, sandbox)
         self._maybe_condense(conversation, sandbox)
-        messages = self._build_messages(conversation, sandbox)
-        with logfire.span("llm.complete", model=self.llm.model) as llm_span:
-            response = self.llm.complete(messages, self.tools.all())
-            llm_span.set_attribute("prompt_tokens", response.usage.prompt_tokens)
-            llm_span.set_attribute(
-                "completion_tokens", response.usage.completion_tokens
-            )
-            llm_span.set_attribute("total_tokens", response.usage.total_tokens)
-            llm_span.set_attribute("cost_usd", response.cost)
-            llm_span.set_attribute(
-                "tool_calls", [c.name for c in response.tool_calls or []]
-            )
+        try:
+            response = self._complete_step(conversation, sandbox)
+        except ContextOverflow:
+            if not self._maybe_condense(conversation, sandbox, trigger="overflow"):
+                raise
+            try:
+                response = self._complete_step(conversation, sandbox)
+            except ContextOverflow:
+                conversation.add_event(
+                    ErrorEvent(message="Context window exceeded after compaction")
+                )
+                conversation.set_error()
+                return
         self._record_llm_usage(conversation, response, "step")
 
         if response.text:
@@ -176,12 +286,18 @@ class Agent:
             return
         conversation.set_idle()
 
+    def _complete_step(
+        self, conversation: Conversation, sandbox: Sandbox
+    ) -> LLMResponse:
+        messages = self._build_messages(conversation, sandbox)
+        return self.llm.complete(messages, self.tools.all(), phase="step")
+
     def early_stop(self, conversation: Conversation, sandbox: Sandbox) -> bool:
         """Generate a best-effort final response after the loop hits its cap."""
         self._maybe_condense(conversation, sandbox)
         messages = self._build_messages(conversation, sandbox)
         messages.append({"role": "user", "content": EARLY_STOP_PROMPT})
-        response = self.llm.complete(messages)
+        response = self.llm.complete(messages, phase="early_stop")
         self._record_llm_usage(conversation, response, "early_stop")
         text = (response.text or "").strip()
         if not text:
@@ -205,19 +321,45 @@ class Agent:
             lines.append(f"- repository: {self.repo}{branch}")
         lines.append(f"- working directory: {sandbox.workspace_dir}")
         lines.append("Relative paths resolve against the working directory.")
-        if self.skills_block:
-            lines.append("\n\n# Skills")
-            lines.append(
-                "Playbooks the user enabled for this conversation. Follow them "
-                "when they apply to the task at hand."
-            )
-            lines.append(self.skills_block)
+        lines.append(
+            "Repository instructions (AGENTS.md / CLAUDE.md), when present, "
+            "override general style guidance but never the safety rules."
+        )
+        lines.append(
+            "Each step ends with a <runtime-context> message from MiniAgent "
+            "carrying the current mode, routing hints and enabled skills."
+        )
         return "\n".join(lines)
 
     @staticmethod
     def _has_workspace_sketch(conversation: Conversation) -> bool:
         return any(
             isinstance(event, WorkspaceSketchEvent) for event in conversation.events
+        )
+
+    def _ensure_repo_instructions(
+        self, conversation: Conversation, sandbox: Sandbox
+    ) -> None:
+        if any(isinstance(e, RepoInstructionsEvent) for e in conversation.events):
+            return
+        paths: list[str] = []
+        parts: list[str] = []
+        for name in REPO_INSTRUCTION_FILES:
+            try:
+                text = sandbox.read_file(name).strip()
+            except Exception:
+                continue
+            if text:
+                paths.append(name)
+                parts.append(f"# {name}\n{text}")
+        if not paths:
+            return
+        content = "\n\n".join(parts)
+        truncated = len(content) > REPO_INSTRUCTIONS_MAX_CHARS
+        if truncated:
+            content = content[:REPO_INSTRUCTIONS_MAX_CHARS] + "\n[truncated]"
+        conversation.add_event(
+            RepoInstructionsEvent(paths=paths, content=content, truncated=truncated)
         )
 
     def _ensure_workspace_sketch(
@@ -240,65 +382,103 @@ class Agent:
             return "\n\n" + ROUTE_PR_FLOW_DIRECTIVE
         return ""
 
-    def _maybe_condense(self, conversation: Conversation, sandbox: Sandbox) -> None:
-        candidates = conversation.condensation_candidates()
-        if len(candidates) < _MIN_CONDENSE_EVENTS:
-            return
-        messages = self._build_messages(conversation, sandbox)
-        tokens = self.llm.count_tokens(messages)
-        if tokens and tokens < _CONDENSE_AFTER_TOKENS:
-            return
-        if not tokens:
-            total_chars = sum(
-                len(str(message.get("content") or "")) for message in messages
-            )
-            if total_chars < _MAX_CONDENSE_TRANSCRIPT_CHARS:
-                return
+    def _maybe_condense(
+        self,
+        conversation: Conversation,
+        sandbox: Sandbox,
+        trigger: Literal["threshold", "overflow"] = "threshold",
+    ) -> bool:
+        window = self.llm.context_window()
+        tokens = self._prompt_tokens(conversation, sandbox)
+        if trigger == "overflow":
+            window = min(window, max(tokens, 1))
+        elif tokens < COMPACT_AT * window:
+            return False
+        with logfire.span(
+            "agent.compact", trigger=trigger, tokens_before=tokens, window=window
+        ) as span:
+            if self._elide_old_outputs(conversation, sandbox, window, trigger):
+                span.set_attribute("pruned_only", True)
+                return True
+            summarized = self._summarize(conversation, sandbox, window, trigger)
+            span.set_attribute("pruned_only", False)
+            span.set_attribute("summarized", summarized)
+            return summarized
 
-        transcript = self._condensation_transcript(candidates)
-        if not transcript.strip():
-            return
-        response = self.llm.complete(
-            [
-                {"role": "system", "content": CONDENSE_SYSTEM_PROMPT},
-                {"role": "user", "content": transcript},
-            ]
+    def _prompt_tokens(self, conversation: Conversation, sandbox: Sandbox) -> int:
+        messages = self._build_messages(conversation, sandbox)
+        tokens = self.llm.count_tokens(messages, self.tools.all())
+        if tokens:
+            return tokens
+        return sum(len(str(m.get("content") or "")) for m in messages) // 4
+
+    def _elide_old_outputs(
+        self,
+        conversation: Conversation,
+        sandbox: Sandbox,
+        window: int,
+        trigger: str,
+    ) -> bool:
+        candidates = conversation.condensation_candidates(
+            retain_chars=int(RETAIN_SHARE * window * 4)
         )
+        already = conversation.elided_event_ids()
+        target = PRUNE_TARGET * window
+        tokens = self._prompt_tokens(conversation, sandbox)
+        chosen: list[str] = []
+        for event in candidates:
+            if tokens < target:
+                break
+            if (
+                isinstance(event, ObservationEvent)
+                and event.id not in already
+                and len(event.content) > ELIDE_ABOVE_CHARS
+            ):
+                chosen.append(event.id)
+                tokens -= (len(event.content) - 200) // 4
+        if not chosen or tokens >= target:
+            return False
+        conversation.add_event(
+            CondensationEvent(
+                summary="",
+                replaced_event_ids=[],
+                elided_event_ids=chosen,
+                trigger=trigger,
+                pruned_only=True,
+            )
+        )
+        return True
+
+    def _summarize(
+        self,
+        conversation: Conversation,
+        sandbox: Sandbox,
+        window: int,
+        trigger: str,
+    ) -> bool:
+        candidates = conversation.condensation_candidates(
+            retain_chars=int(RETAIN_SHARE * window * 4)
+        )
+        if len(candidates) < _MIN_CONDENSE_EVENTS:
+            return False
+        messages = self._build_messages(conversation, sandbox)
+        messages.append({"role": "user", "content": CONDENSE_SYSTEM_PROMPT})
+        response = self.llm.complete(messages, self.tools.all(), phase="condense")
         self._record_llm_usage(conversation, response, "condense")
         summary = (response.text or "").strip()
-        if summary:
-            failure_evidence = self._failure_evidence(candidates)
-            if failure_evidence:
-                summary += (
-                    "\n\nFailure/error evidence to preserve:\n" + failure_evidence
-                )
-            conversation.add_event(
-                CondensationEvent(
-                    summary=summary,
-                    replaced_event_ids=[event.id for event in candidates],
-                )
+        if not summary:
+            return False
+        failure_evidence = self._failure_evidence(candidates)
+        if failure_evidence:
+            summary += "\n\nFailure/error evidence to preserve:\n" + failure_evidence
+        conversation.add_event(
+            CondensationEvent(
+                summary=summary,
+                replaced_event_ids=[event.id for event in candidates],
+                trigger=trigger,
             )
-
-    @staticmethod
-    def _condensation_transcript(events: list[Event]) -> str:
-        lines: list[str] = []
-        for event in events:
-            if isinstance(event, MessageEvent):
-                lines.append(f"{event.role}: {event.text}")
-            elif isinstance(event, ActionEvent):
-                arguments = event.raw_arguments
-                if arguments is None:
-                    arguments = json.dumps(event.arguments)
-                line = f"tool {event.tool_name}: {arguments}"
-                if event.parse_error is not None:
-                    line += f" (invalid JSON: {event.parse_error})"
-                lines.append(line)
-            elif isinstance(event, ObservationEvent):
-                status = "ERROR" if event.error else "OK"
-                lines.append(f"result[{status}] {event.tool_name}: {event.content}")
-            elif isinstance(event, ErrorEvent):
-                lines.append(f"error: {event.message}")
-        return clip("\n".join(lines), _MAX_CONDENSE_TRANSCRIPT_CHARS)
+        )
+        return True
 
     @staticmethod
     def _failure_evidence(events: list[Event]) -> str:
@@ -318,20 +498,15 @@ class Agent:
     def _build_messages(
         self, conversation: Conversation, sandbox: Sandbox
     ) -> list[dict]:
-        system_prompt = (
-            self.system_prompt
-            + self._context_block(conversation, sandbox)
-            + self._route_block(conversation)
-        )
-        if conversation.plan_mode:
-            system_prompt += PLAN_MODE_DIRECTIVE
-        elif conversation.implementing_plan:
-            system_prompt += IMPLEMENT_PLAN_DIRECTIVE
+        system_prompt = self.system_prompt + self._context_block(conversation, sandbox)
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         compacted = conversation.compacted_event_ids()
+        elided = conversation.elided_event_ids()
         for event in conversation.events:
             if isinstance(event, CondensationEvent):
-                messages.append(event.to_chat_message())
+                summary = event.to_chat_message()
+                if summary is not None:
+                    messages.append(summary)
         pending: dict | None = None  # assistant turn being assembled
 
         def flush() -> None:
@@ -376,6 +551,8 @@ class Agent:
             message = event.to_chat_message()
             if message is None:
                 continue
+            if event.id in elided and isinstance(event, ObservationEvent):
+                message = {**message, "content": _elided_placeholder(event)}
             # Clip oversized content so one giant observation can't exhaust the
             # context window; truncating (not dropping events) keeps tool_call
             # pairing intact, and clipping at send-time also rescues stored events.
@@ -385,7 +562,34 @@ class Agent:
             messages.append(message)
 
         flush()
+        messages = _pair_tool_calls(messages)
+        messages.append(
+            {"role": "user", "content": self._runtime_context(conversation)}
+        )
         return messages
+
+    def _runtime_context(self, conversation: Conversation) -> str:
+        sections = [
+            "Runtime context for this step, set by MiniAgent rather than typed by "
+            "the user. It reflects the current mode and enabled extensions."
+        ]
+        route = self._route_block(conversation).strip()
+        if route:
+            sections.append(route)
+        if conversation.plan_mode:
+            sections.append(PLAN_MODE_DIRECTIVE.strip())
+        elif conversation.implementing_plan:
+            sections.append(IMPLEMENT_PLAN_DIRECTIVE.strip())
+        if self.skills_block:
+            sections.append(
+                "# Skills\nPlaybooks the user enabled for this conversation. "
+                "Before a task one applies to, load it with the `skill` tool and "
+                "follow it.\n" + self.skills_block
+            )
+        for server, instructions in sorted(self.mcp_instructions.items()):
+            sections.append(f"# MCP server: {server}\n{instructions}")
+        body = "\n\n".join(sections)
+        return f"<runtime-context>\n{body}\n</runtime-context>"
 
     def _record_llm_usage(
         self, conversation: Conversation, response: LLMResponse, phase: str
@@ -400,6 +604,8 @@ class Agent:
                 prompt_tokens=usage.prompt_tokens,
                 completion_tokens=usage.completion_tokens,
                 total_tokens=usage.total_tokens,
+                cached_prompt_tokens=usage.cached_prompt_tokens,
+                cache_creation_tokens=usage.cache_creation_tokens,
                 cost_usd=response.cost,
             )
         )
@@ -502,12 +708,11 @@ class Agent:
             for action in actions
         ]
         with ThreadPoolExecutor(max_workers=len(calls)) as executor:
-            results = list(
-                executor.map(
-                    lambda call: self._run_tool_for_observation(call, sandbox),
-                    calls,
-                )
-            )
+            futures = [
+                executor.submit(bind_context(self._run_tool_for_observation), call, sandbox)
+                for call in calls
+            ]
+            results = [future.result() for future in futures]
         for call, result in zip(calls, results):
             self._observe(
                 conversation,
@@ -641,6 +846,31 @@ class Agent:
         sandbox: Sandbox,
         conversation: Conversation | None = None,
     ) -> ToolResult:
+        with logfire.span(
+            "tool.execute {tool}",
+            tool=call.name,
+            tool_call_id=call.id,
+            cwd=getattr(sandbox, "working_dir", None),
+        ) as span:
+            span.set_attributes(tool_attributes(name=call.name, arguments=call.arguments))
+            result = _spill_oversized(
+                call, self._execute_tool_call(call, sandbox, conversation), sandbox
+            )
+            span.set_attributes(
+                tool_result_attributes(
+                    content=result.content, error=result.error, details=result.details
+                )
+            )
+            if result.duration_ms is not None:
+                span.set_attribute("tool.duration_ms", result.duration_ms)
+        return result
+
+    def _execute_tool_call(
+        self,
+        call: ToolCall,
+        sandbox: Sandbox,
+        conversation: Conversation | None = None,
+    ) -> ToolResult:
         if call.name not in self.tools:
             available = ", ".join(t.name for t in self.tools.all())
             return ToolResult(f"Unknown tool: {call.name}. Available: {available}", True)
@@ -680,20 +910,15 @@ class Agent:
             plan.steps[action.step - 1].status = action.status
 
         try:
-            with logfire.span(
-                "tool.execute",
-                tool=call.name,
-                cwd=getattr(sandbox, "working_dir", None),
-            ):
-                if call.name in ("fanout", "web_research") and conversation is not None:
-                    observation = tool.execute(
-                        action,
-                        sandbox,
-                        conversation=conversation,
-                        tool_call_id=call.id,
-                    )
-                else:
-                    observation = tool.execute(action, sandbox)
+            if call.name in ("fanout", "web_research") and conversation is not None:
+                observation = tool.execute(
+                    action,
+                    sandbox,
+                    conversation=conversation,
+                    tool_call_id=call.id,
+                )
+            else:
+                observation = tool.execute(action, sandbox)
         except SandboxError:
             # The model cannot fix an unreachable or expired sandbox; end the
             # turn instead of feeding it an error to retry.

@@ -68,6 +68,7 @@ class TaskClassifier:
                     {"role": "user", "content": f"User request:\n{text}"},
                 ],
                 TaskRouteDecision,
+                phase="route",
             )
         except Exception:
             return TaskRoute.DEFAULT

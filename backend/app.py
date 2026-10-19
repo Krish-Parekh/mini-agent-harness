@@ -24,13 +24,14 @@ from backend.repository import (
 )
 from backend.runtime import ConversationManager
 from backend.service import AuthService, ConversationService
-from miniagent.config import Settings
+from miniagent.config import Settings, export_provider_keys
 from miniagent.sandbox.factory import check_provider
 
 # Provider SDKs read their credentials from the process environment, not
 # from Settings, so .env has to reach os.environ before the startup check.
 load_dotenv(override=False)
 settings = Settings()
+export_provider_keys(settings)
 observability.configure(settings)
 check_provider(settings)
 

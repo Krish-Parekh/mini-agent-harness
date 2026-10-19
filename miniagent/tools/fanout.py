@@ -19,6 +19,7 @@ from miniagent.tools.base import Tool, ToolRegistry
 from miniagent.tools.bash import BashAction, BashObservation, BashTool
 from miniagent.tools.file_edit import FileEditAction, FileEditObservation, FileEditTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tracing import bind_context
 
 if TYPE_CHECKING:
     pass
@@ -168,7 +169,7 @@ class FanoutTool(Tool):
         with ThreadPoolExecutor(max_workers=len(action.tasks)) as executor:
             futures = {
                 executor.submit(
-                    self._run_worker,
+                    bind_context(self._run_worker),
                     task,
                     sandbox,
                     index,

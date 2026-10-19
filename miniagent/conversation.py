@@ -92,6 +92,11 @@ class Conversation:
         # (answering a question, refining the plan) keeps the existing mode.
         if plan_mode:
             self.plan_mode = True
+        self.close_orphaned_actions(
+            "Not executed: the user sent a new message instead of approving this call."
+        )
+        if self.status == Status.WAITING_FOR_CONFIRMATION:
+            self.status = Status.IDLE
         self.route = route or self.agent.classify_task_route(
             text, plan_mode=self.plan_mode
         )
@@ -135,6 +140,17 @@ class Conversation:
             if isinstance(event, ActionEvent) and event.tool_call_id not in observed
         ]
 
+    def close_orphaned_actions(self, reason: str) -> None:
+        for action in self.pending_actions():
+            self.add_event(
+                ObservationEvent(
+                    tool_name=action.tool_name,
+                    tool_call_id=action.tool_call_id,
+                    content=f"{reason} Re-issue the call if it is still needed.",
+                    error=True,
+                )
+            )
+
     def compacted_event_ids(self) -> set[str]:
         from miniagent.events import CondensationEvent
 
@@ -144,18 +160,32 @@ class Conversation:
                 replaced.update(event.replaced_event_ids)
         return replaced
 
-    def condensation_candidates(self) -> list[Event]:
+    def elided_event_ids(self) -> set[str]:
         from miniagent.events import CondensationEvent
 
-        last_user_index = self._last_user_index()
-        if last_user_index is None:
-            return []
+        elided: set[str] = set()
+        for event in self.events:
+            if isinstance(event, CondensationEvent):
+                elided.update(event.elided_event_ids)
+        return elided
+
+    def condensation_candidates(self, retain_chars: int | None = None) -> list[Event]:
+        from miniagent.events import CondensationEvent
+
         compacted = self.compacted_event_ids()
-        candidates = [
+        live = [
             event
-            for event in self.events[:last_user_index]
+            for event in self.events
             if event.id not in compacted and not isinstance(event, CondensationEvent)
         ]
+        if retain_chars is None:
+            last_user_index = self._last_user_index()
+            if last_user_index is None:
+                return []
+            cut = live.index(self.events[last_user_index])
+        else:
+            cut = self._retained_cut(live, retain_chars)
+        candidates = live[:cut]
         observed = {
             event.tool_call_id
             for event in candidates
@@ -167,6 +197,17 @@ class Conversation:
         ):
             return []
         return candidates
+
+    @staticmethod
+    def _retained_cut(live: list[Event], retain_chars: int) -> int:
+        kept = 0
+        cut = len(live)
+        while cut > 0 and kept < retain_chars:
+            cut -= 1
+            kept += len(live[cut].model_dump_json())
+        while cut < len(live) and isinstance(live[cut], ObservationEvent):
+            cut += 1
+        return cut
 
     def has_unverified_changes(self, policy: PolicyProvider | None = None) -> bool:
         dirty = False
@@ -235,6 +276,10 @@ class Conversation:
 
     def run(self) -> None:
         self.cancel_event.clear()
+        if self.status != Status.WAITING_FOR_CONFIRMATION:
+            self.close_orphaned_actions(
+                "Not executed: the previous run stopped before this call ran."
+            )
         self.status = Status.RUNNING
         for _ in range(self.max_iterations):
             # Cooperative stop: a step runs to completion (the current LLM call
@@ -252,10 +297,12 @@ class Conversation:
                 self.agent.step(self, self.sandbox)
             except SandboxError as exc:
                 code = "sandbox_expired" if isinstance(exc, SandboxExpired) else "sandbox_unavailable"
+                self.close_orphaned_actions(f"Not executed: {code}.")
                 self.add_event(ErrorEvent(message=f"{code}: {exc}"))
                 self.status = Status.ERROR
                 return
             except Exception as exc:
+                self.close_orphaned_actions("Not executed: the agent step failed.")
                 self.add_event(ErrorEvent(message=f"agent step failed: {exc}"))
                 self.status = Status.ERROR
                 return
