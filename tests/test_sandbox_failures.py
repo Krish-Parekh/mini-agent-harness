@@ -1,0 +1,93 @@
+from __future__ import annotations
+
+from miniagent.agent import Agent
+from miniagent.classification import TaskRoute
+from miniagent.confirm import ConfirmPolicy
+from miniagent.conversation import Conversation, Status
+from miniagent.events import ErrorEvent, ObservationEvent
+from miniagent.llm import LLMResponse, ToolCall
+from miniagent.policy import CommandPolicy
+from miniagent.sandbox.base import CommandResult, Sandbox, SandboxError, SandboxExpired
+from miniagent.tools.base import ToolRegistry
+from miniagent.tools.bash import BashTool
+from miniagent.tools.finish import FinishTool
+
+
+class ScriptedLLM:
+    model = "scripted"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, messages, tools=None):
+        self.calls += 1
+        return LLMResponse(
+            tool_calls=[ToolCall(id=f"c{self.calls}", name="bash", arguments={"command": "echo hi"})]
+        )
+
+
+class SafePolicy:
+    def classify_bash(self, command: str) -> CommandPolicy:
+        return CommandPolicy(risk="safe", read_only=True, is_verification=False)
+
+    def classify_finish_message(self, message: str) -> CommandPolicy:
+        return CommandPolicy(risk="safe", read_only=True)
+
+
+class DefaultRoute:
+    def classify_task_route(self, text: str) -> TaskRoute:
+        return TaskRoute.DEFAULT
+
+
+class FailingSandbox(Sandbox):
+    """Fine for the workspace sketch, then fails on the agent's own command."""
+
+    provider = "failing"
+
+    def __init__(self, error: SandboxError) -> None:
+        self.workspace_dir = "/w"
+        self.error = error
+
+    def run_command(self, command, timeout=30, env=None):
+        if command == "echo hi":
+            raise self.error
+        return CommandResult(stdout="", stderr="", exit_code=1)
+
+    def write_file(self, path, content): ...
+    def read_file(self, path): raise FileNotFoundError(path)
+    def list_files(self, path): return []
+    def close(self): ...
+
+
+def _run(error: SandboxError) -> tuple[Conversation, ScriptedLLM]:
+    llm = ScriptedLLM()
+    agent = Agent(
+        llm=llm,
+        tools=ToolRegistry([BashTool(), FinishTool()]),
+        policy=SafePolicy(),
+        task_router=DefaultRoute(),
+    )
+    conversation = Conversation(
+        agent=agent,
+        sandbox=FailingSandbox(error),
+        confirm_policy=ConfirmPolicy("never"),
+        stuck_detection=False,
+    )
+    conversation.send_message("say hi")
+    conversation.run()
+    return conversation, llm
+
+
+def test_expired_sandbox_ends_the_turn_instead_of_reaching_the_model() -> None:
+    conversation, llm = _run(SandboxExpired("e2b sandbox sbx_1 is gone"))
+    assert conversation.status == Status.ERROR
+    assert llm.calls == 1
+    errors = [e for e in conversation.events if isinstance(e, ErrorEvent)]
+    assert errors[-1].message.startswith("sandbox_expired:")
+    assert not any(isinstance(e, ObservationEvent) for e in conversation.events)
+
+
+def test_unreachable_sandbox_is_reported_as_unavailable() -> None:
+    conversation, _ = _run(SandboxError("space command stream failed"))
+    errors = [e for e in conversation.events if isinstance(e, ErrorEvent)]
+    assert errors[-1].message.startswith("sandbox_unavailable:")

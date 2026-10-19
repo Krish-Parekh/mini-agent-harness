@@ -27,6 +27,8 @@ class FlakyRepository:
 
 class FakeSandbox:
     workspace_dir = "/tmp/workspace"
+    provider = "local"
+    sandbox_id = None
 
 
 class FakeConversationState:

@@ -14,6 +14,7 @@ from miniagent.events import (
     MessageEvent,
     ObservationEvent,
 )
+from miniagent.sandbox.base import SandboxError, SandboxExpired
 from miniagent.stuck_detector import StuckDetectionThresholds, StuckDetector
 
 if TYPE_CHECKING:
@@ -249,6 +250,11 @@ class Conversation:
                     return
             try:
                 self.agent.step(self, self.sandbox)
+            except SandboxError as exc:
+                code = "sandbox_expired" if isinstance(exc, SandboxExpired) else "sandbox_unavailable"
+                self.add_event(ErrorEvent(message=f"{code}: {exc}"))
+                self.status = Status.ERROR
+                return
             except Exception as exc:
                 self.add_event(ErrorEvent(message=f"agent step failed: {exc}"))
                 self.status = Status.ERROR

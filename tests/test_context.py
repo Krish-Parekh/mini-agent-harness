@@ -30,6 +30,8 @@ class FakeAgent:
 
 class FakeSandbox:
     workspace_dir = "/tmp/worktrees/c1"
+    provider = "local"
+    sandbox_id = None
 
 
 class FakeConversationState:

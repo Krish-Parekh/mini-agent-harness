@@ -33,6 +33,7 @@ from miniagent.prompts import (
     ROUTE_QUESTION_DIRECTIVE,
     ROUTE_REVIEW_DIRECTIVE,
 )
+from miniagent.sandbox.base import SandboxError
 from miniagent.text import clip
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.plan import Plan
@@ -684,6 +685,10 @@ class Agent:
                     )
                 else:
                     observation = tool.execute(action, sandbox)
+        except SandboxError:
+            # The model cannot fix an unreachable or expired sandbox; end the
+            # turn instead of feeding it an error to retry.
+            raise
         except Exception as exc:
             return ToolResult(f"Tool error: {exc}", True)
 

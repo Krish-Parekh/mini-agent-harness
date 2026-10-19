@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
+
+TIMEOUT_EXIT_CODE = 124
+KILLED_EXIT_CODE = 130
 
 
 class CommandResult(BaseModel):
@@ -14,11 +18,31 @@ class CommandResult(BaseModel):
     duration_ms: int = 0
 
 
+class SandboxError(Exception):
+    pass
+
+
+class SandboxExpired(SandboxError):
+    pass
+
+
 class Sandbox(ABC):
+    """Where the agent's tools run.
+
+    Contract shared by every provider: a non-zero exit is returned, never
+    raised; a timeout returns TIMEOUT_EXIT_CODE; a command stopped by
+    kill_running returns KILLED_EXIT_CODE; relative paths resolve against
+    workspace_dir. kill_running must stop every command in flight, because
+    parallel-safe tool calls and fanout workers share one sandbox."""
+
+    provider: ClassVar[str]
     workspace_dir: str
+    sandbox_id: str | None = None
 
     @abstractmethod
-    def run_command(self, command: str, timeout: int = 30) -> CommandResult: ...
+    def run_command(
+        self, command: str, timeout: int = 30, env: dict[str, str] | None = None
+    ) -> CommandResult: ...
 
     @abstractmethod
     def write_file(self, path: str, content: str) -> None: ...
@@ -30,10 +54,13 @@ class Sandbox(ABC):
     def list_files(self, path: str) -> list[str]: ...
 
     def kill_running(self) -> None:
-        """Best-effort: terminate the command currently running, if any.
+        """Best-effort: terminate every command currently running."""
 
-        Default is a no-op; sandboxes that can interrupt an in-flight command
-        (e.g. the local one) override this so a user stop is responsive."""
+    def set_working_dir(self, path: str) -> None:
+        self.workspace_dir = path
+
+    def extend(self, seconds: int) -> None:
+        """Push the provider's deadline forward. No-op where nothing expires."""
 
     @abstractmethod
     def close(self) -> None: ...
