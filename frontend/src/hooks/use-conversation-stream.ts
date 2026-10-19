@@ -131,7 +131,7 @@ export function useConversationStream(id: string) {
   }, [refreshChanges, observationByCall.size]);
 
   // Context is a snapshot, so it only refreshes when a turn crosses a
-  // boundary — deliberately not polled.
+  // boundary, deliberately not polled.
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: queryKeys.context(id) });
   }, [queryClient, id, status]);

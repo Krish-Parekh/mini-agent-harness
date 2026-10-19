@@ -1,6 +1,6 @@
 """Exact str_replace matching plus rich diagnostics for the no-match case.
 
-The match itself stays deterministic — old_str must occur verbatim exactly
+The match itself stays deterministic: old_str must occur verbatim exactly
 once. When it doesn't, we don't silently normalize and apply; instead we report
 *why* it failed (line-number paste, CRLF drift, whitespace near-miss, already
 applied, or a partial near-match) and paste a fresh excerpt so the model can
@@ -40,7 +40,7 @@ def diagnose_no_match(content: str, old_str: str, new_str: str, path: str) -> st
 
     if new_str and new_str in content and old_str not in content:
         reasons.append(
-            "Looks already applied — new_str is present and old_str is absent. "
+            "Looks already applied: new_str is present and old_str is absent. "
             "You may have made this edit already."
         )
 
@@ -48,7 +48,7 @@ def diagnose_no_match(content: str, old_str: str, new_str: str, path: str) -> st
     if old_lines and all(_LINE_PREFIX.match(line) for line in old_lines):
         reasons.append(
             "Every line of old_str carries a line-number prefix (e.g. `   12\\t`). "
-            "`view` returns raw file text now — copy the code without line numbers."
+            "`view` returns raw file text now, so copy the code without line numbers."
         )
 
     if "\r\n" in content and "\r\n" not in old_str and old_str.replace("\n", "\r\n") in content:
@@ -63,14 +63,14 @@ def diagnose_no_match(content: str, old_str: str, new_str: str, path: str) -> st
     stripped = old_str.strip()
     if stripped and stripped != old_str and content.count(stripped) == 1:
         reasons.append(
-            "old_str matches once if surrounding whitespace is ignored — it has "
+            "old_str matches once if surrounding whitespace is ignored; it has "
             "extra or missing leading/trailing whitespace."
         )
 
     anchor, ratio = _best_partial(content, old_str)
     if ratio >= _NEAR_MATCH_RATIO and not reasons:
         reasons.append(
-            "The closest text in the file differs slightly from old_str — compare "
+            "The closest text in the file differs slightly from old_str; compare "
             "it against the excerpt below."
         )
 
@@ -93,7 +93,7 @@ def diagnose_multiple(content: str, old_str: str, path: str, count: int) -> str:
     """Message for the non-unique case: report the count and show the first hit."""
     idx = content.index(old_str)
     return (
-        f"old_str is not unique in {path} ({count} matches) — add surrounding "
+        f"old_str is not unique in {path} ({count} matches); add surrounding "
         "context to make it match exactly one location.\n\n"
         "--- first match (re-read automatically) ---\n"
         + excerpt_around(content, content[idx : idx + len(old_str)])

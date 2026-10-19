@@ -49,7 +49,7 @@ class BashTool(Tool):
         "directory. Use it to explore (`rg -n \"pattern\" src/`, `git log "
         "--oneline -10`, `git diff`, `sed -n '40,90p' file.py`), to verify "
         "(`python -m pytest tests/test_x.py -x -q`), and for any multi-file or "
-        "git work. Keep output small — prefer `| head -50` and narrow test "
+        "git work. Keep output small: prefer `| head -50` and narrow test "
         "invocations over full suites. Never start interactive commands "
         "(editors, REPLs, watch mode). The default `timeout` is 30 seconds; "
         "pass a larger value (120-600) for installs, builds, or test suites. "

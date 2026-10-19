@@ -75,7 +75,7 @@ import {
 } from "react";
 
 // ============================================================================
-// Base UI event types — this project uses the `base` shadcn variant, whose
+// Base UI event types: this project uses the `base` shadcn variant, whose
 // menu/button handlers receive Base UI's wrapped event, not a DOM Event.
 // ============================================================================
 
@@ -1327,7 +1327,7 @@ export const PromptInputSelectValue = ({
 export type PromptInputHoverCardProps = ComponentProps<typeof HoverCard>;
 
 export const PromptInputHoverCard = (props: PromptInputHoverCardProps) => (
-  // Base UI's PreviewCard manages its own open/close timing — no delay props.
+  // Base UI's PreviewCard manages its own open/close timing, so no delay props.
   <HoverCard {...props} />
 );
 

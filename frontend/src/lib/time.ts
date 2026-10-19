@@ -34,7 +34,7 @@ export function relativeTime(iso: string | null): string {
 
 // Ticking elapsed milliseconds since `startMs`, updated every second while
 // `active`. Events only arrive when a tool finishes, so a running step has no
-// observation to read a duration from — this drives the live "Running 3s".
+// observation to read a duration from, so this drives the live "Running 3s".
 export function useElapsed(startMs: number | null, active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

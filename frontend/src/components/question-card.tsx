@@ -217,7 +217,7 @@ export function QuestionCard({
       <div className="flex items-center justify-between gap-3 border-t px-4 py-2.5">
         <span className="text-muted-foreground text-xs">
           {allResolved
-            ? "All set — submit your answers."
+            ? "All set. Submit your answers."
             : `${answers.filter(isResolved).length}/${total} answered`}
         </span>
         <button

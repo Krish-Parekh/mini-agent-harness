@@ -119,7 +119,7 @@ export const Conversation = ({
     }
   }, []);
 
-  // Instant pin on send — smooth scroll from the bottom would animate through
+  // Instant pin on send: smooth scroll from the bottom would animate through
   // every prior message one by one.
   const scrollToUserTurn = useCallback(() => {
     const el = scrollRef.current;

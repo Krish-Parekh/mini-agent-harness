@@ -63,8 +63,8 @@ class Conversation:
         # When set, the agent plans (read-only) and pauses via `present_plan`
         # instead of implementing. Sticky: it stays on across clarifying
         # `ask_user` rounds and plan refinements, and only clears when the
-        # user approves the plan, so the whole planning conversation —
-        # including feedback after a presented plan — runs in plan mode.
+        # user approves the plan, so the whole planning conversation,
+        # including feedback after a presented plan, runs in plan mode.
         self.plan_mode = False
         self.plan: Plan | None = None
         self.implementing_plan = False

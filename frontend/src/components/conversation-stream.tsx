@@ -405,7 +405,7 @@ function PlanCard({
           <PlanTitle>{String(ev.arguments?.title ?? "Plan")}</PlanTitle>
           <PlanDescription>
             {isPending
-              ? "Review, then build — or reply to refine"
+              ? "Review, then build, or reply to refine"
               : "Send a message to approve or refine"}
           </PlanDescription>
         </div>
@@ -595,7 +595,7 @@ function groupEvents(events: AgentEvent[]): Group[] {
     // the timeline; skip them so old persisted logs stop rendering them too.
     if (!isAction(ev) && !isErrorEvent(ev) && (ev as MessageEvent).role === "system")
       continue;
-    // A presented plan is the turn's headline, not a tool-call detail — break
+    // A presented plan is the turn's headline, not a tool-call detail, so break
     // the chain and render it as its own card.
     if (isAction(ev) && ev.tool_name === "present_plan") {
       chain = null;

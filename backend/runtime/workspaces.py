@@ -21,7 +21,7 @@ class WorkspaceManager:
     worktree + branch off that shared clone.
 
     Worktrees share the clone's object store, so per-conversation setup is a
-    local checkout rather than a fresh network clone — fast start, and each
+    local checkout rather than a fresh network clone: fast start, and each
     conversation gets its own branch so concurrent chats never stomp each other.
     """
 

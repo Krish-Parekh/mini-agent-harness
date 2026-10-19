@@ -28,9 +28,9 @@ def commit_and_push(
     sandbox: Sandbox, repo: str, branch: str, token: str | None, message: str
 ) -> None:
     """Stage everything, commit (no-op if clean), and force-push `branch` to origin.
-    Blocking — call in a worker thread."""
+    Blocking; call in a worker thread."""
     sandbox.run_command("git add -A")
-    # A clean tree makes commit exit non-zero; that's fine — earlier commits on the
+    # A clean tree makes commit exit non-zero; that's fine: earlier commits on the
     # branch still get pushed. Real failures surface at the push step.
     sandbox.run_command(f"git {COMMITTER} commit -m {shlex.quote(message)}")
     auth, env = git_auth(token)

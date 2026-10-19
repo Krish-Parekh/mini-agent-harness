@@ -287,7 +287,7 @@ export function ChangesPanel({
   const pr =
     createdPr ?? (prNumber != null && prUrl ? { number: prNumber, url: prUrl } : null);
 
-  // Create the PR the first time, or push new commits to it afterwards — the
+  // Create the PR the first time, or push new commits to it afterwards; the
   // backend pushes the branch either way, which refreshes an existing PR.
   const syncPr = useCallback(async () => {
     setCreatingPr(true);
@@ -424,7 +424,7 @@ export function ChangesPanel({
                   <HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
                   <span className="truncate text-sm">
                     {prError
-                      ? "Couldn't sync PR — try again"
+                      ? "Couldn't sync PR. Try again."
                       : `${changes.length} file${changes.length === 1 ? "" : "s"} changed`}
                   </span>
                 </div>

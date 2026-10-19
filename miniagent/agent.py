@@ -116,7 +116,7 @@ def _file_sketch(sandbox: Sandbox) -> str:
 
 def _elided_placeholder(event: ObservationEvent) -> str:
     where = (event.details or {}).get("spill_path") or "re-run the call if needed"
-    return f"[old tool output: {len(event.content):,} chars elided — see {where}]"
+    return f"[old tool output: {len(event.content):,} chars elided, see {where}]"
 
 
 def _spill_oversized(call: ToolCall, result: ToolResult, sandbox: Sandbox) -> ToolResult:
@@ -754,7 +754,7 @@ class Agent:
             self._observe(
                 conversation,
                 call,
-                "Plan mode is active — this action would modify the workspace. "
+                "Plan mode is active; this action would modify the workspace. "
                 "Explore read-only and call `present_plan` when ready.",
                 True,
             )
@@ -1000,15 +1000,15 @@ class Agent:
         duration_ms: int | None = None,
         details: dict | None = None,
     ) -> None:
-        # A weak model can get stuck re-issuing an identical call — a failing
-        # str_replace, an invalid-args retry — and burn every iteration on it.
+        # A weak model can get stuck re-issuing an identical call (a failing
+        # str_replace, an invalid-args retry) and burn every iteration on it.
         # Append a pointed nudge so the model sees it's looping and
         # course-corrects before the stuck detector pauses the run.
         repeats = Agent._prior_identical_calls(conversation, call)
         if repeats >= _NUDGE_AFTER_REPEATS:
             content += (
                 f"\n\n[note] You have already run this exact call {repeats} times "
-                "with the same result. Stop repeating it — re-read the file or "
+                "with the same result. Stop repeating it; re-read the file or "
                 "inputs and fix the problem, take a different action, or call "
                 "`finish` if you're done or stuck."
             )

@@ -1,4 +1,4 @@
-# Backend API — curl testing guide
+# Backend API: curl testing guide
 
 How to start the server and exercise every HTTP endpoint with `curl`.
 
@@ -11,11 +11,11 @@ docker compose up -d db
 # 2. Environment (copy and fill in OPENAI_API_KEY and the SUPABASE_* values)
 cp .env.example .env
 
-# 3. Schema. The app does not create or alter tables — it verifies the database is
+# 3. Schema. The app does not create or alter tables; it verifies the database is
 # at the expected Alembic revision and refuses to start otherwise.
 uv run alembic upgrade head
 
-# 4. API server — FastAPI app lives at backend.app:app
+# 4. API server: FastAPI app lives at backend.app:app
 # Limit reload to backend/ + miniagent/ so agent edits under data/ don't restart the server.
 uv run uvicorn backend.app:app --reload --port 8000 --reload-dir backend --reload-dir miniagent
 ```
@@ -25,7 +25,7 @@ uv run uvicorn backend.app:app --reload --port 8000 --reload-dir backend --reloa
 ```bash
 uv run alembic upgrade head       # apply
 uv run alembic current            # what the database is stamped with
-uv run alembic check              # models vs migrations — must be clean
+uv run alembic check              # models vs migrations, must be clean
 uv run alembic revision --autogenerate -m "what changed"
 ```
 
@@ -103,7 +103,7 @@ curl -s -X POST "$BASE/conversations/$CID/messages" \
 
 Body (`SendMessageRequest`): `text` (required), `model` (optional string),
 `plan_mode` (bool, default `false`). Returns **409** if the conversation is
-`waiting_for_confirmation` — use `/confirm` instead.
+`waiting_for_confirmation`; use `/confirm` instead.
 
 ### Plan mode flow
 
@@ -168,7 +168,7 @@ curl -s -X POST "$BASE/conversations/$CID/pr"
 ```
 
 Requires the conversation to have a repo (**409** otherwise) and GitHub to be
-connected (**401** otherwise — see §3).
+connected (**401** otherwise, see §3).
 
 ### Delete
 
@@ -195,7 +195,7 @@ conversation is gone or belongs to someone else.
 
 ## 3. Auth (prefix `/auth`)
 
-Sign-in is Supabase Auth with the GitHub provider — the OAuth dance happens in
+Sign-in is Supabase Auth with the GitHub provider. The OAuth dance happens in
 the browser, so there is no curl target for it. Grab an access token from the
 frontend (`supabase.auth.getSession()`) and export it:
 
@@ -228,7 +228,7 @@ curl -s -X POST "$BASE/auth/github/import" "${AUTH[@]}" \
   -d '{"repo": "https://github.com/owner/name"}'   # or "owner/name"
 ```
 
-Every `/conversations` route needs `"${AUTH[@]}"` too — without it they return
+Every `/conversations` route needs `"${AUTH[@]}"` too; without it they return
 **401**, and another user's conversation id returns **404**.
 
 ---
@@ -238,5 +238,5 @@ Every `/conversations` route needs `"${AUTH[@]}"` too — without it they return
 - Pipe through `jq` for readable JSON: `curl -s "$BASE/conversations" "${AUTH[@]}" | jq`.
 - Add `-i` to see status codes and headers (handy for the 409/401/404 cases).
 - GitHub tokens are stored per user in `github_connections`, so a server restart
-  no longer drops the connection. Supabase access tokens do expire (~1h) — pull a
+  no longer drops the connection. Supabase access tokens do expire (~1h), so pull a
   fresh one from the browser when curl starts returning 401.

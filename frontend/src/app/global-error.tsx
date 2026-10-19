@@ -1,7 +1,7 @@
 "use client";
 
 // Replaces the root layout when it (or a provider) throws, so it must render
-// its own <html>/<body> and stay dependency-light — Providers/Toaster and
+// its own <html>/<body> and stay dependency-light: Providers/Toaster and
 // global styles are unavailable here. Mirrors layout.tsx's dark class.
 export default function GlobalError({
   error,

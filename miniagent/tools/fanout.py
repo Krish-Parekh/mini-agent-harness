@@ -257,7 +257,7 @@ class FanoutTool(Tool):
     @staticmethod
     def _worker_summary(conversation: Conversation) -> str:
         # Workers that call `finish` give us an explicit summary. Most instead
-        # answer in a final assistant message and end the turn idle — capture
+        # answer in a final assistant message and end the turn idle, so capture
         # that so their findings aren't discarded.
         last_assistant: str | None = None
         for event in reversed(conversation.events):

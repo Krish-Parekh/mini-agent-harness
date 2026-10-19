@@ -41,13 +41,13 @@ export function ErrorFallback({
           <EmptyDescription>
             {process.env.NODE_ENV === "development"
               ? error.message
-              : "An unexpected error occurred. Your work is safe — try again."}
+              : "An unexpected error occurred. Your work is safe. Try again."}
           </EmptyDescription>
         </EmptyHeader>
         <EmptyContent className="gap-4">
           {(conversationId || error.digest) && (
             <FailureReference
-              conversationId={conversationId ?? "—"}
+              conversationId={conversationId ?? "none"}
               traceId={error.digest}
               className="text-left"
             />

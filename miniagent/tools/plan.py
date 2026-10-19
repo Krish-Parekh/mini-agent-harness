@@ -29,7 +29,7 @@ class Plan(BaseModel):
         for i, step in enumerate(self.steps, 1):
             line = f"{i}. {_CHECKBOX[step.status]} {step.title}"
             if step.files:
-                line += f" — {', '.join(step.files)}"
+                line += f" ({', '.join(step.files)})"
             lines.append(line)
             if step.description:
                 lines.append(f"   {step.description}")
@@ -56,8 +56,8 @@ class PresentPlanTool(Tool):
     description = (
         "Present a structured implementation plan to the user and pause for "
         "their review. Use this when planning mode is on: after exploring the "
-        "code read-only, lay out the ordered steps — each with an imperative "
-        "title, the files it touches, and a short description — then call this "
+        "code read-only, lay out the ordered steps, each with an imperative "
+        "title, the files it touches, and a short description, then call this "
         "tool instead of editing files or finishing. The turn stops so the user "
         "can approve or refine the plan before you implement."
     )

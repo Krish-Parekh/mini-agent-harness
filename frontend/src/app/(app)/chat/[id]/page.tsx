@@ -134,7 +134,7 @@ export default function ChatPage({
   }
 
   // Optimistically flip to "running" for instant feedback, but restore the
-  // prior status (and surface the error) if the request fails — otherwise a
+  // prior status (and surface the error) if the request fails. Otherwise a
   // rejected confirm/approve would leave the composer locked on "running".
   function optimisticRun(fn: () => Promise<unknown>) {
     const prev = status;

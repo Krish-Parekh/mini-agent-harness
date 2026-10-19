@@ -54,7 +54,7 @@ class FetchUrlTool(Tool):
     description = (
         "Fetch readable text from a public URL. Use this after `web_search` when "
         "you have a specific link and need more page content. This is a lightweight "
-        "HTTP fetch — it may fail on JS-heavy pages, login walls, or bot protection."
+        "HTTP fetch; it may fail on JS-heavy pages, login walls, or bot protection."
     )
     action_type = FetchUrlAction
     observation_type = FetchUrlObservation

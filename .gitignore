@@ -11,7 +11,7 @@ data/
 .agents/
 .scratch/
 
-# Agent process and planning docs — local only, not shipped with the repo.
+# Agent process and planning docs: local only, not shipped with the repo.
 ROADMAP.md
 AGENTS.md
 CLAUDE.md
