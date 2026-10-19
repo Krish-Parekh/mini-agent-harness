@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import shlex
 import subprocess
 import threading
 from pathlib import Path
@@ -7,7 +9,8 @@ from pathlib import Path
 from miniagent.sandbox.workspace import (
     WorkspaceError,
     _redact,
-    authenticated_git_url,
+    git_auth,
+    git_url,
 )
 
 BRANCH_PREFIX = "miniagent"
@@ -90,20 +93,12 @@ class WorkspaceManager:
         self, repo: str, branch: str | None, token: str | None, clone_dir: Path
     ) -> None:
         clone_dir.parent.mkdir(parents=True, exist_ok=True)
-        url = authenticated_git_url(repo, token)
-        args = ["clone"]
+        auth, env = git_auth(token)
+        args = [*shlex.split(auth), "clone"]
         if branch:
             args += ["--branch", branch]
-        args += [url, str(clone_dir)]
-        self._git(None, args, token=token, timeout=300)
-        # Drop the token-bearing remote so the secret isn't persisted on disk.
-        self._git(
-            clone_dir,
-            ["remote", "set-url", "origin", f"https://github.com/{repo}.git"],
-            token=token,
-            timeout=30,
-            check=False,
-        )
+        args += [git_url(repo), str(clone_dir)]
+        self._git(None, args, token=token, timeout=300, env=env)
 
     def _git(
         self,
@@ -113,6 +108,7 @@ class WorkspaceManager:
         token: str | None,
         timeout: int,
         check: bool = True,
+        env: dict[str, str] | None = None,
     ) -> None:
         try:
             proc = subprocess.run(
@@ -121,6 +117,7 @@ class WorkspaceManager:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                env={**os.environ, **env} if env else None,
             )
         except subprocess.TimeoutExpired:
             if check:

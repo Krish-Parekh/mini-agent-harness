@@ -3,7 +3,7 @@ from __future__ import annotations
 import shlex
 
 from backend.schemas import ChangedFile, FileContent, FileDiff
-from miniagent.sandbox.local import LocalSandbox
+from miniagent.sandbox.base import Sandbox
 
 _STATUS = {"A": "added", "M": "modified", "D": "deleted"}
 
@@ -13,13 +13,13 @@ _EXCLUDE = " ".join(
 )
 
 
-def _intent_to_add(sandbox: LocalSandbox) -> None:
+def _intent_to_add(sandbox: Sandbox) -> None:
     """Mark untracked files intent-to-add so they show up in `git diff HEAD`,
     skipping vendored dirs like node_modules."""
     sandbox.run_command(f"git add -A -N -- . {_EXCLUDE}")
 
 
-def list_changes(sandbox: LocalSandbox) -> list[ChangedFile]:
+def list_changes(sandbox: Sandbox) -> list[ChangedFile]:
     _intent_to_add(sandbox)
     numstat = sandbox.run_command(f"git diff HEAD --numstat -- . {_EXCLUDE}").stdout
     name_status = sandbox.run_command(
@@ -55,20 +55,20 @@ def list_changes(sandbox: LocalSandbox) -> list[ChangedFile]:
     return changes
 
 
-def file_diff(sandbox: LocalSandbox, path: str) -> FileDiff:
+def file_diff(sandbox: Sandbox, path: str) -> FileDiff:
     _intent_to_add(sandbox)
     patch = sandbox.run_command(f"git diff HEAD -- {shlex.quote(path)}").stdout
     return FileDiff(path=path, patch=patch)
 
 
-def list_files(sandbox: LocalSandbox) -> list[str]:
+def list_files(sandbox: Sandbox) -> list[str]:
     out = sandbox.run_command(
         f"git ls-files --cached --others --exclude-standard -- . {_EXCLUDE}"
     ).stdout
     return sorted(line for line in out.splitlines() if line)
 
 
-def file_content(sandbox: LocalSandbox, path: str) -> FileContent:
+def file_content(sandbox: Sandbox, path: str) -> FileContent:
     if path.startswith("/") or ".." in path.split("/"):
         return FileContent(path=path, content="")
     try:
