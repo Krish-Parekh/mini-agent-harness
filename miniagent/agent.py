@@ -36,6 +36,7 @@ from miniagent.prompts import (
 from miniagent.sandbox.base import SandboxError
 from miniagent.text import clip
 from miniagent.tools.base import ToolRegistry
+from miniagent.tools.mcp import NAME_PREFIX as MCP_PREFIX, McpTool
 from miniagent.tools.plan import Plan
 
 if TYPE_CHECKING:
@@ -115,6 +116,7 @@ class Agent:
         self.branch = branch
         self.policy = policy or PolicyClassifier(llm)
         self.task_router = task_router or TaskClassifier(llm)
+        self.skills_block = ""
 
     def classify_task_route(self, text: str, plan_mode: bool = False) -> TaskRoute:
         if plan_mode:
@@ -203,6 +205,13 @@ class Agent:
             lines.append(f"- repository: {self.repo}{branch}")
         lines.append(f"- working directory: {sandbox.workspace_dir}")
         lines.append("Relative paths resolve against the working directory.")
+        if self.skills_block:
+            lines.append("\n\n# Skills")
+            lines.append(
+                "Playbooks the user enabled for this conversation. Follow them "
+                "when they apply to the task at hand."
+            )
+            lines.append(self.skills_block)
         return "\n".join(lines)
 
     @staticmethod
@@ -704,7 +713,18 @@ class Agent:
             observation.ui_details(),
         )
 
+    def _is_mcp(self, action_event: ActionEvent) -> bool:
+        return action_event.tool_name.startswith(MCP_PREFIX)
+
+    def _is_read_only_mcp(self, action_event: ActionEvent) -> bool:
+        name = action_event.tool_name
+        if not self._is_mcp(action_event) or name not in self.tools:
+            return False
+        return isinstance(tool := self.tools[name], McpTool) and tool.read_only
+
     def _blocked_in_plan_mode(self, action_event: ActionEvent) -> bool:
+        if self._is_mcp(action_event):
+            return not self._is_read_only_mcp(action_event)
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") in ("create", "str_replace")
         if action_event.tool_name == "bash":
@@ -725,6 +745,8 @@ class Agent:
             return self.policy.classify_bash(
                 action_event.arguments.get("command", "")
             ).needs_confirmation
+        if self._is_read_only_mcp(action_event):
+            return False
         return conversation.needs_confirmation(action_event)
 
     @staticmethod

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend import models  # noqa: F401
 from backend.api.auth import router as auth_router
 from backend.api.conversations import router
+from backend.api.extensions import router as extensions_router
 from backend.api.github import router as github_router
 from backend.core import observability
 from backend.core.db import make_engine, make_sessionmaker
@@ -17,6 +18,8 @@ from backend.core.jwt import SupabaseJWTVerifier
 from backend.repository import (
     ConversationRepository,
     GitHubConnectionRepository,
+    McpConnectionRepository,
+    SkillRepository,
     UserRepository,
 )
 from backend.runtime import ConversationManager
@@ -43,12 +46,18 @@ async def lifespan(app: FastAPI):
     repository = ConversationRepository(sessionmaker)
     users = UserRepository(sessionmaker)
     connections = GitHubConnectionRepository(sessionmaker)
+    skills = SkillRepository(sessionmaker)
+    mcp_connections = McpConnectionRepository(sessionmaker)
     manager = ConversationManager(settings)
-    service = ConversationService(manager, repository, connections)
+    service = ConversationService(
+        manager, repository, connections, skills, mcp_connections
+    )
     service.start()
 
     app.state.users = users
     app.state.connections = connections
+    app.state.skills = skills
+    app.state.mcp_connections = mcp_connections
     app.state.service = service
     app.state.auth_service = AuthService(users, connections)
 
@@ -69,3 +78,4 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(auth_router)
 app.include_router(github_router)
+app.include_router(extensions_router)

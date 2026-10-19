@@ -19,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { McpCard } from "@/components/mcp-card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { messageFor } from "@/lib/errors";
@@ -174,6 +175,7 @@ export default function SettingsPage() {
       ) : (
         <>
           <GitHubCard />
+          <McpCard />
           <AccountCard />
         </>
       )}

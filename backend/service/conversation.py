@@ -15,7 +15,13 @@ from backend.runtime.manager import (
     ConversationManager,
     ManagedConversation,
 )
-from backend.repository import ConversationRepository, GitHubConnectionRepository
+from backend.repository import (
+    ConversationRepository,
+    GitHubConnectionRepository,
+    McpConnectionRepository,
+    SkillRepository,
+)
+from backend.service.extension import McpService, SkillService, render_skills
 from backend.runtime import changes, pulls
 from backend.runtime.workspaces import BRANCH_PREFIX
 from backend.schemas import (
@@ -55,10 +61,14 @@ class ConversationService:
         manager: ConversationManager,
         repository: ConversationRepository,
         connections: GitHubConnectionRepository,
+        skills: SkillRepository | None = None,
+        mcp: McpConnectionRepository | None = None,
     ) -> None:
         self._manager = manager
         self._repo = repository
         self._connections = connections
+        self._skills = skills
+        self._mcp = mcp
         self._persist_queue: asyncio.Queue[tuple[ManagedConversation, Event, int]] = (
             asyncio.Queue()
         )
@@ -462,6 +472,7 @@ class ConversationService:
             await asyncio.to_thread(
                 managed.extend_sandbox, self._manager.sandbox_lifetime_s
             )
+            await self._load_extensions(managed)
             await asyncio.to_thread(trigger)
             conv = managed.conversation
             if conv.cancel_event.is_set() and conv.status != Status.FINISHED:
@@ -502,6 +513,30 @@ class ConversationService:
             managed.title = title
             managed._ai_titled = True
 
+    async def _load_extensions(self, managed: ManagedConversation) -> None:
+        if self._skills is None or self._mcp is None:
+            return
+        cid = managed.conversation.id
+        included, skipped = await SkillService(self._skills).enabled_bodies(cid)
+        skipped_ids = {skill.id for skill in skipped}
+        for skill in skipped:
+            if skill.id in managed.skills_skipped:
+                continue
+            managed.conversation.add_event(
+                ErrorEvent(
+                    message=(
+                        f"Skill '{skill.name}' was skipped: it does not fit the "
+                        "context budget for this conversation."
+                    )
+                )
+            )
+        managed.skills_skipped = skipped_ids
+        rows = await McpService(self._mcp).enabled(cid)
+        targets = {row.id: McpService.target(row) for row in rows}
+        await asyncio.to_thread(
+            managed.apply_extensions, render_skills(included), targets
+        )
+
     async def _start(
         self, managed: ManagedConversation, initial_message: str | None
     ) -> None:
@@ -509,6 +544,7 @@ class ConversationService:
         await self._persist_status(managed)
         async with managed.lock:
             await asyncio.to_thread(managed.bootstrap)
+            await self._load_extensions(managed)
             if managed.conversation.status == Status.ERROR:
                 self._emit_status(managed)
                 await self._persist_status(managed)

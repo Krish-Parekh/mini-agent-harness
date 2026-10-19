@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+import logfire
 
 from miniagent.agent import Agent
 from miniagent.classification import TaskClassifier
@@ -17,7 +20,9 @@ from miniagent.policy import PolicyClassifier
 from miniagent.sandbox.base import Sandbox, SandboxError
 from miniagent.sandbox.factory import build_sandbox, is_host_git
 from miniagent.sandbox.workspace import WorkspaceError, clone_repo
+from backend.runtime import mcp
 from backend.runtime.workspaces import BRANCH_PREFIX, WorkspaceManager
+from miniagent.tools.mcp import MAX_TOOLS as MAX_MCP_TOOLS, McpTool
 from miniagent.tools.bash import BashTool
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.file_edit import FileEditTool
@@ -30,6 +35,16 @@ from miniagent.tools.web_research import WebResearchTool
 from miniagent.tools.web_search import WebSearchTool
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
+
+_log = logging.getLogger(__name__)
+
+
+def _mcp_invoker(target: mcp.McpTarget):
+    def invoke(tool_name: str, arguments: dict) -> str:
+        return mcp.bridge.run(mcp.call(target, tool_name, arguments))
+
+    return invoke
+
 
 AI_TITLE_AFTER_TURNS = 4
 
@@ -149,6 +164,9 @@ class ManagedConversation:
         self._seq = 0
         self.lock = asyncio.Lock()
         self.persist_hook: PersistHook = lambda *_: None
+        self.mcp_tools: dict[str, list[str]] = {}
+        self.mcp_skipped: set[str] = set()
+        self.skills_skipped: set[str] = set()
 
     def on_event(self, event: Event) -> None:
         self._seq += 1
@@ -202,6 +220,65 @@ class ManagedConversation:
                 if text:
                     lines.append(f"{e.role}: {text[:500]}")
         return "\n".join(lines[:12])
+
+    def apply_extensions(
+        self, skills_block: str, targets: dict[str, mcp.McpTarget]
+    ) -> None:
+        self.conversation.agent.skills_block = skills_block
+        registry = self.conversation.agent.tools
+        for connection_id in list(self.mcp_tools):
+            if connection_id not in targets:
+                for name in self.mcp_tools.pop(connection_id):
+                    registry.unregister(name)
+        self.mcp_skipped &= targets.keys()
+
+        registered = sum(len(names) for names in self.mcp_tools.values())
+        for connection_id, target in targets.items():
+            if connection_id in self.mcp_tools or connection_id in self.mcp_skipped:
+                continue
+            try:
+                with logfire.span("mcp.discover", connection=target.name) as span:
+                    specs = mcp.bridge.run(mcp.discover(target))
+                    span.set_attribute("tool_count", len(specs))
+            except mcp.McpError as exc:
+                self.mcp_skipped.add(connection_id)
+                self.conversation.add_event(
+                    ErrorEvent(
+                        message=f"MCP server '{target.name}' is unavailable: {exc}"
+                    )
+                )
+                continue
+            if registered + len(specs) > MAX_MCP_TOOLS:
+                self.mcp_skipped.add(connection_id)
+                self.conversation.add_event(
+                    ErrorEvent(
+                        message=(
+                            f"MCP connection '{target.name}' was skipped: its "
+                            f"{len(specs)} tools would exceed the {MAX_MCP_TOOLS}-tool "
+                            "budget."
+                        )
+                    )
+                )
+                continue
+            names: list[str] = []
+            for spec in specs:
+                tool = McpTool(
+                    connection=target.name,
+                    remote_name=spec.name,
+                    description=spec.description,
+                    input_schema=spec.input_schema,
+                    invoke=_mcp_invoker(target),
+                    read_only=spec.read_only,
+                )
+                if tool.name in registry:
+                    _log.warning(
+                        "skipping MCP tool %s: name already registered", tool.name
+                    )
+                    continue
+                registry.register(tool)
+                names.append(tool.name)
+            self.mcp_tools[connection_id] = names
+            registered += len(names)
 
     def bootstrap(self) -> None:
         if not self.repo:

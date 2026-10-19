@@ -12,19 +12,23 @@ class Tool(ABC):
     description: str
     action_type: type[Action]
     observation_type: type[Observation]
+    parameters_schema: dict[str, Any] | None = None
 
     @abstractmethod
     def execute(self, action: Action, sandbox: Sandbox) -> Observation: ...
 
 
 def to_openai_schema(tool: Tool) -> dict[str, Any]:
+    parameters = tool.parameters_schema
+    if parameters is None:
+        parameters = tool.action_type.model_json_schema()
 
     return {
         "type": "function",
         "function": {
             "name": tool.name,
             "description": tool.description,
-            "parameters": tool.action_type.model_json_schema(),
+            "parameters": parameters,
         },
     }
 
@@ -37,6 +41,9 @@ class ToolRegistry:
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
+
+    def unregister(self, name: str) -> None:
+        self._tools.pop(name, None)
 
     def all(self) -> list[Tool]:
         return list(self._tools.values())

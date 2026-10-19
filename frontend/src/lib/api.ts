@@ -115,6 +115,31 @@ export type ConversationContext = {
   counts: { events: number; user_turns: number };
 };
 
+export type Skill = {
+  id: string;
+  name: string;
+  description: string;
+  source_url: string | null;
+  created_at: string | null;
+};
+
+export type McpConnection = {
+  id: string;
+  name: string;
+  url: string;
+  auth_header: string | null;
+  created_at: string | null;
+};
+
+export type McpTestResult = { ok: boolean; tools: string[]; error: string | null };
+
+export type EnabledItem = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  skipped: boolean;
+};
+
 export type FileDiff = { path: string; patch: string };
 
 export type FileContent = { path: string; content: string };
@@ -257,6 +282,51 @@ export const api = {
 
   context: (id: string) =>
     request<ConversationContext>(`/conversations/${id}/context`),
+
+  skills: () => request<Skill[]>("/skills"),
+
+  createSkill: (body: { name: string; description: string; body: string }) =>
+    post<Skill>("/skills", body),
+
+  importSkill: (url: string) => post<Skill>("/skills/import", { url }),
+
+  deleteSkill: (id: string) =>
+    request<{ deleted: string }>(`/skills/${id}`, { method: "DELETE" }),
+
+  conversationSkills: (id: string) =>
+    request<EnabledItem[]>(`/conversations/${id}/skills`),
+
+  setConversationSkill: (id: string, skillId: string, enabled: boolean) =>
+    request<EnabledItem>(`/conversations/${id}/skills/${skillId}`, {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify({ enabled }),
+    }),
+
+  mcpConnections: () => request<McpConnection[]>("/mcp/connections"),
+
+  createMcpConnection: (body: {
+    name: string;
+    url: string;
+    auth_header?: string | null;
+    auth_value?: string | null;
+  }) => post<McpConnection>("/mcp/connections", body),
+
+  deleteMcpConnection: (id: string) =>
+    request<{ deleted: string }>(`/mcp/connections/${id}`, { method: "DELETE" }),
+
+  testMcpConnection: (id: string) =>
+    post<McpTestResult>(`/mcp/connections/${id}/test`),
+
+  conversationMcp: (id: string) =>
+    request<EnabledItem[]>(`/conversations/${id}/mcp`),
+
+  setConversationMcp: (id: string, connectionId: string, enabled: boolean) =>
+    request<EnabledItem>(`/conversations/${id}/mcp/${connectionId}`, {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify({ enabled }),
+    }),
 
   changes: (id: string) => request<ChangedFile[]>(`/conversations/${id}/changes`),
 

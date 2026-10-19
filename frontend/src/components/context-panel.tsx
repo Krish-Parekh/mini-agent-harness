@@ -1,10 +1,15 @@
 "use client";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
+import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { type ConversationContext } from "@/lib/api";
+import { api, type ConversationContext, type EnabledItem } from "@/lib/api";
+import { messageFor } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 function Section({
@@ -113,6 +118,123 @@ export function FailureReference({
   );
 }
 
+function Toggles({
+  title,
+  emptyHint,
+  items,
+  isPending,
+  onToggle,
+}: {
+  title: string;
+  emptyHint: React.ReactNode;
+  items: EnabledItem[] | undefined;
+  isPending: boolean;
+  onToggle: (id: string, enabled: boolean) => void;
+}) {
+  return (
+    <Section title={title}>
+      {isPending ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : !items?.length ? (
+        <p className="text-sm text-muted-foreground">{emptyHint}</p>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item) => (
+            <li key={item.id} className="flex items-center justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-sm">{item.name}</span>
+                {item.skipped && (
+                  <Badge className="bg-[#EFA417]/15 text-[#EFA417]">
+                    Skipped: over budget
+                  </Badge>
+                )}
+              </span>
+              <Button
+                size="sm"
+                variant={item.enabled ? "default" : "outline"}
+                onClick={() => onToggle(item.id, !item.enabled)}
+              >
+                {item.enabled ? "Enabled" : "Enable"}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-xs text-muted-foreground">
+        Changes apply to new runs in this conversation.
+      </p>
+    </Section>
+  );
+}
+
+function Extensions({ conversationId }: { conversationId: string }) {
+  const queryClient = useQueryClient();
+
+  const skills = useQuery({
+    queryKey: ["conversation-skills", conversationId],
+    queryFn: () => api.conversationSkills(conversationId),
+  });
+  const mcp = useQuery({
+    queryKey: ["conversation-mcp", conversationId],
+    queryFn: () => api.conversationMcp(conversationId),
+  });
+
+  const toggleSkill = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api.setConversationSkill(conversationId, id, enabled),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["conversation-skills", conversationId],
+      }),
+    onError: (e) => toast.error(messageFor(e)),
+  });
+
+  const toggleMcp = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api.setConversationMcp(conversationId, id, enabled),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["conversation-mcp", conversationId],
+      }),
+    onError: (e) => toast.error(messageFor(e)),
+  });
+
+  return (
+    <>
+      <Toggles
+        title="Skills"
+        emptyHint={
+          <>
+            No skills yet —{" "}
+            <Link href="/skills" className="underline">
+              add one
+            </Link>
+            .
+          </>
+        }
+        items={skills.data}
+        isPending={skills.isPending}
+        onToggle={(id, enabled) => toggleSkill.mutate({ id, enabled })}
+      />
+      <Toggles
+        title="MCP servers"
+        emptyHint={
+          <>
+            No servers yet —{" "}
+            <Link href="/settings" className="underline">
+              connect one
+            </Link>
+            .
+          </>
+        }
+        items={mcp.data}
+        isPending={mcp.isPending}
+        onToggle={(id, enabled) => toggleMcp.mutate({ id, enabled })}
+      />
+    </>
+  );
+}
+
 export function ContextPanel({
   conversationId,
   context,
@@ -212,6 +334,8 @@ export function ContextPanel({
           <Note text={context.condensation.text} />
         </Section>
       )}
+
+      <Extensions conversationId={conversationId} />
 
       {context.last_error && (
         <Section title="Last error">

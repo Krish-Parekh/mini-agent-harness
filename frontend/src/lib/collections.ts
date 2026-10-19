@@ -24,7 +24,11 @@ export async function createConversation(body: {
   branch?: string | null;
 }): Promise<ConversationInfo> {
   const conversation = await api.createConversation(body);
-  conversationsCollection.utils.writeUpsert(conversation);
+  try {
+    if (conversationsCollection.isReady()) {
+      conversationsCollection.utils.writeUpsert(conversation);
+    }
+  } catch {}
   return conversation;
 }
 
