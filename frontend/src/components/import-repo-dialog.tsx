@@ -2,9 +2,6 @@
 
 import { useState } from "react";
 
-import { GitForkIcon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,14 +11,20 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ApiError } from "@/lib/api";
+import { ApiError, type Repo } from "@/lib/api";
 import { useImportRepo } from "@/lib/queries";
 
-export function ImportRepoDialog() {
-  const [open, setOpen] = useState(false);
+export function ImportRepoDialog({
+  open,
+  onOpenChange,
+  onImported,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onImported?: (repo: Repo) => void;
+}) {
   const [value, setValue] = useState("");
   const importRepo = useImportRepo();
 
@@ -30,9 +33,10 @@ export function ImportRepoDialog() {
     const repo = value.trim();
     if (!repo || importRepo.isPending) return;
     importRepo.mutate(repo, {
-      onSuccess: () => {
+      onSuccess: (imported) => {
         setValue("");
-        setOpen(false);
+        onOpenChange(false);
+        onImported?.(imported);
       },
     });
   }
@@ -47,14 +51,10 @@ export function ImportRepoDialog() {
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        setOpen(next);
+        onOpenChange(next);
         if (!next) importRepo.reset();
       }}
     >
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>
-        <HugeiconsIcon icon={GitForkIcon} data-icon="inline-start" />
-        Import
-      </DialogTrigger>
       <DialogContent>
         <form onSubmit={submit} className="grid gap-6">
           <DialogHeader>

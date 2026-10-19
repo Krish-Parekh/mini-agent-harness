@@ -28,6 +28,25 @@ export type Repo = {
   updated_at: string;
 };
 
+export type Branch = { name: string; default: boolean };
+
+export type SandboxProvider = {
+  id: string;
+  label: string;
+  available: boolean;
+  default: boolean;
+  reason: string | null;
+};
+
+export type CreateConversationBody = {
+  repo: string;
+  branch?: string | null;
+  sandbox_provider?: string | null;
+  model?: string | null;
+  initial_message?: string | null;
+  skill_ids?: string[];
+};
+
 export type ConversationStatus =
   | "idle"
   | "running"
@@ -251,7 +270,12 @@ export const api = {
 
   importRepo: (repo: string) => post<Repo>("/auth/github/import", { repo }),
 
-  createConversation: (body: { repo: string; branch?: string | null }) =>
+  branches: (repo: string) =>
+    request<Branch[]>(`/auth/github/repos/${repo}/branches`),
+
+  sandboxProviders: () => request<SandboxProvider[]>("/sandbox/providers"),
+
+  createConversation: (body: CreateConversationBody) =>
     post<ConversationInfo>("/conversations", body),
 
   conversations: () => request<ConversationInfo[]>("/conversations"),

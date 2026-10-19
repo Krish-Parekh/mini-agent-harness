@@ -166,12 +166,14 @@ export function McpCard() {
               value={authHeader}
               onChange={(e) => setAuthHeader(e.target.value)}
               placeholder="Auth header (optional)"
+              autoComplete="off"
             />
             <Input
               value={authValue}
               onChange={(e) => setAuthValue(e.target.value)}
               placeholder="Value (optional)"
               type="password"
+              autoComplete="new-password"
             />
           </div>
           <Button

@@ -1,7 +1,12 @@
 import { createCollection, createOptimisticAction } from "@tanstack/react-db";
 import { queryCollectionOptions } from "@tanstack/query-db-collection";
 
-import { api, type AgentEvent, type ConversationInfo } from "@/lib/api";
+import {
+  api,
+  type AgentEvent,
+  type ConversationInfo,
+  type CreateConversationBody,
+} from "@/lib/api";
 import { queryClient } from "@/lib/query-client";
 
 export const conversationsCollection = createCollection(
@@ -10,6 +15,7 @@ export const conversationsCollection = createCollection(
     queryKey: ["conversations"],
     queryFn: () => api.conversations(),
     getKey: (c: ConversationInfo) => c.id,
+    refetchInterval: 5000,
     onDelete: async ({ transaction }) => {
       await Promise.all(
         transaction.mutations.map((m) => api.deleteConversation(String(m.key))),
@@ -19,10 +25,9 @@ export const conversationsCollection = createCollection(
   }),
 );
 
-export async function createConversation(body: {
-  repo: string;
-  branch?: string | null;
-}): Promise<ConversationInfo> {
+export async function createConversation(
+  body: CreateConversationBody,
+): Promise<ConversationInfo> {
   const conversation = await api.createConversation(body);
   try {
     if (conversationsCollection.isReady()) {

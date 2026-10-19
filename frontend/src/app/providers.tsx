@@ -2,7 +2,6 @@
 
 import type { Session } from "@supabase/supabase-js";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -13,7 +12,6 @@ import {
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { api, type AuthState } from "@/lib/api";
-import { FilterProvider } from "@/lib/filters";
 import { queryClient } from "@/lib/query-client";
 import { signInWithGitHub, supabase, supabaseConfigured } from "@/lib/supabase";
 
@@ -118,24 +116,12 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { loading, auth } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!loading && !auth) router.replace("/");
-  }, [loading, auth, router]);
-
-  if (loading || !auth) return null;
-  return <>{children}</>;
-}
-
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TooltipProvider>
-          <FilterProvider>{children}</FilterProvider>
+          {children}
         </TooltipProvider>
       </AuthProvider>
     </QueryClientProvider>

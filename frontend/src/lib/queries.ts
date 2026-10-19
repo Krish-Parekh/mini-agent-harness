@@ -10,15 +10,24 @@ import { toast } from "sonner";
 import {
   api,
   ApiError,
+  type Branch,
   type ConversationContext,
   type ConversationInfo,
+  type CreateConversationBody,
+  type McpConnection,
   type Repo,
+  type SandboxProvider,
+  type Skill,
 } from "@/lib/api";
 import { conversationsCollection, createConversation } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
 
 export const queryKeys = {
   repos: ["repos"] as const,
+  branches: (repo: string) => ["branches", repo] as const,
+  sandboxProviders: ["sandbox-providers"] as const,
+  skills: ["skills"] as const,
+  mcpConnections: ["mcp-connections"] as const,
   conversations: ["conversations"] as const,
   conversation: (id: string) => ["conversation", id] as const,
   context: (id: string) => ["context", id] as const,
@@ -31,6 +40,37 @@ export function useRepos(enabled = true) {
     queryKey: queryKeys.repos,
     queryFn: api.repos,
     enabled,
+  });
+}
+
+export function useBranches(repo: string | null) {
+  return useQuery<Branch[]>({
+    queryKey: queryKeys.branches(repo ?? ""),
+    queryFn: () => api.branches(repo!),
+    enabled: !!repo,
+  });
+}
+
+export function useSandboxProviders() {
+  return useQuery<SandboxProvider[]>({
+    queryKey: queryKeys.sandboxProviders,
+    queryFn: api.sandboxProviders,
+    staleTime: 60_000,
+  });
+}
+
+export function useSkills(enabled = true) {
+  return useQuery<Skill[]>({
+    queryKey: queryKeys.skills,
+    queryFn: api.skills,
+    enabled,
+  });
+}
+
+export function useMcpConnections() {
+  return useQuery<McpConnection[]>({
+    queryKey: queryKeys.mcpConnections,
+    queryFn: api.mcpConnections,
   });
 }
 
@@ -93,13 +133,7 @@ export function useDeleteConversation() {
 export function useStartChat() {
   const router = useRouter();
   return useMutation({
-    mutationFn: (source: Repo | { repo: string; branch: string | null }) => {
-      const body =
-        "full_name" in source
-          ? { repo: source.full_name, branch: source.default_branch }
-          : { repo: source.repo, branch: source.branch };
-      return createConversation(body);
-    },
+    mutationFn: (body: CreateConversationBody) => createConversation(body),
     onSuccess: (conversation) => router.push(`/chat/${conversation.id}`),
     onError: (e) => toast.error(messageFor(e)),
   });

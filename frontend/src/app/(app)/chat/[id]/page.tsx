@@ -1,13 +1,15 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { use, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import Link from "next/link";
 
-import { api, type ConversationStatus } from "@/lib/api";
+import { api, type ConversationStatus, type Skill } from "@/lib/api";
 import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
+import { useConversationContext } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
 import { ConversationTimeline } from "@/components/conversation-stream";
@@ -24,42 +26,16 @@ import {
 import {
   PromptInput,
   PromptInputBody,
-  PromptInputButton,
   PromptInputFooter,
   PromptInputSubmit,
-  PromptInputTextarea,
   PromptInputTools,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
-import {
-  ModelSelector,
-  ModelSelectorContent,
-  ModelSelectorEmpty,
-  ModelSelectorGroup,
-  ModelSelectorInput,
-  ModelSelectorItem,
-  ModelSelectorList,
-  ModelSelectorLogo,
-  ModelSelectorName,
-  ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector";
-import { AlertTriangleIcon, CheckIcon } from "lucide-react";
+import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
+import { SkillChips, SkillSlashTextarea } from "@/components/skill-slash-menu";
+import { AlertTriangleIcon } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
-
-const MODELS = [
-  { id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", provider: "anthropic" },
-  { id: "anthropic/claude-opus-5-5", name: "Claude Opus 5.5", provider: "anthropic" },
-  { id: "anthropic/claude-haiku-5-5", name: "Claude Haiku 5.5", provider: "anthropic" },
-  { id: "gpt-4.1", name: "GPT-4.1", provider: "openai" },
-  { id: "gpt-4.1-mini", name: "GPT-4.1 mini", provider: "openai" },
-  { id: "gpt-4o-mini", name: "GPT-4o mini", provider: "openai" },
-];
-
-const PROVIDERS = [
-  { id: "anthropic", heading: "Anthropic" },
-  { id: "openai", heading: "OpenAI" },
-];
 
 const STATUS_STYLES: Record<ConversationStatus, string> = {
   idle: "bg-muted text-muted-foreground",
@@ -128,12 +104,19 @@ export default function ChatPage({
   } = useConversationStream(id);
 
   const [input, setInput] = useState("");
-  const [model, setModel] = useState(MODELS[0].id);
-  const [modelOpen, setModelOpen] = useState(false);
+  const [model, setModel] = useState<string | null>(null);
+  const { data: context } = useConversationContext(id, exists);
+  const [sessionSkills, setSessionSkills] = useState<Skill[]>([]);
+  const [skillsFor, setSkillsFor] = useState(id);
+  if (skillsFor !== id) {
+    setSkillsFor(id);
+    setSessionSkills([]);
+    setModel(null);
+  }
+  const queryClient = useQueryClient();
   const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
     null,
   );
-  const selectedModel = MODELS.find((m) => m.id === model);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const lastSentText = useRef("");
@@ -171,7 +154,7 @@ export default function ChatPage({
         conversationId: id,
         clientEventId: crypto.randomUUID(),
         text,
-        model,
+        model: model ?? undefined,
       }).isPersisted.promise;
     } catch (e) {
       if (restoreInput) setInput(text);
@@ -190,6 +173,21 @@ export default function ChatPage({
     // Restore the prompt right away; the turn is trimmed once status settles.
     if (lastSentText.current) setInput(lastSentText.current);
     stopRun();
+  }
+
+  async function toggleSkill(skill: Skill, enabled: boolean) {
+    try {
+      await api.setConversationSkill(id, skill.id, enabled);
+      setSessionSkills((prev) =>
+        enabled ? [...prev, skill] : prev.filter((s) => s.id !== skill.id),
+      );
+      queryClient.invalidateQueries({ queryKey: ["conversation-skills", id] });
+      toast.success(
+        enabled ? `Enabled “${skill.name}”` : `Disabled “${skill.name}”`,
+      );
+    } catch (e) {
+      toast.error(messageFor(e));
+    }
   }
 
   async function send(message: PromptInputMessage) {
@@ -312,70 +310,40 @@ export default function ChatPage({
           )}
 
           <PromptInput onSubmit={send} className="mt-3">
-        <PromptInputBody>
-          <PromptInputTextarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              waiting
-                ? "Approve or reject the action above…"
-                : showQuestion
-                  ? "Or reply directly…"
-                  : "Send a message…"
-            }
-            disabled={busy}
-          />
-        </PromptInputBody>
-        <PromptInputFooter>
-          <PromptInputTools>
-            <ModelSelector open={modelOpen} onOpenChange={setModelOpen}>
-              <ModelSelectorTrigger
-                render={
-                  <PromptInputButton>
-                    <ModelSelectorLogo provider={selectedModel?.provider ?? "anthropic"} />
-                    <ModelSelectorName>
-                      {selectedModel?.name ?? "Model"}
-                    </ModelSelectorName>
-                  </PromptInputButton>
+            <SkillChips
+              skills={sessionSkills}
+              onRemove={(skill) => void toggleSkill(skill, false)}
+            />
+            <PromptInputBody>
+              <SkillSlashTextarea
+                value={input}
+                onValueChange={setInput}
+                excludeIds={sessionSkills.map((s) => s.id)}
+                onPickSkill={(skill) => void toggleSkill(skill, true)}
+                placeholder={
+                  waiting
+                    ? "Approve or reject the action above…"
+                    : showQuestion
+                      ? "Or reply directly…"
+                      : "Send a message, / for skills…"
                 }
+                disabled={busy}
               />
-              <ModelSelectorContent className="[&_[data-slot=dialog-close]]:top-2.5 [&_[data-slot=dialog-close]]:right-2.5 [&_[data-slot=command-input-wrapper]]:pr-12">
-                <ModelSelectorInput placeholder="Search models…" />
-                <ModelSelectorList>
-                  <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                  {PROVIDERS.map((provider) => (
-                    <ModelSelectorGroup key={provider.id} heading={provider.heading}>
-                      {MODELS.filter((m) => m.provider === provider.id).map((m) => (
-                        <ModelSelectorItem
-                          key={m.id}
-                          value={m.id}
-                          onSelect={() => {
-                            setModel(m.id);
-                            setModelOpen(false);
-                          }}
-                        >
-                          <ModelSelectorLogo provider={m.provider} />
-                          <ModelSelectorName>{m.name}</ModelSelectorName>
-                          {model === m.id ? (
-                            <CheckIcon className="ml-auto size-4" />
-                          ) : (
-                            <div className="ml-auto size-4" />
-                          )}
-                        </ModelSelectorItem>
-                      ))}
-                    </ModelSelectorGroup>
-                  ))}
-                </ModelSelectorList>
-              </ModelSelectorContent>
-            </ModelSelector>
-          </PromptInputTools>
-          <PromptInputSubmit
-            status={busy ? "streaming" : status === "error" ? "error" : undefined}
-            onStop={stop}
-            disabled={!busy && !input.trim()}
-          />
-        </PromptInputFooter>
-        </PromptInput>
+            </PromptInputBody>
+            <PromptInputFooter>
+              <PromptInputTools>
+                <ModelPicker
+                  value={model ?? context?.model ?? DEFAULT_MODEL}
+                  onChange={setModel}
+                />
+              </PromptInputTools>
+              <PromptInputSubmit
+                status={busy ? "streaming" : status === "error" ? "error" : undefined}
+                onStop={stop}
+                disabled={!busy && !input.trim()}
+              />
+            </PromptInputFooter>
+          </PromptInput>
         </div>
       </div>
 

@@ -2,9 +2,8 @@
 
 import { Github01Icon, Logout01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/app/providers";
@@ -19,9 +18,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { McpCard } from "@/components/mcp-card";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { messageFor } from "@/lib/errors";
 
 function GitHubCard() {
@@ -146,39 +144,21 @@ function AccountCard() {
 }
 
 export default function SettingsPage() {
-  const { loading, auth } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!loading && !auth) router.replace("/");
-  }, [loading, auth, router]);
-
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-2xl flex-col gap-6 px-6 py-10">
-      <header className="flex items-center justify-between">
+    <div className="flex flex-col">
+      <header className="flex h-14 shrink-0 items-center px-4">
+        <SidebarTrigger />
+      </header>
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-6 pb-10">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           <p className="text-sm text-muted-foreground">
-            Your account and connected services.
+            Your account and GitHub connection.
           </p>
         </div>
-        <Button variant="ghost" nativeButton={false} render={<Link href="/" />}>
-          Back
-        </Button>
-      </header>
-
-      {loading || !auth ? (
-        <>
-          <Skeleton className="h-52 rounded-xl" />
-          <Skeleton className="h-52 rounded-xl" />
-        </>
-      ) : (
-        <>
-          <GitHubCard />
-          <McpCard />
-          <AccountCard />
-        </>
-      )}
-    </main>
+        <GitHubCard />
+        <AccountCard />
+      </div>
+    </div>
   );
 }

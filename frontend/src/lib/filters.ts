@@ -1,7 +1,3 @@
-"use client";
-
-import { createContext, useContext, useMemo, useState } from "react";
-
 import type { Repo } from "@/lib/api";
 
 export type Visibility = "all" | "public" | "private";
@@ -14,39 +10,6 @@ export type RepoFilters = {
   language: string | null;
   sort: RepoSort;
 };
-
-const DEFAULT_FILTERS: RepoFilters = {
-  search: "",
-  visibility: "all",
-  owner: null,
-  language: null,
-  sort: "updated",
-};
-
-type FilterContextValue = {
-  filters: RepoFilters;
-  setFilters: (patch: Partial<RepoFilters>) => void;
-};
-
-const FilterContext = createContext<FilterContextValue | null>(null);
-
-export function FilterProvider({ children }: { children: React.ReactNode }) {
-  const [filters, setState] = useState<RepoFilters>(DEFAULT_FILTERS);
-  const value = useMemo<FilterContextValue>(
-    () => ({
-      filters,
-      setFilters: (patch) => setState((prev) => ({ ...prev, ...patch })),
-    }),
-    [filters],
-  );
-  return <FilterContext value={value}>{children}</FilterContext>;
-}
-
-export function useFilters() {
-  const ctx = useContext(FilterContext);
-  if (!ctx) throw new Error("useFilters must be used within FilterProvider");
-  return ctx;
-}
 
 export function repoFacets(repos: Repo[]) {
   const owners = [...new Set(repos.map((r) => r.owner))].sort();
@@ -75,14 +38,5 @@ export function filterRepos(repos: Repo[], f: RepoFilters): Repo[] {
     f.sort === "name"
       ? a.name.localeCompare(b.name)
       : b.updated_at.localeCompare(a.updated_at),
-  );
-}
-
-export function activeFilterCount(f: RepoFilters): number {
-  return (
-    (f.visibility !== "all" ? 1 : 0) +
-    (f.owner ? 1 : 0) +
-    (f.language ? 1 : 0) +
-    (f.sort !== "updated" ? 1 : 0)
   );
 }
