@@ -10,9 +10,15 @@ from starlette.requests import HTTPConnection
 
 from backend.core.jwt import Claims, InvalidToken, TokenVerifier
 from backend.models import UserRow
-from backend.repository import GitHubConnectionRepository, UserRepository
+from backend.repository import (
+    GitHubConnectionRepository,
+    McpConnectionRepository,
+    SkillRepository,
+    UserRepository,
+)
 from backend.runtime.manager import ManagedConversation
 from backend.service import AuthService, ConversationService
+from miniagent.config import Settings
 
 _UNAUTHENTICATED = HTTPException(
     status_code=401,
@@ -121,3 +127,20 @@ def _as_uuid(sub: str) -> uuid.UUID:
         return uuid.UUID(sub)
     except ValueError:
         raise _UNAUTHENTICATED from None
+
+
+def get_settings(conn: HTTPConnection) -> Settings:
+    return conn.app.state.settings
+
+
+def get_skills(conn: HTTPConnection) -> SkillRepository:
+    return conn.app.state.skills
+
+
+def get_mcp(conn: HTTPConnection) -> McpConnectionRepository:
+    return conn.app.state.mcp_connections
+
+
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+SkillsDep = Annotated[SkillRepository, Depends(get_skills)]
+McpDep = Annotated[McpConnectionRepository, Depends(get_mcp)]

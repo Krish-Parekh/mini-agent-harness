@@ -50,12 +50,22 @@ def _mcp_invoker(target: mcp.McpTarget):
 
 
 AI_TITLE_AFTER_TURNS = 4
+TITLE_SNIPPET_CHARS = 60
 
 _TITLE_SYSTEM = (
     "You write a short, specific title for a coding conversation. "
     "Reply with the title only: 3 to 6 words, no quotes, no trailing "
     "punctuation."
 )
+
+
+def title_snippet(text: str, limit: int = TITLE_SNIPPET_CHARS) -> str:
+    stripped = text.strip()
+    line = stripped.splitlines()[0].strip() if stripped else ""
+    if len(line) <= limit:
+        return line
+    cut = line[:limit].rsplit(" ", 1)[0]
+    return cut.rstrip(" ,.;:-") + "…"
 
 
 def _build_agent(
@@ -186,8 +196,7 @@ class ManagedConversation:
             return
         if not (isinstance(event, MessageEvent) and event.role == "user"):
             return
-        text = event.text.strip()
-        snippet = text.splitlines()[0][:60] if text else ""
+        snippet = title_snippet(event.text)
         base = self.repo.split("/")[-1] if self.repo else None
         title = f"{base}: {snippet}".strip(": ") if base else snippet
         self.title = title or None
@@ -363,9 +372,10 @@ class ConversationManager:
         workspace_dir: str | None = None,
         confirm_mode: ConfirmMode = "risky",
         token: str | None = None,
+        provider: str | None = None,
     ) -> ManagedConversation:
         cid = uuid.uuid4().hex[:8]
-        provider = self._settings.sandbox_provider
+        provider = provider or self._settings.sandbox_provider
         if not is_host_git(provider):
             ws = None
         elif repo:

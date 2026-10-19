@@ -655,3 +655,29 @@ def test_server_instructions_reach_the_agent_and_leave_with_the_server(servers):
 
     _apply(host, {})
     assert host.conversation.agent.mcp_instructions == {}
+
+
+def test_skill_description_comes_from_frontmatter():
+    from backend.service.extension import describe_skill
+
+    body = "---\nname: review\ndescription: Review a PR for bugs\n---\n# Review\nSteps..."
+    assert describe_skill(body) == "Review a PR for bugs"
+
+
+def test_skill_description_falls_back_to_the_first_paragraph():
+    from backend.service.extension import describe_skill
+
+    body = "# Haiku summary\n\nWhen asked for a summary,\nanswer with one haiku.\n\nMore."
+    assert describe_skill(body) == "When asked for a summary, answer with one haiku."
+
+
+async def test_upload_without_description_derives_one_and_frontmatter_name_wins():
+    repo = FakeSkillRepository()
+    row = await SkillService(repo).create(
+        uuid.uuid4(),
+        "file-name",
+        "",
+        "---\nname: pr-review\ndescription: Review pull requests\n---\nbody",
+    )
+    assert row.name == "pr-review"
+    assert row.description == "Review pull requests"

@@ -14,6 +14,7 @@ IMPORT_TIMEOUT = 10.0
 MAX_REDIRECTS = 3
 ALLOWED_PREFIXES = ("text/", "application/json")
 SKILL_CATALOG_BUDGET_CHARS = 2_000
+SKILL_DESCRIPTION_MAX_CHARS = 200
 MCP_INSTRUCTIONS_MAX_CHARS = 1_000
 
 
@@ -38,6 +39,39 @@ async def _read_capped(response: httpx.Response) -> bytes:
         if len(body) > MAX_SKILL_BYTES:
             raise ImportError_("The skill is larger than 256 KB.")
     return bytes(body)
+
+
+def _frontmatter(body: str) -> dict[str, str]:
+    if not body.startswith("---"):
+        return {}
+    end = body.find("\n---", 3)
+    if end == -1:
+        return {}
+    fields: dict[str, str] = {}
+    for line in body[3:end].splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key.strip() in ("name", "description"):
+            fields[key.strip()] = value.strip().strip("\"'")
+    return fields
+
+
+def describe_skill(body: str) -> str:
+    fields = _frontmatter(body)
+    if fields.get("description"):
+        return fields["description"][:SKILL_DESCRIPTION_MAX_CHARS]
+    text = body
+    if fields or body.startswith("---"):
+        end = body.find("\n---", 3)
+        text = body[end + 4 :] if end != -1 else body
+    for paragraph in text.split("\n\n"):
+        lines = [
+            line.strip()
+            for line in paragraph.strip().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        if lines:
+            return " ".join(" ".join(lines).split())[:SKILL_DESCRIPTION_MAX_CHARS]
+    return ""
 
 
 def _name_from_url(url: str) -> str:
@@ -72,11 +106,12 @@ class SkillService:
         except httpx.HTTPError as exc:
             raise ImportError_(f"Could not fetch the URL: {exc}") from exc
 
+        text = body.decode("utf-8", errors="replace")
         return await self._save(
             user_id=user_id,
-            name=_name_from_url(url),
-            description=f"Imported from {url}",
-            body=body.decode("utf-8", errors="replace"),
+            name=_frontmatter(text).get("name") or _name_from_url(url),
+            description=describe_skill(text),
+            body=text,
             source_url=url,
         )
 
@@ -86,7 +121,10 @@ class SkillService:
         if len(body.encode()) > MAX_SKILL_BYTES:
             raise ImportError_("The skill is larger than 256 KB.")
         return await self._save(
-            user_id=user_id, name=name, description=description, body=body
+            user_id=user_id,
+            name=_frontmatter(body).get("name") or name,
+            description=description.strip() or describe_skill(body),
+            body=body,
         )
 
     async def _save(self, **fields) -> SkillRow:

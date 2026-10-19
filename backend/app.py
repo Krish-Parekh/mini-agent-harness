@@ -11,6 +11,7 @@ from backend import models  # noqa: F401
 from backend.api.auth import router as auth_router
 from backend.api.conversations import router
 from backend.api.extensions import router as extensions_router
+from backend.api.sandbox import router as sandbox_router
 from backend.api.github import router as github_router
 from backend.core import observability
 from backend.core.db import make_engine, make_sessionmaker
@@ -80,3 +81,4 @@ app.include_router(router)
 app.include_router(auth_router)
 app.include_router(github_router)
 app.include_router(extensions_router)
+app.include_router(sandbox_router)

@@ -16,6 +16,22 @@ class CreateConversationRequest(BaseModel):
     workspace_dir: str | None = None
     initial_message: str | None = None
     confirm_mode: ConfirmMode = "risky"
+    model: str | None = None
+    sandbox_provider: str | None = None
+    skill_ids: list[str] = []
+
+
+class SandboxProviderOut(BaseModel):
+    id: str
+    label: str
+    available: bool
+    default: bool
+    reason: str | None = None
+
+
+class BranchOut(BaseModel):
+    name: str
+    default: bool
 
 
 class SendMessageRequest(BaseModel):

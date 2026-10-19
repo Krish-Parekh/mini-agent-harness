@@ -33,8 +33,32 @@ def is_host_git(provider: str) -> bool:
     return provider in HOST_GIT_PROVIDERS
 
 
+PROVIDER_LABELS = {
+    "local": "Local",
+    "docker": "Docker",
+    "e2b": "E2B",
+    "daytona": "Daytona",
+    "modal": "Modal",
+    "vercel": "Vercel",
+    "space": "SPACE",
+}
+
+
+def provider_problem(settings: Settings, provider: str) -> str | None:
+    if provider not in PROVIDER_LABELS:
+        return f"unknown sandbox provider {provider!r}"
+    try:
+        _check(settings, provider)
+    except SandboxConfigError as exc:
+        return str(exc)
+    return None
+
+
 def check_provider(settings: Settings) -> None:
-    provider = settings.sandbox_provider
+    _check(settings, settings.sandbox_provider)
+
+
+def _check(settings: Settings, provider: str) -> None:
     if provider in _SDK:
         module, extra = _SDK[provider]
         try:

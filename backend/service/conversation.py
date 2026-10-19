@@ -207,20 +207,48 @@ class ConversationService:
         confirm_mode,
         token: str | None,
         initial_message: str | None,
+        model: str | None = None,
+        sandbox_provider: str | None = None,
+        skill_ids: list[str] | None = None,
     ) -> ManagedConversation:
-        managed = self._manager.create(
-            user_id=user_id,
+        skills = list(skill_ids or [])
+        with logfire.span(
+            "conversation.create",
             repo=repo,
-            branch=branch,
-            workspace_dir=workspace_dir,
-            confirm_mode=confirm_mode,
-            token=token,
-        )
+            model=model,
+            sandbox_provider=sandbox_provider,
+            skill_count=len(skills),
+        ):
+            managed = self._manager.create(
+                user_id=user_id,
+                repo=repo,
+                branch=branch,
+                workspace_dir=workspace_dir,
+                confirm_mode=confirm_mode,
+                token=token,
+                provider=sandbox_provider,
+            )
+        if model:
+            managed.set_model(model)
         if repo or initial_message:
-            self._spawn(self._start(managed, initial_message))
+            self._spawn(self._start(managed, initial_message, skills))
         else:
-            self._spawn(self._persist_status(managed))
+            self._spawn(self._persist_and_enable(managed, skills))
         return managed
+
+    async def _persist_and_enable(
+        self, managed: ManagedConversation, skill_ids: list[str]
+    ) -> None:
+        await self._persist_status(managed)
+        await self._enable_skills(managed, skill_ids)
+
+    async def _enable_skills(
+        self, managed: ManagedConversation, skill_ids: list[str]
+    ) -> None:
+        if self._skills is None:
+            return
+        for skill_id in skill_ids:
+            await self._skills.set_enabled(managed.conversation.id, skill_id, True)
 
     async def send_message(
         self,
@@ -572,10 +600,14 @@ class ConversationService:
         )
 
     async def _start(
-        self, managed: ManagedConversation, initial_message: str | None
+        self,
+        managed: ManagedConversation,
+        initial_message: str | None,
+        skill_ids: list[str] | None = None,
     ) -> None:
         self._emit_status(managed, "running")
         await self._persist_status(managed)
+        await self._enable_skills(managed, skill_ids or [])
         async with managed.lock:
             await asyncio.to_thread(managed.bootstrap)
             await self._load_extensions(managed)

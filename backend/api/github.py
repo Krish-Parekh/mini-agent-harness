@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from backend.api.deps import RequiredGitHub
 from backend.schemas import ImportRepoRequest, RepoOut
+from backend.schemas.conversation import BranchOut
 
 GITHUB_API = "https://api.github.com"
 
@@ -57,6 +58,29 @@ async def github_repos(gh: RequiredGitHub):
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail="failed to list repositories")
     return [_to_repo_out(r) for r in resp.json()]
+
+
+@router.get("/repos/{owner}/{name}/branches", response_model=list[BranchOut])
+async def github_branches(owner: str, name: str, gh: RequiredGitHub):
+    async with httpx.AsyncClient(timeout=15) as client:
+        repo = await client.get(
+            f"{GITHUB_API}/repos/{owner}/{name}", headers=_headers(gh.token)
+        )
+        if repo.status_code == 401:
+            raise HTTPException(status_code=401, detail="GitHub token was revoked")
+        if repo.status_code != 200:
+            raise HTTPException(status_code=404, detail="repository not found")
+        branches = await client.get(
+            f"{GITHUB_API}/repos/{owner}/{name}/branches",
+            headers=_headers(gh.token),
+            params={"per_page": 100},
+        )
+    if branches.status_code != 200:
+        raise HTTPException(status_code=502, detail="failed to list branches")
+    default = repo.json()["default_branch"]
+    names = sorted({b["name"] for b in branches.json()} | {default})
+    ordered = [default] + [n for n in names if n != default]
+    return [BranchOut(name=n, default=n == default) for n in ordered]
 
 
 @router.post("/import", response_model=RepoOut)

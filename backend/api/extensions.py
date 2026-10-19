@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException
-from starlette.requests import HTTPConnection
+from fastapi import APIRouter, HTTPException
 
-from backend.api.deps import CurrentUser, ManagedDep
-from backend.repository import McpConnectionRepository, SkillRepository
+from backend.api.deps import CurrentUser, ManagedDep, McpDep, SkillsDep
 from backend.schemas.extension import (
     CreateMcpConnectionRequest,
     CreateSkillRequest,
@@ -23,14 +20,6 @@ from backend.service.extension import ImportError_, McpService, SkillService
 router = APIRouter()
 
 
-def get_skills(conn: HTTPConnection) -> SkillRepository:
-    return conn.app.state.skills
-
-
-def get_mcp(conn: HTTPConnection) -> McpConnectionRepository:
-    return conn.app.state.mcp_connections
-
-
 LOCAL_HOSTS = {"localhost", "127.0.0.1"}
 
 
@@ -41,8 +30,6 @@ def _allowed_mcp_url(url: str) -> bool:
     return parsed.scheme == "http" and parsed.hostname in LOCAL_HOSTS
 
 
-SkillsDep = Annotated[SkillRepository, Depends(get_skills)]
-McpDep = Annotated[McpConnectionRepository, Depends(get_mcp)]
 
 
 @router.get("/skills", response_model=list[SkillOut])

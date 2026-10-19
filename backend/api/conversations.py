@@ -8,6 +8,8 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from backend.api.deps import (
+    SettingsDep,
+    SkillsDep,
     CallerGitHubToken,
     CurrentUser,
     ManagedDep,
@@ -26,6 +28,7 @@ from backend.schemas import (
     SendMessageRequest,
 )
 from miniagent.conversation import Status
+from miniagent.sandbox.factory import provider_problem
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 
 router = APIRouter()
@@ -49,7 +52,16 @@ async def create_conversation(
     service: ServiceDep,
     user: CurrentUser,
     token: CallerGitHubToken,
+    settings: SettingsDep,
+    skills: SkillsDep,
 ):
+    if body.sandbox_provider:
+        problem = provider_problem(settings, body.sandbox_provider)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+    for skill_id in body.skill_ids:
+        if await skills.get(skill_id, user.id) is None:
+            raise HTTPException(status_code=404, detail="skill not found")
     managed = service.create(
         user_id=user.id,
         repo=body.repo,
@@ -58,6 +70,9 @@ async def create_conversation(
         confirm_mode=body.confirm_mode,
         token=token,
         initial_message=body.initial_message,
+        model=body.model,
+        sandbox_provider=body.sandbox_provider,
+        skill_ids=body.skill_ids,
     )
     return service.info(managed)
 
