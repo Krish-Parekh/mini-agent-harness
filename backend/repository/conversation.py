@@ -33,6 +33,8 @@ class ConversationRepository:
         kind: str,
         payload: dict[str, Any],
         client_event_id: str | None = None,
+        sandbox_provider: str = "local",
+        sandbox_id: str | None = None,
     ) -> None:
         async with self._sessionmaker() as sess:
             await self._upsert(
@@ -46,6 +48,8 @@ class ConversationRepository:
                 workspace_dir=workspace_dir,
                 plan=plan,
                 implementing_plan=implementing_plan,
+                sandbox_provider=sandbox_provider,
+                sandbox_id=sandbox_id,
             )
             await sess.execute(
                 pg_insert(EventRow)
@@ -74,6 +78,8 @@ class ConversationRepository:
         workspace_dir: str | None,
         plan: dict[str, Any] | None,
         implementing_plan: bool,
+        sandbox_provider: str = "local",
+        sandbox_id: str | None = None,
     ) -> None:
         async with self._sessionmaker() as sess:
             await self._upsert(
@@ -87,6 +93,8 @@ class ConversationRepository:
                 workspace_dir=workspace_dir,
                 plan=plan,
                 implementing_plan=implementing_plan,
+                sandbox_provider=sandbox_provider,
+                sandbox_id=sandbox_id,
             )
             await sess.commit()
 
@@ -103,7 +111,10 @@ class ConversationRepository:
         workspace_dir: str | None,
         plan: dict[str, Any] | None,
         implementing_plan: bool,
+        sandbox_provider: str = "local",
+        sandbox_id: str | None = None,
     ) -> None:
+        insert = pg_insert(ConversationRow)
         values: dict[str, Any] = dict(
             id=cid,
             user_id=user_id,
@@ -114,16 +125,24 @@ class ConversationRepository:
             workspace_dir=workspace_dir,
             plan=plan,
             implementing_plan=implementing_plan,
+            sandbox_provider=sandbox_provider,
+            sandbox_id=sandbox_id,
         )
+        # The sandbox id and its working directory are learned after the
+        # first insert; never let a later write erase them.
         set_: dict[str, Any] = dict(
             status=status,
             title=title,
             plan=plan,
             implementing_plan=implementing_plan,
+            sandbox_id=func.coalesce(insert.excluded.sandbox_id, ConversationRow.sandbox_id),
+            workspace_dir=func.coalesce(
+                func.nullif(insert.excluded.workspace_dir, ""), ConversationRow.workspace_dir
+            ),
             updated_at=func.now(),
         )
         await sess.execute(
-            pg_insert(ConversationRow)
+            insert
             .values(**values)
             .on_conflict_do_update(
                 index_elements=[ConversationRow.id],

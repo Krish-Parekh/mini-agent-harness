@@ -32,6 +32,7 @@ from backend.schemas import (
     StatusUpdate,
 )
 from miniagent.conversation import Status
+from miniagent.sandbox.base import SandboxExpired
 from miniagent.events import (
     CondensationEvent,
     ErrorEvent,
@@ -81,6 +82,13 @@ class ConversationService:
         )
 
     @staticmethod
+    def _sandbox_state(managed: ManagedConversation) -> dict[str, Any]:
+        return {
+            "sandbox_provider": managed.sandbox.provider,
+            "sandbox_id": managed.sandbox.sandbox_id,
+        }
+
+    @staticmethod
     def _plan_state(managed: ManagedConversation) -> dict[str, Any]:
         conv = managed.conversation
         return {
@@ -126,6 +134,7 @@ class ConversationService:
                     title=managed.title,
                     workspace_dir=managed.sandbox.workspace_dir,
                     **self._plan_state(managed),
+                    **self._sandbox_state(managed),
                     event_id=event.id,
                     seq=seq,
                     source=event.source,
@@ -172,6 +181,7 @@ class ConversationService:
             title=managed.title,
             workspace_dir=managed.sandbox.workspace_dir,
             **self._plan_state(managed),
+            **self._sandbox_state(managed),
         )
 
 
@@ -278,6 +288,8 @@ class ConversationService:
             implementing_plan=row.implementing_plan,
             pr_number=row.pr_number,
             pr_url=row.pr_url,
+            sandbox_provider=row.sandbox_provider,
+            sandbox_id=row.sandbox_id,
         )
 
     async def list_infos(self, user_id: uuid.UUID) -> list[ConversationInfo]:
@@ -295,6 +307,7 @@ class ConversationService:
                 implementing_plan=row.implementing_plan,
                 pr_number=row.pr_number,
                 pr_url=row.pr_url,
+                sandbox_provider=row.sandbox_provider,
                 created_at=row.created_at,
                 updated_at=row.updated_at,
             )
@@ -310,6 +323,14 @@ class ConversationService:
         if managed is not None:
             managed.conversation.set_finished()
             await asyncio.to_thread(managed.sandbox.close)
+        elif row is not None:
+            await asyncio.to_thread(
+                self._manager.destroy_sandbox,
+                cid,
+                row.sandbox_provider,
+                row.sandbox_id,
+                row.workspace_dir,
+            )
         repo = (managed.repo if managed else None) or (row.repo if row else None)
         await asyncio.to_thread(self._manager.release_workspace, cid, repo)
         deleted = await self._repo.delete(cid, user_id)
@@ -329,6 +350,7 @@ class ConversationService:
             implementing_plan=conv.implementing_plan,
             pr_number=managed.pr_number,
             pr_url=managed.pr_url,
+            sandbox_provider=managed.sandbox.provider,
         )
 
     async def create_pr(
@@ -384,11 +406,17 @@ class ConversationService:
             elif isinstance(event, MessageEvent) and event.role == "user":
                 user_turns += 1
 
-        files = self.list_changes(managed)
+        expired = False
+        try:
+            files = self.list_changes(managed)
+        except SandboxExpired:
+            files, expired = [], True
         return ConversationContext(
             repo=managed.repo,
             branch=managed.branch,
             workspace_dir=managed.sandbox.workspace_dir,
+            sandbox_provider=managed.sandbox.provider,
+            sandbox_expired=expired,
             model=conv.agent.llm.model,
             status=conv.status.value,
             workspace_sketch=sketch,
@@ -431,6 +459,9 @@ class ConversationService:
         self._emit_status(managed, "running")
         await self._persist_status(managed)
         async with managed.lock:
+            await asyncio.to_thread(
+                managed.extend_sandbox, self._manager.sandbox_lifetime_s
+            )
             await asyncio.to_thread(trigger)
             conv = managed.conversation
             if conv.cancel_event.is_set() and conv.status != Status.FINISHED:

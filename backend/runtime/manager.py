@@ -14,9 +14,10 @@ from miniagent.conversation import Conversation, Status
 from miniagent.events import ErrorEvent, Event, MessageEvent
 from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier
-from miniagent.sandbox.local import LocalSandbox
-from miniagent.sandbox.workspace import WorkspaceError
-from backend.runtime.workspaces import WorkspaceManager
+from miniagent.sandbox.base import Sandbox, SandboxError
+from miniagent.sandbox.factory import build_sandbox, is_host_git
+from miniagent.sandbox.workspace import WorkspaceError, clone_repo
+from backend.runtime.workspaces import BRANCH_PREFIX, WorkspaceManager
 from miniagent.tools.bash import BashTool
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.file_edit import FileEditTool
@@ -125,7 +126,7 @@ class ManagedConversation:
     def __init__(
         self,
         conversation: Conversation,
-        sandbox: LocalSandbox,
+        sandbox: Sandbox,
         broker: EventBroker,
         workspaces: WorkspaceManager,
         user_id: uuid.UUID,
@@ -206,16 +207,35 @@ class ManagedConversation:
         if not self.repo:
             return
         try:
-            worktree = self._workspaces.prepare(
-                self.conversation.id, self.repo, self.branch, self._token
+            if is_host_git(self.sandbox.provider):
+                worktree = self._workspaces.prepare(
+                    self.conversation.id, self.repo, self.branch, self._token
+                )
+                self.sandbox.set_working_dir(worktree)
+            else:
+                clone_repo(
+                    self.sandbox,
+                    self.repo,
+                    self.branch,
+                    self._token,
+                    f"{BRANCH_PREFIX}/{self.conversation.id}",
+                )
+        except SandboxError as exc:
+            self.conversation.add_event(
+                ErrorEvent(message=f"sandbox_unavailable: {self.sandbox.provider}: {exc}")
             )
+            self.conversation.status = Status.ERROR
         except WorkspaceError as exc:
             self.conversation.add_event(
                 ErrorEvent(message=f"workspace setup failed: {exc}")
             )
             self.conversation.status = Status.ERROR
-            return
-        self.sandbox.set_working_dir(worktree)
+
+    def extend_sandbox(self, seconds: int) -> None:
+        try:
+            self.sandbox.extend(seconds)
+        except SandboxError:
+            pass
 
 
 class ConversationManager:
@@ -226,6 +246,7 @@ class ConversationManager:
         data_dir: Path = Path("data"),
     ) -> None:
         self._settings = settings
+        self._data_dir = data_dir.resolve()
         self._workspaces = WorkspaceManager(data_dir)
         self._conversations: dict[str, ManagedConversation] = {}
         self._persist_hook: PersistHook = lambda *_: None
@@ -244,12 +265,42 @@ class ConversationManager:
         token: str | None = None,
     ) -> ManagedConversation:
         cid = uuid.uuid4().hex[:8]
-        if repo:
+        provider = self._settings.sandbox_provider
+        if not is_host_git(provider):
+            ws = None
+        elif repo:
             ws = str(self._workspaces.worktree_dir(cid))
         else:
             ws = workspace_dir or self._settings.workspace_dir
-        managed = self._build(cid, ws, confirm_mode, user_id, repo, branch, token)
-        return managed
+        sandbox = self._sandbox(cid, provider, ws, None)
+        return self._build(cid, sandbox, confirm_mode, user_id, repo, branch, token)
+
+    def _sandbox(
+        self, cid: str, provider: str, workspace_dir: str | None, sandbox_id: str | None
+    ) -> Sandbox:
+        return build_sandbox(
+            self._settings,
+            cid,
+            provider=provider,
+            workspace_dir=workspace_dir,
+            sandbox_id=sandbox_id,
+            host_mounts=[str(self._data_dir), self._settings.workspace_dir],
+        )
+
+    @property
+    def sandbox_lifetime_s(self) -> int:
+        return self._settings.sandbox_lifetime_s
+
+    def destroy_sandbox(
+        self, cid: str, provider: str, sandbox_id: str | None, workspace_dir: str | None
+    ) -> None:
+        """Delete a sandbox that has no live Conversation, e.g. one bound to a
+        row that was never revived. Blocking."""
+        if is_host_git(provider) and provider != "docker":
+            return
+        if not sandbox_id:
+            return
+        self._sandbox(cid, provider, workspace_dir, sandbox_id).close()
 
     def release_workspace(self, cid: str, repo: str | None) -> None:
         self._workspaces.release(cid, repo)
@@ -270,9 +321,15 @@ class ConversationManager:
         pr_number: int | None = None,
         pr_url: str | None = None,
         token: str | None = None,
+        sandbox_provider: str = "local",
+        sandbox_id: str | None = None,
     ) -> ManagedConversation:
-        ws = workspace_dir or self._settings.workspace_dir
-        managed = self._build(cid, ws, "risky", user_id, repo, branch, token)
+        if is_host_git(sandbox_provider):
+            ws = workspace_dir or self._settings.workspace_dir
+        else:
+            ws = workspace_dir or None
+        sandbox = self._sandbox(cid, sandbox_provider, ws, sandbox_id)
+        managed = self._build(cid, sandbox, "risky", user_id, repo, branch, token)
         managed.conversation.events = events
         managed.conversation.plan = Plan.model_validate(plan) if plan else None
         managed.conversation.implementing_plan = implementing_plan
@@ -290,7 +347,7 @@ class ConversationManager:
     def _build(
         self,
         cid: str,
-        workspace_dir: str,
+        sandbox: Sandbox,
         confirm_mode: ConfirmMode,
         user_id: uuid.UUID,
         repo: str | None,
@@ -298,7 +355,6 @@ class ConversationManager:
         token: str | None,
     ) -> ManagedConversation:
         loop = asyncio.get_running_loop()
-        sandbox = LocalSandbox(workspace_dir)
         conversation = Conversation(
             agent=_build_agent(self._settings, repo, branch),
             sandbox=sandbox,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,6 +12,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     model: str = "gpt-4o-mini"
@@ -41,3 +44,34 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = Field(
         "", validation_alias=AliasChoices("LANGFUSE_SECRET_KEY")
     )
+
+    sandbox_provider: Literal[
+        "local", "docker", "e2b", "daytona", "modal", "vercel", "space"
+    ] = "local"
+    sandbox_lifetime_s: int = 3600
+    sandbox_cpu: float = 2
+    sandbox_memory_mb: int = 4096
+
+    docker_image: str = "miniagent-sandbox:latest"
+
+    e2b_template: str = ""
+    daytona_image: str = ""
+    modal_app: str = "miniagent"
+
+    space_api_url: str = Field(
+        "", validation_alias=AliasChoices("MINIAGENT_SPACE_API_URL", "SPACE_API_URL")
+    )
+    space_data_plane_url: str = Field(
+        "",
+        validation_alias=AliasChoices(
+            "MINIAGENT_SPACE_DATA_PLANE_URL", "SPACE_DATA_PLANE_URL"
+        ),
+    )
+    space_token: str = Field(
+        "", validation_alias=AliasChoices("MINIAGENT_SPACE_TOKEN", "SPACE_API_TOKEN")
+    )
+    space_email: str = ""
+    space_password: str = ""
+    space_template: str = "code-runtime:latest"
+    space_allow_internet: bool = True
+    space_egress_profiles: str = ""

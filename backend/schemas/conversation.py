@@ -90,6 +90,8 @@ class ConversationContext(BaseModel):
     repo: str | None = None
     branch: str | None = None
     workspace_dir: str | None = None
+    sandbox_provider: str = "local"
+    sandbox_expired: bool = False
     model: str
     status: str
     workspace_sketch: ContextNote | None = None
@@ -112,6 +114,7 @@ class ConversationInfo(BaseModel):
     implementing_plan: bool = False
     pr_number: int | None = None
     pr_url: str | None = None
+    sandbox_provider: str = "local"
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

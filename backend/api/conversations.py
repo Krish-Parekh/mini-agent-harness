@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterable
-from typing import Annotated
+import asyncio
+from collections.abc import AsyncIterable, Callable
+from typing import Annotated, TypeVar
 
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.sse import EventSourceResponse, ServerSentEvent
@@ -25,8 +26,21 @@ from backend.schemas import (
     SendMessageRequest,
 )
 from miniagent.conversation import Status
+from miniagent.sandbox.base import SandboxError, SandboxExpired
 
 router = APIRouter()
+
+T = TypeVar("T")
+
+
+async def _in_sandbox(fn: Callable[..., T], *args) -> T:
+    """Sandbox reads can hit the network or boot a VM; keep them off the loop."""
+    try:
+        return await asyncio.to_thread(fn, *args)
+    except SandboxExpired as exc:
+        raise HTTPException(status_code=409, detail="sandbox_expired") from exc
+    except SandboxError as exc:
+        raise HTTPException(status_code=503, detail="sandbox_unavailable") from exc
 
 
 @router.post("/conversations", response_model=ConversationInfo)
@@ -65,27 +79,27 @@ async def get_events(managed: ManagedDep):
 
 @router.get("/conversations/{cid}/context", response_model=ConversationContext)
 async def get_context(managed: ManagedDep, service: ServiceDep):
-    return service.context(managed)
+    return await _in_sandbox(service.context, managed)
 
 
 @router.get("/conversations/{cid}/changes", response_model=list[ChangedFile])
 async def get_changes(managed: ManagedDep, service: ServiceDep):
-    return service.list_changes(managed)
+    return await _in_sandbox(service.list_changes, managed)
 
 
 @router.get("/conversations/{cid}/changes/diff", response_model=FileDiff)
 async def get_file_diff(managed: ManagedDep, path: str, service: ServiceDep):
-    return service.file_diff(managed, path)
+    return await _in_sandbox(service.file_diff, managed, path)
 
 
 @router.get("/conversations/{cid}/files", response_model=list[str])
 async def get_files(managed: ManagedDep, service: ServiceDep):
-    return service.list_files(managed)
+    return await _in_sandbox(service.list_files, managed)
 
 
 @router.get("/conversations/{cid}/files/content", response_model=FileContent)
 async def get_file_content(managed: ManagedDep, path: str, service: ServiceDep):
-    return service.file_content(managed, path)
+    return await _in_sandbox(service.file_content, managed, path)
 
 
 @router.post("/conversations/{cid}/messages", response_model=ConversationInfo)

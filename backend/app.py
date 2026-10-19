@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import logfire
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,9 +22,14 @@ from backend.repository import (
 from backend.runtime import ConversationManager
 from backend.service import AuthService, ConversationService
 from miniagent.config import Settings
+from miniagent.sandbox.factory import check_provider
 
+# Provider SDKs read their credentials from the process environment, not
+# from Settings, so .env has to reach os.environ before the startup check.
+load_dotenv(override=False)
 settings = Settings()
 observability.configure(settings)
+check_provider(settings)
 
 
 @asynccontextmanager
