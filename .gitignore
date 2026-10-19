@@ -1,4 +1,5 @@
-docs/
+docs/*
+!docs/architecture/
 codebase/
 .venv/
 __pycache__/
