@@ -43,7 +43,7 @@ export function GettingStarted() {
     {
       label: "Add a skill or MCP server",
       done: skills.length > 0 || mcp.length > 0,
-      href: "/customize",
+      href: "/settings/skills",
     },
   ];
   const completed = steps.filter((s) => s.done).length;

@@ -4,10 +4,16 @@ export type ComposerSelection = {
   repo: string | null;
   branch: string | null;
   environment: string | null;
+  model: string | null;
 };
 
 const KEY = "miniagent:composer-selection";
-const EMPTY: ComposerSelection = { repo: null, branch: null, environment: null };
+const EMPTY: ComposerSelection = {
+  repo: null,
+  branch: null,
+  environment: null,
+  model: null,
+};
 
 const listeners = new Set<() => void>();
 let cached: ComposerSelection | null = null;

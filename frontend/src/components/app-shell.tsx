@@ -2,9 +2,11 @@
 
 import { Github01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { usePathname } from "next/navigation";
 
 import { useAuth } from "@/app/providers";
 import { AppSidebar } from "@/components/app-sidebar";
+import { SettingsSidebar } from "@/components/settings/settings-sidebar";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -35,7 +37,7 @@ function SignIn({ onSignIn }: { onSignIn: () => void }) {
         <EmptyTitle>Sign in with GitHub</EmptyTitle>
         <EmptyDescription>
           MiniAgent runs against your GitHub repositories, so your GitHub account
-          is your account here — there is nothing else to sign up for.
+          is your account here. There is nothing else to sign up for.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
@@ -55,7 +57,7 @@ function NotConfigured() {
         <EmptyTitle>Supabase is not configured</EmptyTitle>
         <EmptyDescription>
           Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in
-          frontend/.env.local — see frontend/.env.example.
+          frontend/.env.local (see frontend/.env.example).
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
@@ -64,6 +66,7 @@ function NotConfigured() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { loading, auth, configured, signIn } = useAuth();
+  const pathname = usePathname();
 
   if (!configured) {
     return (
@@ -89,7 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider className="h-svh overflow-hidden">
-      <AppSidebar />
+      {pathname.startsWith("/settings") ? <SettingsSidebar /> : <AppSidebar />}
       <SidebarInset className="min-h-0 overflow-y-auto">{children}</SidebarInset>
     </SidebarProvider>
   );

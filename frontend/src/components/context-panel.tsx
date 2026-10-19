@@ -111,7 +111,7 @@ export function FailureReference({
       </Button>
       {!traceId && (
         <p className="text-xs text-muted-foreground">
-          No trace recorded — tracing was not configured for this run.
+          No trace recorded. Tracing was not configured for this run.
         </p>
       )}
     </div>
@@ -160,9 +160,6 @@ function Toggles({
           ))}
         </ul>
       )}
-      <p className="mt-2 text-xs text-muted-foreground">
-        Changes apply to new runs in this conversation.
-      </p>
     </Section>
   );
 }
@@ -205,9 +202,9 @@ function Extensions({ conversationId }: { conversationId: string }) {
         title="Skills"
         emptyHint={
           <>
-            No skills yet —{" "}
-            <Link href="/skills" className="underline">
-              add one
+            No skills yet.{" "}
+            <Link href="/settings/skills" className="underline">
+              Add one
             </Link>
             .
           </>
@@ -220,9 +217,9 @@ function Extensions({ conversationId }: { conversationId: string }) {
         title="MCP servers"
         emptyHint={
           <>
-            No servers yet —{" "}
-            <Link href="/settings" className="underline">
-              connect one
+            No servers yet.{" "}
+            <Link href="/settings/mcp" className="underline">
+              Connect one
             </Link>
             .
           </>
@@ -266,8 +263,8 @@ export function ContextPanel({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <Section title="Repository">
-        <Row label="Repository" value={context.repo ?? "—"} />
-        <Row label="Branch" value={context.branch ?? "—"} />
+        <Row label="Repository" value={context.repo ?? "None"} />
+        <Row label="Branch" value={context.branch ?? "None"} />
         <Row
           label="Sandbox"
           value={SANDBOX_LABELS[context.sandbox_provider] ?? context.sandbox_provider}

@@ -2,7 +2,6 @@
 
 import {
   ArrowRight01Icon,
-  ConfigurationIcon,
   Delete02Icon,
   Folder01Icon,
   MoreHorizontalIcon,
@@ -252,7 +251,7 @@ function RepoFolders({ activeId }: { activeId: string | null }) {
   );
 }
 
-function AccountFooter() {
+export function AccountFooter() {
   const { auth } = useAuth();
   if (!auth) return null;
 
@@ -323,15 +322,6 @@ export function AppSidebar() {
             >
               <HugeiconsIcon icon={PencilEdit02Icon} />
               <span>New Chat</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={pathname.startsWith("/customize")}
-              render={<Link href="/customize" onClick={closeOnMobile} />}
-            >
-              <HugeiconsIcon icon={ConfigurationIcon} />
-              <span>Customize</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

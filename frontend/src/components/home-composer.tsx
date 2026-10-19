@@ -38,7 +38,8 @@ export function HomeComposer() {
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const [text, setText] = useState("");
-  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [pickedModel, setModel] = useState<string | null>(null);
+  const model = pickedModel ?? selection.model ?? DEFAULT_MODEL;
   const [skills, setSkills] = useState<Skill[]>([]);
 
   const branch =

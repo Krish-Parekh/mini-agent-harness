@@ -28,7 +28,7 @@ export const MODELS = [
 
 export const DEFAULT_MODEL = MODELS[0].id;
 
-const PROVIDERS = [
+export const PROVIDERS = [
   { id: "anthropic", heading: "Anthropic" },
   { id: "openai", heading: "OpenAI" },
 ];

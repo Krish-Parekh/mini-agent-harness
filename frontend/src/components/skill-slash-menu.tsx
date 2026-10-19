@@ -154,11 +154,11 @@ export function SkillSlashTextarea({
               <p className="px-3 pb-3 text-sm text-muted-foreground">
                 No skills yet.{" "}
                 <Link
-                  href="/customize"
+                  href="/settings/skills"
                   onMouseDown={(e) => e.preventDefault()}
                   className="underline"
                 >
-                  Add one in Customize
+                  Add one in Settings
                 </Link>
               </p>
             ) : (
