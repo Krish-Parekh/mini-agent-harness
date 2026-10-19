@@ -17,6 +17,13 @@ dependencies = [
     "logfire[fastapi]>=4.39.0",
 ]
 
+[project.optional-dependencies]
+docker = ["docker>=7.2"]
+e2b = ["e2b>=2.21,<3"]
+daytona = ["daytona>=0.220"]
+modal = ["modal>=1.6.1"]
+vercel = ["vercel-sandbox>=0.7"]
+
 [project.scripts]
 mini-agent = "miniagent.cli:main"
 
@@ -39,6 +46,7 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["remote: runs against a hosted sandbox provider and needs its credentials"]
 
 [tool.logfire]
 ignore_no_config = true
