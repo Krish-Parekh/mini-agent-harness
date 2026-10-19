@@ -62,6 +62,7 @@ export type ConversationInfo = {
   implementing_plan: boolean;
   pr_number: number | null;
   pr_url: string | null;
+  sandbox_provider: string;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -97,6 +98,8 @@ export type ConversationContext = {
   repo: string | null;
   branch: string | null;
   workspace_dir: string | null;
+  sandbox_provider: string;
+  sandbox_expired: boolean;
   model: string;
   status: ConversationStatus;
   workspace_sketch: ContextNote | null;

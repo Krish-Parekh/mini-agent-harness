@@ -59,6 +59,19 @@ function Note({ text }: { text: string }) {
   );
 }
 
+
+const SANDBOX_LABELS: Record<string, string> = {
+  local: "Local",
+  docker: "Docker",
+  e2b: "E2B",
+  daytona: "Daytona",
+  modal: "Modal",
+  vercel: "Vercel",
+  space: "SPACE",
+};
+
+const HOST_GIT = new Set(["local", "docker"]);
+
 export function FailureReference({
   conversationId,
   traceId,
@@ -133,9 +146,13 @@ export function ContextPanel({
       <Section title="Repository">
         <Row label="Repository" value={context.repo ?? "—"} />
         <Row label="Branch" value={context.branch ?? "—"} />
+        <Row
+          label="Sandbox"
+          value={SANDBOX_LABELS[context.sandbox_provider] ?? context.sandbox_provider}
+        />
         {context.workspace_dir && (
           <Row
-            label="Worktree"
+            label={HOST_GIT.has(context.sandbox_provider) ? "Worktree" : "Workspace"}
             value={
               <span title={context.workspace_dir}>
                 {context.workspace_dir.split("/").slice(-2).join("/")}
@@ -151,6 +168,14 @@ export function ContextPanel({
         <Row label="Events" value={counts.events} />
         <Row label="Your turns" value={counts.user_turns} />
       </Section>
+
+      {context.sandbox_expired && (
+        <Section title="Session changes">
+          <p className="text-xs text-muted-foreground">
+            The sandbox expired. The diff is no longer available.
+          </p>
+        </Section>
+      )}
 
       {changes.files > 0 && (
         <Section title="Session changes">
