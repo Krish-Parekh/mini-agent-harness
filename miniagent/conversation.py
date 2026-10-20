@@ -170,7 +170,11 @@ class Conversation:
         return elided
 
     def condensation_candidates(self, retain_chars: int | None = None) -> list[Event]:
-        from miniagent.events import CondensationEvent
+        from miniagent.events import (
+            CondensationEvent,
+            RepoInstructionsEvent,
+            WorkspaceSketchEvent,
+        )
 
         compacted = self.compacted_event_ids()
         live = [
@@ -185,7 +189,11 @@ class Conversation:
             cut = live.index(self.events[last_user_index])
         else:
             cut = self._retained_cut(live, retain_chars)
-        candidates = live[:cut]
+        candidates = [
+            event
+            for event in live[:cut]
+            if not isinstance(event, (RepoInstructionsEvent, WorkspaceSketchEvent))
+        ]
         observed = {
             event.tool_call_id
             for event in candidates
