@@ -84,8 +84,8 @@ CACHE_BREAKPOINTS = [
 
 
 def _supports_custom_temperature(model: str) -> bool:
-    normalized = model.split("/", 1)[-1]
-    if normalized.startswith("gpt-5"):
+    normalized = model.rsplit("/", 1)[-1]
+    if re.match(r"gpt-[5-9]", normalized):
         return False
     return not re.match(r"claude-[a-z]+-5", normalized)
 
