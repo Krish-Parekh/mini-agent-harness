@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     model: str = "anthropic/claude-sonnet-5-5"
     policy_model: str = "anthropic/claude-haiku-5-5"
-    max_tokens: int = 4096
+    max_tokens: int = 16_384
     temperature: float = 0.0
     workspace_dir: str = "./workspace"
 
