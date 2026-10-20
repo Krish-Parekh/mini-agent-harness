@@ -3,10 +3,10 @@ import { queryCollectionOptions } from "@tanstack/query-db-collection";
 
 import {
   api,
-  type AgentEvent,
   type ConversationInfo,
   type CreateConversationBody,
 } from "@/lib/api";
+import { eventKey } from "@/lib/events";
 import { queryClient } from "@/lib/query-client";
 
 export const conversationsCollection = createCollection(
@@ -48,7 +48,7 @@ function createEventsCollection(conversationId: string) {
       queryClient,
       queryKey: ["events", conversationId],
       queryFn: () => api.events(conversationId),
-      getKey: (e: AgentEvent) => e.client_event_id ?? e.id,
+      getKey: eventKey,
     }),
   );
 }
@@ -82,6 +82,14 @@ export const sendMessage = createOptimisticAction<SendMessageVars>({
     });
   },
   mutationFn: async ({ conversationId, clientEventId, text, model }) => {
-    await api.sendMessage(conversationId, text, model, clientEventId);
+    const events = eventsCollection(conversationId);
+    const row = events.isReady() ? events.get(clientEventId) : undefined;
+    if (row) events.utils.writeUpsert(row);
+    try {
+      await api.sendMessage(conversationId, text, model, clientEventId);
+    } catch (e) {
+      if (row) events.utils.writeDelete(clientEventId);
+      throw e;
+    }
   },
 });

@@ -48,3 +48,5 @@ export const isErrorEvent = (e: AgentEvent): e is ErrorEvent =>
 
 export const isFanoutWorker = (e: AgentEvent): e is FanoutWorkerEvent =>
   e.kind === "fanout_worker";
+
+export const eventKey = (e: AgentEvent) => e.client_event_id ?? e.id;

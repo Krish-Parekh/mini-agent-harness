@@ -122,7 +122,11 @@ export function useConversationStream(id: string) {
   const refreshChanges = useCallback(() => {
     api
       .changes(id)
-      .then(setChanges)
+      .then((next) =>
+        setChanges((prev) =>
+          JSON.stringify(prev) === JSON.stringify(next) ? prev : next,
+        ),
+      )
       .catch((e) => toast.error(messageFor(e), { id: "refresh-changes" }));
   }, [id]);
 
@@ -171,7 +175,7 @@ export function useConversationStream(id: string) {
   const lastUserTurnId = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];
-      if (e.kind === "message" && e.role === "user") return e.id;
+      if (e.kind === "message" && e.role === "user") return e.client_event_id ?? e.id;
     }
     return undefined;
   }, [events]);

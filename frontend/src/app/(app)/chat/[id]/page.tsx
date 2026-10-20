@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { use, useRef, useState } from "react";
+import { use, useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import Link from "next/link";
@@ -91,22 +91,38 @@ export default function ChatPage({
 
   const showBuild = !!pendingPlan && status !== "running";
 
-  function openFile(path: string) {
+  const openFile = useCallback((path: string) => {
     setSelectedPath(path);
     setPanelOpen(true);
-  }
+  }, []);
+  const closePanel = useCallback(() => setPanelOpen(false), []);
 
   // Optimistically flip to "running" for instant feedback, but restore the
   // prior status (and surface the error) if the request fails. Otherwise a
   // rejected confirm/approve would leave the composer locked on "running".
-  function optimisticRun(fn: () => Promise<unknown>) {
-    const prev = status;
-    setStatus("running");
-    fn().catch((e) => {
-      setStatus(prev);
-      toast.error(messageFor(e));
-    });
-  }
+  const optimisticRun = useCallback(
+    (fn: () => Promise<unknown>) => {
+      const prev = status;
+      setStatus("running");
+      fn().catch((e) => {
+        setStatus(prev);
+        toast.error(messageFor(e));
+      });
+    },
+    [status, setStatus],
+  );
+  const approvePlan = useCallback(
+    () => optimisticRun(() => api.approvePlan(id)),
+    [optimisticRun, id],
+  );
+  const approveAction = useCallback(
+    () => optimisticRun(() => api.confirm(id, true)),
+    [optimisticRun, id],
+  );
+  const rejectAction = useCallback(
+    () => optimisticRun(() => api.confirm(id, false)),
+    [optimisticRun, id],
+  );
 
   async function submit(text: string, restoreInput: boolean) {
     lastSentText.current = text;
@@ -222,9 +238,9 @@ export default function ChatPage({
                 pendingQuestionId={showQuestion ? pendingQuestion?.id : undefined}
                 pendingPlanId={showBuild ? pendingPlan?.id : undefined}
                 livePlan={livePlan}
-                onBuild={() => optimisticRun(() => api.approvePlan(id))}
-                onApprove={() => optimisticRun(() => api.confirm(id, true))}
-                onReject={() => optimisticRun(() => api.confirm(id, false))}
+                onBuild={approvePlan}
+                onApprove={approveAction}
+                onReject={rejectAction}
                 onSelectFile={openFile}
               />
               <ConversationScrollAnchor turnKey={lastUserTurnId} />
@@ -318,7 +334,7 @@ export default function ChatPage({
           running={status === "running"}
           selectedPath={selectedPath}
           onSelectPath={setSelectedPath}
-          onClose={() => setPanelOpen(false)}
+          onClose={closePanel}
           onSynced={refreshChanges}
         />
       )}

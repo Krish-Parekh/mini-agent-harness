@@ -9,6 +9,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -65,7 +66,6 @@ function scrollNodeToContainerTop(el: HTMLDivElement, node: HTMLElement) {
 type ConversationCtx = {
   scrollRef: React.RefObject<HTMLDivElement | null>;
   contentRef: React.RefObject<HTMLDivElement | null>;
-  viewportHeight: number;
   isAtBottom: boolean;
   onScroll: () => void;
   scrollToBottom: (behavior?: ScrollBehavior) => void;
@@ -92,7 +92,6 @@ export const Conversation = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const [viewportHeight, setViewportHeight] = useState(0);
   const atBottomRef = useRef(true);
   const isAnimatingScrollRef = useRef(false);
   const cancelScrollRef = useRef<(() => void) | null>(null);
@@ -151,37 +150,34 @@ export const Conversation = ({
     const content = contentRef.current;
     if (!el || !content) return;
 
-    const syncViewport = () => setViewportHeight(el.clientHeight);
-    syncViewport();
     el.scrollTop = el.scrollHeight;
 
     const observer = new ResizeObserver(() => {
-      syncViewport();
       if (atBottomRef.current && !isAnimatingScrollRef.current) {
         el.scrollTop = scrollBottom(el);
       }
     });
     observer.observe(content);
-    window.addEventListener("resize", syncViewport);
     return () => {
       cancelScrollRef.current?.();
       observer.disconnect();
-      window.removeEventListener("resize", syncViewport);
     };
   }, []);
 
+  const value = useMemo(
+    () => ({
+      scrollRef,
+      contentRef,
+      isAtBottom,
+      onScroll,
+      scrollToBottom,
+      scrollToUserTurn,
+    }),
+    [isAtBottom, onScroll, scrollToBottom, scrollToUserTurn],
+  );
+
   return (
-    <ConversationContext.Provider
-      value={{
-        scrollRef,
-        contentRef,
-        viewportHeight,
-        isAtBottom,
-        onScroll,
-        scrollToBottom,
-        scrollToUserTurn,
-      }}
-    >
+    <ConversationContext.Provider value={value}>
       <div
         className={cn("relative flex min-h-0 flex-1 flex-col", className)}
         {...props}
@@ -205,7 +201,7 @@ export const ConversationContent = ({
       ref={scrollRef}
       onScroll={onScroll}
       role="log"
-      className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden [container-type:size] [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       <div ref={contentRef} className={cn("p-4", className)} {...props}>
         {children}

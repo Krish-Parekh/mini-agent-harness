@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { api, type ChangedFile } from "@/lib/api";
@@ -247,7 +247,7 @@ function FileRow({
   );
 }
 
-export function ChangesPanel({
+export const ChangesPanel = memo(function ChangesPanel({
   conversationId,
   changes,
   prNumber,
@@ -533,4 +533,4 @@ export function ChangesPanel({
       )}
     </aside>
   );
-}
+});

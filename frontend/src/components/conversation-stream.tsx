@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo } from "react";
+import { Fragment, memo, useMemo } from "react";
 import type {
   AgentEvent,
   ConversationStatus,
@@ -10,6 +10,7 @@ import type {
 import {
   type ActionEvent,
   type MessageEvent,
+  eventKey,
   isAction,
   isErrorEvent,
   isFanoutWorker,
@@ -29,7 +30,6 @@ import {
 } from "@/lib/tool-views";
 import { formatDuration, formatElapsed, useElapsed } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { useConversation } from "@/components/ai-elements/conversation";
 import {
   Message,
   MessageContent,
@@ -634,7 +634,7 @@ export type ConversationTimelineProps = {
   onSelectFile?: (path: string) => void;
 };
 
-export function ConversationTimeline({
+export const ConversationTimeline = memo(function ConversationTimeline({
   events,
   observationByCall,
   status,
@@ -652,15 +652,14 @@ export function ConversationTimeline({
     () => buildFanoutWorkerMap(events),
     [events],
   );
-  const latestUserId = useMemo(() => {
-    for (let i = groups.length - 1; i >= 0; i--) {
-      const group = groups[i];
-      if (group.kind === "message" && group.event.role === "user") {
-        return group.event.id;
-      }
-    }
-    return undefined;
-  }, [groups]);
+  const userTurnStarts = useMemo(
+    () =>
+      groups.flatMap((group, i) =>
+        group.kind === "message" && group.event.role === "user" ? [i] : [],
+      ),
+    [groups],
+  );
+  const lastUserIdx = userTurnStarts.at(-1) ?? -1;
   const live = status === "running" || status === "waiting_for_confirmation";
   const hasActiveToolWork =
     live &&
@@ -674,16 +673,6 @@ export function ConversationTimeline({
     status === "running" &&
     !hasActiveToolWork &&
     !hasAssistantReplyAfterLastUser(groups);
-
-  const lastUserIdx = useMemo(() => {
-    for (let i = groups.length - 1; i >= 0; i--) {
-      const group = groups[i];
-      if (group.kind === "message" && group.event.role === "user") return i;
-    }
-    return -1;
-  }, [groups]);
-
-  const { viewportHeight } = useConversation();
 
   const renderGroup = (group: Group, i: number) => {
     if (group.kind === "actions") {
@@ -735,39 +724,34 @@ export function ConversationTimeline({
     }
     return (
       <MessageRow
-        key={group.event.id}
+        key={eventKey(group.event)}
         ev={group.event}
-        isLatestUserTurn={
-          group.event.role === "user" && group.event.id === latestUserId
-        }
+        isLatestUserTurn={i === lastUserIdx}
       />
     );
   };
 
+  const firstUserIdx = userTurnStarts[0] ?? groups.length;
+
   return (
     <>
-      {groups.map((group, i) => {
-        if (lastUserIdx >= 0 && i >= lastUserIdx) return null;
-        return renderGroup(group, i);
+      {groups.slice(0, firstUserIdx).map((group, i) => renderGroup(group, i))}
+      {userTurnStarts.map((start, t) => {
+        const end = userTurnStarts[t + 1] ?? groups.length;
+        const isLast = start === lastUserIdx;
+        return (
+          <div
+            key={eventKey((groups[start] as { event: MessageEvent }).event)}
+            data-active-turn={isLast ? "" : undefined}
+            className={cn("flex flex-col gap-6", isLast && "min-h-[100cqh]")}
+          >
+            {groups
+              .slice(start, end)
+              .map((group, j) => renderGroup(group, start + j))}
+            {isLast && showAssistantStreaming && <AssistantStreamingRow />}
+          </div>
+        );
       })}
-      {lastUserIdx >= 0 && groups[lastUserIdx]?.kind === "message" && (
-        <div
-          data-active-turn
-          className="flex flex-col gap-6"
-          style={
-            viewportHeight > 0 ? { minHeight: viewportHeight } : undefined
-          }
-        >
-          <MessageRow
-            ev={(groups[lastUserIdx] as { kind: "message"; event: MessageEvent }).event}
-            isLatestUserTurn
-          />
-          {groups.slice(lastUserIdx + 1).map((group, j) =>
-            renderGroup(group, lastUserIdx + 1 + j),
-          )}
-          {showAssistantStreaming && <AssistantStreamingRow />}
-        </div>
-      )}
     </>
   );
-}
+});
