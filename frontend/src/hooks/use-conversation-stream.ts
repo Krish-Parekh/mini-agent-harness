@@ -233,6 +233,7 @@ export function useConversationStream(id: string) {
     busy,
     waiting,
     changes,
+    changesRevision: observationByCall.size,
     refreshChanges,
     observationByCall,
     lastUnresolvedAction,

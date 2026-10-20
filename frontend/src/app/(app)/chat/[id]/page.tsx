@@ -61,6 +61,7 @@ export default function ChatPage({
     waiting,
     changes,
     refreshChanges,
+    changesRevision,
     observationByCall,
     lastUnresolvedAction,
     pendingQuestion,
@@ -350,6 +351,7 @@ export default function ChatPage({
           onSelectPath={setSelectedPath}
           onClose={closePanel}
           onSynced={refreshChanges}
+          revision={changesRevision}
         />
       )}
     </div>

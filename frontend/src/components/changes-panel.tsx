@@ -154,7 +154,15 @@ function DetailHeader({
   );
 }
 
-function FileDiffView({ conversationId, path }: { conversationId: string; path: string }) {
+function FileDiffView({
+  conversationId,
+  path,
+  revision,
+}: {
+  conversationId: string;
+  path: string;
+  revision: number;
+}) {
   const [patch, setPatch] = useState<string | null>(null);
 
   useEffect(() => {
@@ -166,14 +174,22 @@ function FileDiffView({ conversationId, path }: { conversationId: string; path: 
     return () => {
       active = false;
     };
-  }, [conversationId, path]);
+  }, [conversationId, path, revision]);
 
   if (patch === null) return <LoadingState label="Loading diff" className="px-4 py-5" />;
   if (!patch) return <PanelMessage>No changes to show.</PanelMessage>;
   return <DiffViewer patch={patch} viewMode="unified" variant="ghost" />;
 }
 
-function FileContentView({ conversationId, path }: { conversationId: string; path: string }) {
+function FileContentView({
+  conversationId,
+  path,
+  revision,
+}: {
+  conversationId: string;
+  path: string;
+  revision: number;
+}) {
   const [content, setContent] = useState<string | null>(null);
 
   useEffect(() => {
@@ -185,7 +201,7 @@ function FileContentView({ conversationId, path }: { conversationId: string; pat
     return () => {
       active = false;
     };
-  }, [conversationId, path]);
+  }, [conversationId, path, revision]);
 
   if (content === null) return <LoadingState label="Loading file" className="px-4 py-5" />;
   return <CodeBlock code={content} language={langForPath(path)} filename={path} flush />;
@@ -195,11 +211,13 @@ function FileDetail({
   conversationId,
   path,
   changed,
+  revision,
   onBack,
 }: {
   conversationId: string;
   path: string;
   changed: ChangedFile | undefined;
+  revision: number;
   onBack: () => void;
 }) {
   const [view, setView] = useState<View>("diff");
@@ -222,9 +240,9 @@ function FileDetail({
       </DetailHeader>
       <ScrollArea className="min-h-0 flex-1">
         {mode === "diff" ? (
-          <FileDiffView conversationId={conversationId} path={path} />
+          <FileDiffView conversationId={conversationId} path={path} revision={revision} />
         ) : (
-          <FileContentView conversationId={conversationId} path={path} />
+          <FileContentView conversationId={conversationId} path={path} revision={revision} />
         )}
       </ScrollArea>
     </div>
@@ -338,6 +356,7 @@ export const ChangesPanel = memo(function ChangesPanel({
   onSelectPath,
   onClose,
   onSynced,
+  revision,
 }: {
   conversationId: string;
   changes: ChangedFile[];
@@ -348,6 +367,7 @@ export const ChangesPanel = memo(function ChangesPanel({
   onSelectPath: (path: string | null) => void;
   onClose: () => void;
   onSynced?: () => void;
+  revision: number;
 }) {
   const [tab, setTab] = useState<Tab>("changes");
   const [allFiles, setAllFiles] = useState<string[] | null>(null);
@@ -471,6 +491,7 @@ export const ChangesPanel = memo(function ChangesPanel({
           conversationId={conversationId}
           path={selectedPath}
           changed={changed}
+          revision={revision}
           onBack={back}
         />
       ) : tab === "all" ? (

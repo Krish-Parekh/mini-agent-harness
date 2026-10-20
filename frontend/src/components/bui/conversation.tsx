@@ -54,6 +54,10 @@ function smoothScrollTo(
   };
 }
 
+function nearBottom(el: HTMLDivElement) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD;
+}
+
 function scrollNodeToContainerTop(el: HTMLDivElement, node: HTMLElement) {
   const targetScrollTop =
     node.getBoundingClientRect().top -
@@ -131,15 +135,14 @@ export const Conversation = ({
     cancelScrollRef.current = null;
     isAnimatingScrollRef.current = false;
     atBottomRef.current = false;
-    setIsAtBottom(false);
     scrollNodeToContainerTop(el, node);
+    setIsAtBottom(nearBottom(el));
   }, [scrollToBottom]);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const atBottom = distance <= BOTTOM_THRESHOLD;
+    const atBottom = nearBottom(el);
     atBottomRef.current = atBottom;
     setIsAtBottom(atBottom);
   }, []);
@@ -155,6 +158,7 @@ export const Conversation = ({
       if (atBottomRef.current && !isAnimatingScrollRef.current) {
         el.scrollTop = scrollBottom(el);
       }
+      setIsAtBottom(nearBottom(el));
     });
     observer.observe(content);
     return () => {
