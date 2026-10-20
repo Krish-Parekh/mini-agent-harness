@@ -32,6 +32,13 @@ class Status(str, enum.Enum):
     STUCK = "stuck"
 
 
+DOC_SUFFIXES = (".md", ".mdx", ".markdown", ".txt", ".rst", ".adoc")
+
+
+def _is_doc(path: str) -> bool:
+    return path.lower().endswith(DOC_SUFFIXES)
+
+
 def _new_id() -> str:
     return uuid.uuid4().hex[:8]
 
@@ -227,6 +234,7 @@ class Conversation:
                 action.tool_name == "file_edit"
                 and action.arguments.get("command") in ("create", "str_replace")
                 and not observation.error
+                and not _is_doc(action.arguments.get("path", ""))
             ):
                 dirty = True
         return dirty

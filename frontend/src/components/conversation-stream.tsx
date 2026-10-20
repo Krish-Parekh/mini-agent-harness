@@ -233,7 +233,7 @@ const ChainStep = memo(function ChainStep({
   return (
     <ToolRow
       icon={isError ? CircleAlertIcon : view.icon}
-      label={view.verb}
+      label={action.tool_name === "finish" && obs?.error ? "Finish rejected" : view.verb}
       chip={target || undefined}
       chipMono={view.mono ?? false}
       onChipClick={filePath && onSelectFile ? () => onSelectFile(filePath) : undefined}

@@ -903,8 +903,8 @@ class Agent:
         ):
             return ToolResult(
                 "Verification required before finishing: run a focused test, "
-                "lint/typecheck/build command, or explain in the finish message why "
-                "verification cannot be run.",
+                "lint/typecheck/build command, or, if no check applies or none can "
+                "run, say so and why in the finish message.",
                 True,
             )
 
