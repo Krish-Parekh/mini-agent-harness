@@ -73,7 +73,10 @@ export function RepoPicker({
           <span className="truncate">{value ?? "Select repository"}</span>
           <HugeiconsIcon icon={ArrowDown01Icon} data-icon="inline-end" />
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-96 gap-0 p-0">
+        <PopoverContent
+          align="start"
+          className="w-96 gap-0 rounded-card bg-surface p-0 shadow-raised ring-0"
+        >
           <Command>
             <CommandInput placeholder="Search repositories…" />
             <div className="flex items-center gap-2 px-1 pt-2">

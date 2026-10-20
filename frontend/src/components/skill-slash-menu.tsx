@@ -1,11 +1,10 @@
 "use client";
 
-import { Cancel01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import { SparklesIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import Link from "next/link";
 import {
   type ChangeEvent,
-  type ComponentProps,
   type KeyboardEvent,
   useLayoutEffect,
   useRef,
@@ -14,13 +13,15 @@ import {
 import { createPortal } from "react-dom";
 
 import {
-  PromptInputHeader,
-  PromptInputTextarea,
-} from "@/components/ai-elements/prompt-input";
-import { Badge } from "@/components/ui/badge";
+  PromptBarChip,
+  PromptBarHeader,
+  PromptBarMenu,
+  PromptBarMenuRow,
+  PromptBarTextarea,
+  type PromptBarTextareaProps,
+} from "@/components/bui/prompt-bar";
 import type { Skill } from "@/lib/api";
 import { useSkills } from "@/lib/queries";
-import { cn } from "@/lib/utils";
 
 const MAX_RESULTS = 8;
 
@@ -44,10 +45,7 @@ export function activeSlash(
   return null;
 }
 
-type Props = Omit<
-  ComponentProps<typeof PromptInputTextarea>,
-  "value" | "onChange"
-> & {
+type Props = Omit<PromptBarTextareaProps, "value" | "onChange"> & {
   value: string;
   onValueChange: (value: string) => void;
   onPickSkill: (skill: Skill) => void;
@@ -94,6 +92,7 @@ export function SkillSlashTextarea({
     menu.style.width = `${Math.min(r.width, 420)}px`;
     menu.style.top = below ? `${r.bottom + 8}px` : "";
     menu.style.bottom = below ? "" : `${window.innerHeight - r.top + 8}px`;
+    menu.style.transformOrigin = below ? "top center" : "bottom center";
   }, [open, value]);
 
   function handleChange(e: ChangeEvent<HTMLTextAreaElement>) {
@@ -141,57 +140,51 @@ export function SkillSlashTextarea({
     <div ref={wrapperRef} className="contents">
       {open &&
         createPortal(
-          <div
+          <PromptBarMenu
             ref={menuRef}
             role="listbox"
             aria-label="Skills"
-            className="fixed z-50 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-md"
+            label="Skills"
+            activeIndex={index}
+            hint={showEmptyHint ? undefined : "Type to search skills"}
           >
-            <p className="px-3 pt-2 pb-1 text-xs font-medium text-muted-foreground">
-              Skills
-            </p>
             {showEmptyHint ? (
-              <p className="px-3 pb-3 text-sm text-muted-foreground">
+              <p className="px-2 pb-2 text-[12px] text-ink-3">
                 No skills yet.{" "}
                 <Link
                   href="/settings/skills"
                   onMouseDown={(e) => e.preventDefault()}
-                  className="underline"
+                  className="font-medium text-brand-ink hover:underline"
                 >
                   Add one in Settings
                 </Link>
               </p>
             ) : (
-              <ul className="max-h-64 overflow-y-auto p-1">
-                {results.map((skill, i) => (
-                  <li key={skill.id}>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={i === index}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => pick(skill)}
-                      onMouseEnter={() => setActiveIndex(i)}
-                      className={cn(
-                        "flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left",
-                        i === index && "bg-accent text-accent-foreground",
-                      )}
-                    >
-                      <span className="text-sm font-medium">/{skill.name}</span>
-                      {skill.description && (
-                        <span className="line-clamp-1 text-xs text-muted-foreground">
-                          {skill.description}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              results.map((skill, i) => (
+                <PromptBarMenuRow
+                  key={skill.id}
+                  active={i === index}
+                  onClick={() => pick(skill)}
+                  onMouseEnter={() => setActiveIndex(i)}
+                >
+                  <span className="flex size-5.5 shrink-0 items-center justify-center text-ink-2">
+                    <HugeiconsIcon icon={SparklesIcon} className="size-[15px]" />
+                  </span>
+                  <span className="shrink-0 text-[12.5px] font-medium text-ink">
+                    /{skill.name}
+                  </span>
+                  {skill.description && (
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-ink-3">
+                      {skill.description}
+                    </span>
+                  )}
+                </PromptBarMenuRow>
+              ))
             )}
-          </div>,
+          </PromptBarMenu>,
           document.body,
         )}
-      <PromptInputTextarea
+      <PromptBarTextarea
         {...props}
         value={value}
         onChange={handleChange}
@@ -211,21 +204,16 @@ export function SkillChips({
 }) {
   if (!skills.length) return null;
   return (
-    <PromptInputHeader className="justify-start px-3 pt-2.5">
+    <PromptBarHeader>
       {skills.map((skill) => (
-        <Badge key={skill.id} variant="secondary" className="gap-1 pr-1">
-          <HugeiconsIcon icon={SparklesIcon} data-icon="inline-start" />
-          {skill.name}
-          <button
-            type="button"
-            aria-label={`Remove ${skill.name}`}
-            onClick={() => onRemove(skill)}
-            className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} className="size-3" />
-          </button>
-        </Badge>
+        <PromptBarChip
+          key={skill.id}
+          icon={<HugeiconsIcon icon={SparklesIcon} className="size-3 text-brand" />}
+          label={skill.name}
+          removeLabel={`Remove ${skill.name}`}
+          onRemove={() => onRemove(skill)}
+        />
       ))}
-    </PromptInputHeader>
+    </PromptBarHeader>
   );
 }

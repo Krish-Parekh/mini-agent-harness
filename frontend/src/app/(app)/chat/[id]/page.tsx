@@ -21,15 +21,14 @@ import {
   ConversationContent,
   ConversationScrollButton,
   ConversationScrollAnchor,
-} from "@/components/ai-elements/conversation";
+} from "@/components/bui/conversation";
 import {
-  PromptInput,
-  PromptInputBody,
-  PromptInputFooter,
-  PromptInputSubmit,
-  PromptInputTools,
-  type PromptInputMessage,
-} from "@/components/ai-elements/prompt-input";
+  PromptBar,
+  PromptBarFooter,
+  PromptBarSubmit,
+  PromptBarTools,
+  type PromptBarMessage,
+} from "@/components/bui/prompt-bar";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
 import { SkillChips, SkillSlashTextarea } from "@/components/skill-slash-menu";
 import { AlertTriangleIcon } from "lucide-react";
@@ -169,7 +168,7 @@ export default function ChatPage({
     }
   }
 
-  async function send(message: PromptInputMessage) {
+  async function send(message: PromptBarMessage) {
     const text = message.text.trim();
     if (!text || busy) return;
     setInput("");
@@ -287,41 +286,39 @@ export default function ChatPage({
             </div>
           )}
 
-          <PromptInput onSubmit={send} className="mt-3">
+          <PromptBar onSubmit={send} className="mt-3">
             <SkillChips
               skills={sessionSkills}
               onRemove={(skill) => void toggleSkill(skill, false)}
             />
-            <PromptInputBody>
-              <SkillSlashTextarea
-                value={input}
-                onValueChange={setInput}
-                excludeIds={sessionSkills.map((s) => s.id)}
-                onPickSkill={(skill) => void toggleSkill(skill, true)}
-                placeholder={
-                  waiting
-                    ? "Approve or reject the action above…"
-                    : showQuestion
-                      ? "Or reply directly…"
-                      : "Send a message, / for skills…"
-                }
-                disabled={busy}
-              />
-            </PromptInputBody>
-            <PromptInputFooter>
-              <PromptInputTools>
+            <SkillSlashTextarea
+              value={input}
+              onValueChange={setInput}
+              excludeIds={sessionSkills.map((s) => s.id)}
+              onPickSkill={(skill) => void toggleSkill(skill, true)}
+              placeholder={
+                waiting
+                  ? "Approve or reject the action above…"
+                  : showQuestion
+                    ? "Or reply directly…"
+                    : "Send a message, / for skills…"
+              }
+              disabled={busy}
+            />
+            <PromptBarFooter>
+              <PromptBarTools>
                 <ModelPicker
                   value={model ?? context?.model ?? DEFAULT_MODEL}
                   onChange={setModel}
                 />
-              </PromptInputTools>
-              <PromptInputSubmit
+              </PromptBarTools>
+              <PromptBarSubmit
                 status={busy ? "streaming" : status === "error" ? "error" : undefined}
                 onStop={stop}
                 disabled={!busy && !input.trim()}
               />
-            </PromptInputFooter>
-          </PromptInput>
+            </PromptBarFooter>
+          </PromptBar>
         </div>
       </div>
 

@@ -2,7 +2,6 @@
 
 import {
   type ChangeEvent,
-  type ComponentProps,
   type KeyboardEvent,
   useLayoutEffect,
   useMemo,
@@ -11,15 +10,17 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { PromptInputTextarea } from "@/components/ai-elements/prompt-input";
+import {
+  Glyph,
+  PromptBarMenu,
+  PromptBarMenuRow,
+  PromptBarTextarea,
+  type PromptBarTextareaProps,
+} from "@/components/bui/prompt-bar";
 import { useFiles } from "@/lib/queries";
-import { cn } from "@/lib/utils";
 
 const MAX_RESULTS = 8;
 
-// Find an active "@mention" token that the cursor sits inside. Walks back from
-// the caret to the nearest '@'; returns null if a whitespace is hit first or
-// the '@' is mid-word (e.g. an email address), so we don't hijack those.
 function activeMention(
   value: string,
   cursor: number,
@@ -37,10 +38,7 @@ function activeMention(
   return null;
 }
 
-type Props = Omit<
-  ComponentProps<typeof PromptInputTextarea>,
-  "value" | "onChange"
-> & {
+type Props = Omit<PromptBarTextareaProps, "value" | "onChange"> & {
   value: string;
   onValueChange: (value: string) => void;
   conversationId: string;
@@ -59,7 +57,6 @@ export function FileMentionTextarea({
   );
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Only fetch the file list once the user actually opens a mention.
   const { data: files } = useFiles(conversationId, mention !== null);
 
   const results = useMemo(() => {
@@ -74,10 +71,6 @@ export function FileMentionTextarea({
 
   const textareaEl = () => wrapperRef.current?.querySelector("textarea") ?? null;
 
-  // Anchor the portaled menu to the textarea by writing straight to the menu
-  // node's style (no React-managed style prop, so hover re-renders can't clobber
-  // it). Recompute on open and on value change, since the auto-growing textarea
-  // shifts its own top edge.
   useLayoutEffect(() => {
     if (!open) return;
     const anchor = textareaEl();
@@ -104,7 +97,6 @@ export function FileMentionTextarea({
     const insert = `@${path} `;
     onValueChange(before + insert + after);
     setMention(null);
-    // Restore focus and drop the caret just past the inserted mention.
     const caret = before.length + insert.length;
     requestAnimationFrame(() => {
       el.focus();
@@ -114,8 +106,6 @@ export function FileMentionTextarea({
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (!open) return;
-    // preventDefault here also stops PromptInputTextarea's Enter-to-submit,
-    // which bails when the event was already defaultPrevented.
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((i) => (Math.min(i, results.length - 1) + 1) % results.length);
@@ -139,36 +129,36 @@ export function FileMentionTextarea({
     <div ref={wrapperRef} className="contents">
       {open &&
         createPortal(
-          <div
+          <PromptBarMenu
             ref={menuRef}
-            className="fixed bottom-0 left-0 z-50 overflow-hidden rounded-lg border bg-popover shadow-md"
+            role="listbox"
+            aria-label="Files"
+            activeIndex={index}
+            hint="Type to search files"
+            className="bottom-0 left-0"
           >
-            <ul className="max-h-64 overflow-y-auto p-1">
-              {results.map((path, i) => (
-                <li key={path}>
-                  <button
-                    type="button"
-                    // Keep focus on the textarea so the click selects instead
-                    // of blurring the menu shut first.
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => selectFile(path)}
-                    onMouseEnter={() => setActiveIndex(i)}
-                    className={cn(
-                      "flex w-full items-center rounded-md px-2 py-1.5 text-left",
-                      i === index
-                        ? "bg-accent text-accent-foreground"
-                        : "text-foreground",
-                    )}
-                  >
-                    <span className="truncate font-mono text-xs">{path}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>,
+            {results.map((path, i) => (
+              <PromptBarMenuRow
+                key={path}
+                active={i === index}
+                onClick={() => selectFile(path)}
+                onMouseEnter={() => setActiveIndex(i)}
+              >
+                <span className="flex size-5.5 shrink-0 items-center justify-center text-ink-2">
+                  <Glyph size={14}>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 2v6h6" />
+                  </Glyph>
+                </span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink">
+                  {path}
+                </span>
+              </PromptBarMenuRow>
+            ))}
+          </PromptBarMenu>,
           document.body,
         )}
-      <PromptInputTextarea
+      <PromptBarTextarea
         {...props}
         value={value}
         onChange={handleChange}

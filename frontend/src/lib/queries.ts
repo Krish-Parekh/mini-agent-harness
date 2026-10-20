@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
+import { useMemo } from "react";
 import { toast } from "sonner";
 
 import {
@@ -89,20 +90,27 @@ export function useImportRepo() {
   });
 }
 
+function byUpdatedDesc(a: ConversationInfo, b: ConversationInfo) {
+  return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
+}
+
+function refetchConversations() {
+  return conversationsCollection.utils.refetch();
+}
+
 export function useConversations() {
   const { data, isLoading, status } = useLiveQuery(
     () => conversationsCollection,
   );
-  const sorted = data
-    ? [...data].sort((a, b) =>
-        (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
-      )
-    : undefined;
+  const sorted = useMemo(
+    () => (data ? [...data].sort(byUpdatedDesc) : undefined),
+    [data],
+  );
   return {
     data: sorted,
     isPending: isLoading,
     isError: status === "error",
-    refetch: () => conversationsCollection.utils.refetch(),
+    refetch: refetchConversations,
   };
 }
 

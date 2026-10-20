@@ -1,86 +1,86 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ReactNode } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  ArrowLeft01Icon,
+  Cancel01Icon,
+  GitPullRequestIcon,
+} from "@hugeicons/core-free-icons";
 
 import { api, type ChangedFile } from "@/lib/api";
 import { langForPath } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
-import { DiffViewer } from "@/components/assistant-ui/diff-viewer";
-import { CodeBlock } from "@/components/ai-elements/code-block";
-import {
-  FileTree,
-  FileTreeFile,
-  FileTreeFolder,
-} from "@/components/ai-elements/file-tree";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowLeft01Icon,
-  EyeIcon,
-  GitPullRequestIcon,
-} from "@hugeicons/core-free-icons";
+import { DiffViewer } from "@/components/bui/diff-viewer";
+import { CodeBlock } from "@/components/bui/code-block";
+import { FileTree } from "@/components/bui/file-tree";
+import { GlideMenu } from "@/components/bui/glide-menu";
+import { LoadingState } from "@/components/bui/loading-state";
+import { Pill } from "@/components/bui/button";
+import { ValuePill } from "@/components/bui/value-pill";
 
 type Tab = "all" | "changes";
+type View = "diff" | "code";
 
 const MIN_WIDTH = 320;
 const DEFAULT_WIDTH = 384;
 const WIDTH_KEY = "changesPanelWidth";
 
-const PR_TONE = {
-  synced: { bar: "border-emerald-900/40 bg-[#1b2b1e]", text: "text-emerald-400", badge: "border-emerald-500/35" },
-  pending: { bar: "border-amber-900/40 bg-[#2a2310]", text: "text-amber-400", badge: "border-amber-500/35" },
-  syncing: { bar: "border-sky-900/40 bg-[#15212e]", text: "text-sky-400", badge: "border-sky-500/35" },
-} as const;
+const widthListeners = new Set<() => void>();
+let storedWidth: number | null = null;
 
-type TreeNode = { name: string; path: string; dir: boolean; children: TreeNode[] };
-
-function buildTree(paths: string[]): TreeNode[] {
-  const root: TreeNode = { name: "", path: "", dir: true, children: [] };
-  for (const p of paths) {
-    const parts = p.split("/");
-    let cur = root;
-    parts.forEach((part, i) => {
-      const path = parts.slice(0, i + 1).join("/");
-      let next = cur.children.find((c) => c.name === part);
-      if (!next) {
-        next = { name: part, path, dir: i < parts.length - 1, children: [] };
-        cur.children.push(next);
-      }
-      cur = next;
-    });
+function readWidth() {
+  if (storedWidth === null) {
+    try {
+      storedWidth = Number(localStorage.getItem(WIDTH_KEY)) || DEFAULT_WIDTH;
+    } catch {
+      storedWidth = DEFAULT_WIDTH;
+    }
   }
-  const sort = (node: TreeNode) => {
-    node.children.sort((a, b) =>
-      a.dir !== b.dir ? (a.dir ? -1 : 1) : a.name.localeCompare(b.name),
-    );
-    node.children.forEach(sort);
-  };
-  sort(root);
-  return root.children;
+  return storedWidth;
 }
 
-function renderTree(nodes: TreeNode[]): ReactNode {
-  return nodes.map((n) =>
-    n.dir ? (
-      <FileTreeFolder key={n.path} path={n.path} name={n.name}>
-        {renderTree(n.children)}
-      </FileTreeFolder>
-    ) : (
-      <FileTreeFile key={n.path} path={n.path} name={n.name} />
-    ),
-  );
+function writeWidth(width: number) {
+  storedWidth = width;
+  try {
+    localStorage.setItem(WIDTH_KEY, String(width));
+  } catch {}
+  widthListeners.forEach((listener) => listener());
 }
+
+function subscribeWidth(listener: () => void) {
+  widthListeners.add(listener);
+  return () => {
+    widthListeners.delete(listener);
+  };
+}
+
+const serverWidth = () => DEFAULT_WIDTH;
+
+const STATUS = {
+  added: { letter: "A", tone: "bg-green-tint text-green" },
+  modified: { letter: "M", tone: "bg-orange-tint text-orange" },
+  deleted: { letter: "D", tone: "bg-red-tint text-red" },
+} as const;
 
 function PathLabel({ path }: { path: string }) {
   const i = path.lastIndexOf("/");
   const dir = i >= 0 ? path.slice(0, i + 1) : "";
   const name = i >= 0 ? path.slice(i + 1) : path;
   return (
-    <span className="truncate font-mono text-xs">
-      {dir && <span className="text-muted-foreground">{dir}</span>}
-      <span className="text-foreground">{name}</span>
+    <span className="min-w-0 truncate font-mono text-[12px]">
+      {dir && <span className="text-ink-3">{dir}</span>}
+      <span className="text-ink">{name}</span>
     </span>
   );
 }
@@ -92,17 +92,16 @@ function TabButton({
 }: {
   active: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
       type="button"
+      aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "rounded-md px-2.5 py-1 text-sm transition-colors",
-        active
-          ? "bg-muted/80 text-foreground"
-          : "text-muted-foreground hover:text-foreground",
+        "inline-flex items-center gap-1 rounded-chip px-2 py-[3px] text-[13px] text-ink transition-[background-color,opacity] duration-100",
+        active ? "bg-field" : "opacity-50 hover:opacity-75",
       )}
     >
       {children}
@@ -110,47 +109,52 @@ function TabButton({
   );
 }
 
-function FileStatusIcon({ status }: { status: ChangedFile["status"] }) {
-  const color =
-    status === "added"
-      ? "bg-emerald-500/20 ring-emerald-500/50 [&>span]:bg-emerald-500"
-      : status === "deleted"
-        ? "bg-red-500/20 ring-red-500/50 [&>span]:bg-red-500"
-        : "bg-yellow-500/20 ring-yellow-500/50 [&>span]:bg-yellow-500";
+function StatusMark({ status }: { status: ChangedFile["status"] }) {
+  const s = STATUS[status];
   return (
     <span
+      title={status}
       className={cn(
-        "flex size-3.5 shrink-0 items-center justify-center rounded-[3px] ring-1",
-        color,
+        "inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] font-mono text-[10px] font-semibold",
+        s.tone,
       )}
     >
-      <span className="size-1 rounded-full" />
+      <span aria-hidden>{s.letter}</span>
+      <span className="sr-only">{status}</span>
     </span>
   );
 }
 
-function DetailHeader({ path, onBack }: { path: string; onBack: () => void }) {
+function PanelMessage({ children }: { children: ReactNode }) {
+  return <p className="px-4 py-5 text-[12.5px] text-ink-3">{children}</p>;
+}
+
+function DetailHeader({
+  path,
+  onBack,
+  children,
+}: {
+  path: string;
+  onBack: () => void;
+  children?: ReactNode;
+}) {
   return (
-    <button
-      type="button"
-      onClick={onBack}
-      className="flex items-center gap-1.5 border-b px-3 py-2 text-left hover:bg-muted/50"
-    >
-      <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4 shrink-0" />
+    <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line px-1.5">
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label="Back to files"
+        className="flex size-7 shrink-0 items-center justify-center rounded-chip text-ink-3 transition-[background-color,color,transform] duration-150 hover:bg-hover hover:text-ink active:scale-[0.96]"
+      >
+        <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
+      </button>
       <PathLabel path={path} />
-    </button>
+      {children && <div className="ml-auto flex shrink-0 items-center">{children}</div>}
+    </div>
   );
 }
 
-function FileDiffView({
-  conversationId,
-  path,
-  onBack,
-}: {
-  conversationId: string;
-  path: string;
-  onBack: () => void;
-}) {
+function FileDiffView({ conversationId, path }: { conversationId: string; path: string }) {
   const [patch, setPatch] = useState<string | null>(null);
 
   useEffect(() => {
@@ -164,31 +168,12 @@ function FileDiffView({
     };
   }, [conversationId, path]);
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <DetailHeader path={path} onBack={onBack} />
-      <ScrollArea className="min-h-0 flex-1">
-        {patch === null ? (
-          <p className="text-muted-foreground p-3 text-xs">Loading diff…</p>
-        ) : patch ? (
-          <DiffViewer patch={patch} viewMode="unified" />
-        ) : (
-          <p className="text-muted-foreground p-3 text-xs">No changes to show.</p>
-        )}
-      </ScrollArea>
-    </div>
-  );
+  if (patch === null) return <LoadingState label="Loading diff" className="px-4 py-5" />;
+  if (!patch) return <PanelMessage>No changes to show.</PanelMessage>;
+  return <DiffViewer patch={patch} viewMode="unified" variant="ghost" />;
 }
 
-function FileContentView({
-  conversationId,
-  path,
-  onBack,
-}: {
-  conversationId: string;
-  path: string;
-  onBack: () => void;
-}) {
+function FileContentView({ conversationId, path }: { conversationId: string; path: string }) {
   const [content, setContent] = useState<string | null>(null);
 
   useEffect(() => {
@@ -202,48 +187,144 @@ function FileContentView({
     };
   }, [conversationId, path]);
 
+  if (content === null) return <LoadingState label="Loading file" className="px-4 py-5" />;
+  return <CodeBlock code={content} language={langForPath(path)} filename={path} flush />;
+}
+
+function FileDetail({
+  conversationId,
+  path,
+  changed,
+  onBack,
+}: {
+  conversationId: string;
+  path: string;
+  changed: ChangedFile | undefined;
+  onBack: () => void;
+}) {
+  const [view, setView] = useState<View>("diff");
+  const canToggle = changed !== undefined && changed.status !== "deleted";
+  const mode: View = !changed ? "code" : canToggle ? view : "diff";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <DetailHeader path={path} onBack={onBack} />
+      <DetailHeader path={path} onBack={onBack}>
+        {canToggle && (
+          <>
+            <TabButton active={mode === "diff"} onClick={() => setView("diff")}>
+              Diff
+            </TabButton>
+            <TabButton active={mode === "code"} onClick={() => setView("code")}>
+              Code
+            </TabButton>
+          </>
+        )}
+      </DetailHeader>
       <ScrollArea className="min-h-0 flex-1">
-        {content === null ? (
-          <p className="text-muted-foreground p-3 text-xs">Loading…</p>
+        {mode === "diff" ? (
+          <FileDiffView conversationId={conversationId} path={path} />
         ) : (
-          <CodeBlock code={content} language={langForPath(path)} />
+          <FileContentView conversationId={conversationId} path={path} />
         )}
       </ScrollArea>
     </div>
   );
 }
 
-function FileRow({
-  path,
-  status,
+function ChangeRow({
+  file,
   selected,
-  onClick,
-  trailing,
+  onSelect,
 }: {
-  path: string;
-  status: ChangedFile["status"];
-  selected?: boolean;
-  onClick: () => void;
-  trailing?: React.ReactNode;
+  file: ChangedFile;
+  selected: boolean;
+  onSelect: (path: string) => void;
 }) {
   return (
     <button
+      data-menu-row
       type="button"
-      onClick={onClick}
+      onClick={() => onSelect(file.path)}
       className={cn(
-        "mx-2 flex w-[calc(100%-1rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
-        selected ? "bg-[#2a2624]" : "hover:bg-[#2a2624]/70",
+        "relative z-10 mx-2 flex h-8 w-[calc(100%-1rem)] items-center gap-2 rounded-[7px] px-2 text-left transition-[background-color,transform] duration-150 active:scale-[0.99]",
+        selected && "bg-hover-2 group-hover/glide-menu:bg-transparent",
       )}
     >
-      <PathLabel path={path} />
-      <span className="ml-auto flex shrink-0 items-center gap-2">
-        {trailing}
-        <FileStatusIcon status={status} />
+      <PathLabel path={file.path} />
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        {file.additions > 0 && <ValuePill tone="green">+{file.additions}</ValuePill>}
+        {file.deletions > 0 && <ValuePill tone="red">−{file.deletions}</ValuePill>}
+        <StatusMark status={file.status} />
       </span>
     </button>
+  );
+}
+
+function PrBar({
+  pr,
+  changeCount,
+  running,
+  creating,
+  error,
+  onSync,
+}: {
+  pr: { number: number; url: string } | null;
+  changeCount: number;
+  running: boolean;
+  creating: boolean;
+  error: boolean;
+  onSync: () => void;
+}) {
+  const tone = creating ? "brand" : changeCount > 0 ? "orange" : "green";
+  return (
+    <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-line px-3">
+      {pr !== null ? (
+        <a
+          href={pr.url}
+          target="_blank"
+          rel="noreferrer"
+          className="group/pr flex min-w-0 items-center gap-2"
+        >
+          <ValuePill tone={tone} className="h-5 shrink-0 px-2">
+            PR #{pr.number}
+          </ValuePill>
+          <span className="flex min-w-0 items-center gap-1.5 text-ink-2 transition-colors group-hover/pr:text-ink">
+            <HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
+            <span className="truncate text-[13px]">
+              {changeCount > 0 ? "Changes to push" : "View on GitHub"}
+            </span>
+          </span>
+        </a>
+      ) : (
+        <div className={cn("flex min-w-0 items-center gap-1.5", error ? "text-red" : "text-ink-2")}>
+          <HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
+          <span className="truncate text-[13px]">
+            {error
+              ? "Couldn't sync PR. Try again."
+              : `${changeCount} file${changeCount === 1 ? "" : "s"} changed`}
+          </span>
+        </div>
+      )}
+      {changeCount > 0 && (
+        <Pill variant="primary" size="sm" onClick={onSync} disabled={running || creating} className="shrink-0">
+          {creating ? (
+            <>
+              {pr !== null ? "Updating" : "Creating"}
+              <Spinner className="size-3.5" />
+            </>
+          ) : running ? (
+            <>
+              Working
+              <Spinner className="size-3.5" />
+            </>
+          ) : pr !== null ? (
+            "Update PR"
+          ) : (
+            "Create PR"
+          )}
+        </Pill>
+      )}
+    </div>
   );
 }
 
@@ -269,20 +350,13 @@ export const ChangesPanel = memo(function ChangesPanel({
   onSynced?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("changes");
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [allFiles, setAllFiles] = useState<string[] | null>(null);
-  // The PR from a just-completed create; otherwise fall back to props. Derived
-  // (not synced via effect) so a fresh prop value flows through immediately.
-  const [createdPr, setCreatedPr] = useState<{ number: number; url: string } | null>(
-    null,
-  );
+  const [createdPr, setCreatedPr] = useState<{ number: number; url: string } | null>(null);
   const [creatingPr, setCreatingPr] = useState(false);
   const [prError, setPrError] = useState(false);
   const pr =
     createdPr ?? (prNumber != null && prUrl ? { number: prNumber, url: prUrl } : null);
 
-  // Create the PR the first time, or push new commits to it afterwards; the
-  // backend pushes the branch either way, which refreshes an existing PR.
   const syncPr = useCallback(async () => {
     setCreatingPr(true);
     setPrError(false);
@@ -298,45 +372,33 @@ export const ChangesPanel = memo(function ChangesPanel({
     }
   }, [conversationId, onSynced]);
 
-  const widthRef = useRef(DEFAULT_WIDTH);
-  const dragging = useRef(false);
+  const width = useSyncExternalStore(subscribeWidth, readWidth, serverWidth);
+  const asideRef = useRef<HTMLElement>(null);
+  const dragWidth = useRef<number | null>(null);
 
-  useEffect(() => {
-    const saved = Number(localStorage.getItem(WIDTH_KEY));
-    if (saved) {
-      widthRef.current = saved;
-      setWidth(saved);
-    }
-  }, []);
-
-  const onHandleDown = useCallback((e: React.PointerEvent) => {
+  const onHandleDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
-    dragging.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragWidth.current = asideRef.current?.offsetWidth ?? DEFAULT_WIDTH;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   }, []);
 
-  useEffect(() => {
-    function onMove(e: PointerEvent) {
-      if (!dragging.current) return;
-      const max = window.innerWidth * 0.7;
-      const next = Math.min(Math.max(window.innerWidth - e.clientX, MIN_WIDTH), max);
-      widthRef.current = next;
-      setWidth(next);
-    }
-    function onUp() {
-      if (!dragging.current) return;
-      dragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      localStorage.setItem(WIDTH_KEY, String(Math.round(widthRef.current)));
-    }
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
+  const onHandleMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragWidth.current === null || !asideRef.current) return;
+    const max = window.innerWidth * 0.7;
+    const next = Math.min(Math.max(window.innerWidth - e.clientX, MIN_WIDTH), max);
+    dragWidth.current = next;
+    asideRef.current.style.width = `${next}px`;
+  }, []);
+
+  const onHandleUp = useCallback(() => {
+    if (dragWidth.current === null) return;
+    const next = Math.round(dragWidth.current);
+    dragWidth.current = null;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    writeWidth(next);
   }, []);
 
   useEffect(() => {
@@ -351,184 +413,99 @@ export const ChangesPanel = memo(function ChangesPanel({
     };
   }, [tab, conversationId, changes]);
 
-  const changed = selectedPath
-    ? changes.find((c) => c.path === selectedPath)
-    : undefined;
-
-  const tree = useMemo(() => buildTree(allFiles ?? []), [allFiles]);
-  const fileSet = useMemo(() => new Set(allFiles ?? []), [allFiles]);
-  const topFolders = useMemo(
-    () => new Set(tree.filter((n) => n.dir).map((n) => n.path)),
-    [tree],
-  );
+  const changed = selectedPath ? changes.find((c) => c.path === selectedPath) : undefined;
+  const back = useCallback(() => onSelectPath(null), [onSelectPath]);
 
   return (
     <aside
+      ref={asideRef}
       style={{ width }}
-      className="relative flex shrink-0 flex-col border-l bg-background"
+      className="relative flex shrink-0 flex-col border-l border-line bg-surface"
     >
       <div
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize files panel"
         onPointerDown={onHandleDown}
-        className="absolute top-0 left-0 z-10 h-full w-1.5 -translate-x-1/2 cursor-col-resize hover:bg-primary/30 active:bg-primary/40"
+        onPointerMove={onHandleMove}
+        onPointerUp={onHandleUp}
+        onPointerCancel={onHandleUp}
+        className="absolute top-0 left-0 z-20 h-full w-1.5 -translate-x-1/2 cursor-col-resize transition-colors duration-150 hover:bg-line-strong active:bg-brand/40"
       />
-      {(pr !== null || changes.length > 0) &&
-        (() => {
-          const tone = creatingPr
-            ? PR_TONE.syncing
-            : changes.length > 0
-              ? PR_TONE.pending
-              : PR_TONE.synced;
-          return (
-            <div
-              className={cn(
-                "flex h-14 shrink-0 items-center justify-between gap-3 border-b px-3 transition-colors",
-                tone.bar,
-              )}
-            >
-              {pr !== null ? (
-                <a
-                  href={pr.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={cn(
-                    "flex min-w-0 items-center gap-3 hover:underline",
-                    tone.text,
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-md border px-2 py-0.5 text-xs font-medium",
-                      tone.badge,
-                    )}
-                  >
-                    PR #{pr.number}
-                  </span>
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
-                    <span className="truncate text-sm">
-                      {changes.length > 0 ? "Changes to push" : "View on GitHub"}
-                    </span>
-                  </span>
-                </a>
-              ) : (
-                <div className={cn("flex min-w-0 items-center gap-1.5", tone.text)}>
-                  <HugeiconsIcon icon={GitPullRequestIcon} className="size-4 shrink-0" />
-                  <span className="truncate text-sm">
-                    {prError
-                      ? "Couldn't sync PR. Try again."
-                      : `${changes.length} file${changes.length === 1 ? "" : "s"} changed`}
-                  </span>
-                </div>
-              )}
-              {changes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={syncPr}
-                  disabled={running || creatingPr}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-1 text-sm text-background transition-colors hover:bg-foreground/85 disabled:opacity-50"
-                >
-                  {creatingPr ? (
-                    <>
-                      {pr !== null ? "Updating" : "Creating"}
-                      <Spinner className="size-3.5" />
-                    </>
-                  ) : running ? (
-                    <>
-                      Working
-                      <Spinner className="size-3.5" />
-                    </>
-                  ) : pr !== null ? (
-                    "Update PR"
-                  ) : (
-                    "Create PR"
-                  )}
-                </button>
-              )}
-            </div>
-          );
-        })()}
+      {(pr !== null || changes.length > 0) && (
+        <PrBar
+          pr={pr}
+          changeCount={changes.length}
+          running={running}
+          creating={creatingPr}
+          error={prError}
+          onSync={syncPr}
+        />
+      )}
 
-      <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
-        <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center justify-between border-b border-line p-1.5">
+        <div className="flex items-center">
           <TabButton active={tab === "all"} onClick={() => setTab("all")}>
             All files
           </TabButton>
           <TabButton active={tab === "changes"} onClick={() => setTab("changes")}>
             Changes
             {changes.length > 0 && (
-              <span
-                className={cn(
-                  "ml-1",
-                  tab === "changes" ? "text-muted-foreground" : "text-muted-foreground/70",
-                )}
-              >
-                {changes.length}
-              </span>
+              <span className="text-[12px] text-ink-3 tabular-nums">{changes.length}</span>
             )}
           </TabButton>
         </div>
+        <button
+          type="button"
+          aria-label="Close files panel"
+          onClick={onClose}
+          className="flex size-6 items-center justify-center rounded-chip text-ink-3 transition-colors duration-100 hover:bg-hover hover:text-ink-2"
+        >
+          <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
+        </button>
       </div>
+
       {selectedPath ? (
-        changed ? (
-          <FileDiffView
-            key={selectedPath}
-            conversationId={conversationId}
-            path={selectedPath}
-            onBack={() => onSelectPath(null)}
-          />
-        ) : (
-          <FileContentView
-            key={selectedPath}
-            conversationId={conversationId}
-            path={selectedPath}
-            onBack={() => onSelectPath(null)}
-          />
-        )
+        <FileDetail
+          key={selectedPath}
+          conversationId={conversationId}
+          path={selectedPath}
+          changed={changed}
+          onBack={back}
+        />
       ) : tab === "all" ? (
         <ScrollArea className="min-h-0 flex-1">
           {allFiles === null ? (
-            <p className="text-muted-foreground p-3 text-xs">Loading…</p>
+            <LoadingState label="Loading files" className="px-4 py-5" />
           ) : allFiles.length === 0 ? (
-            <p className="text-muted-foreground p-5 text-xs">No files.</p>
+            <PanelMessage>No files.</PanelMessage>
           ) : (
-            <FileTree
-              className="rounded-none border-0 text-xs"
-              selectedPath={selectedPath ?? undefined}
-              defaultExpanded={topFolders}
-              onSelect={(p) => fileSet.has(p) && onSelectPath(p)}
-            >
-              {renderTree(tree)}
-            </FileTree>
+            <FileTree paths={allFiles} selectedPath={selectedPath} onSelect={onSelectPath} />
           )}
         </ScrollArea>
       ) : changes.length === 0 ? (
-        <p className="text-muted-foreground p-5 text-xs">No changes yet.</p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 pb-10 text-center">
+          <span className="flex size-9 items-center justify-center rounded-control bg-field text-ink-3 shadow-hairline">
+            <HugeiconsIcon icon={GitPullRequestIcon} className="size-4" />
+          </span>
+          <p className="text-[13px] font-medium text-ink-2">No changes yet</p>
+          <p className="text-[12px] text-ink-3">Edits the agent makes will show up here.</p>
+        </div>
       ) : (
         <ScrollArea className="min-h-0 flex-1">
-          <div className="py-1">
+          <GlideMenu
+            className="flex flex-col gap-px py-1.5"
+            highlightClassName="inset-x-2 rounded-[7px] bg-hover-2"
+          >
             {changes.map((file) => (
-              <FileRow
+              <ChangeRow
                 key={file.path}
-                path={file.path}
-                status={file.status}
+                file={file}
                 selected={selectedPath === file.path}
-                onClick={() => onSelectPath(file.path)}
-                trailing={
-                  <span className="font-mono text-xs">
-                    {file.additions > 0 && (
-                      <span className="text-emerald-500">+{file.additions}</span>
-                    )}
-                    {file.deletions > 0 && (
-                      <span className="text-destructive"> −{file.deletions}</span>
-                    )}
-                  </span>
-                }
+                onSelect={onSelectPath}
               />
             ))}
-          </div>
+          </GlideMenu>
         </ScrollArea>
       )}
     </aside>

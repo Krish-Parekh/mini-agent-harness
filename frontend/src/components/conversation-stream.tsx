@@ -1,12 +1,8 @@
 "use client";
 
-import { Fragment, memo, useMemo } from "react";
-import type {
-  AgentEvent,
-  ConversationStatus,
-  PlanStep,
-  StepStatus,
-} from "@/lib/api";
+import { Fragment, memo, useMemo, useState } from "react";
+import { CircleAlertIcon, ClipboardListIcon, HammerIcon } from "lucide-react";
+import type { AgentEvent, ConversationStatus, PlanStep, StepStatus } from "@/lib/api";
 import {
   type ActionEvent,
   type MessageEvent,
@@ -17,121 +13,101 @@ import {
   isMessage,
   isObservation,
 } from "@/lib/events";
+import { type FanoutWorkerState, buildFanoutWorkerMap } from "@/lib/fanout-workers";
 import {
-  type FanoutWorkerState,
-  buildFanoutWorkerMap,
-} from "@/lib/fanout-workers";
-import {
-  ExternalUrl,
   ScrollablePreview,
   type ToolView,
+  diffStat,
+  observationSources,
   toolObservationDetail,
   toolView,
 } from "@/lib/tool-views";
 import { formatDuration, formatElapsed, useElapsed } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { DiffViewer } from "@/components/bui/diff-viewer";
+import { ApprovalCard } from "@/components/bui/approval-card";
+import { Pill } from "@/components/bui/button";
 import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message";
-import {
-  ChainOfThought,
-  ChainOfThoughtContent,
-  ChainOfThoughtHeader,
-  ChainOfThoughtStep,
-} from "@/components/ai-elements/chain-of-thought";
-import { DotmSquare1 } from "@/components/ui/dotm-square-1";
-import { ConfirmationAction } from "@/components/ai-elements/confirmation";
-import { DiffViewer } from "@/components/assistant-ui/diff-viewer";
-import {
-  Plan,
-  PlanAction,
-  PlanContent,
-  PlanDescription,
-  PlanFooter,
-  PlanHeader,
-  PlanTitle,
-  PlanTrigger,
-} from "@/components/ai-elements/plan";
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import {
-  CircleAlertIcon,
-  CircleCheckIcon,
-  CircleIcon,
-  ClipboardListIcon,
-  HammerIcon,
-} from "lucide-react";
-function ApprovalDetail({ view }: { view: ToolView }) {
-  if (view.fileChange) {
-    const isSnippet = view.fileChange.kind === "snippet";
-    return (
-      <div className="space-y-1.5">
-        {isSnippet && (
-          <p className="text-muted-foreground text-xs">
-            Replacing matched snippet in{" "}
-            <span className="font-mono">{view.fileChange.path}</span>
-          </p>
-        )}
-        <ScrollablePreview>
-          <DiffViewer
-            oldFile={{
-              content: view.fileChange.oldContent,
-              name: view.fileChange.path,
-            }}
-            newFile={{
-              content: view.fileChange.newContent,
-              name: view.fileChange.path,
-            }}
-            viewMode="unified"
-          />
-        </ScrollablePreview>
-      </div>
-    );
+  AssistantMessage,
+  type Source,
+  UserBubble,
+  uniqueSources,
+} from "@/components/bui/chat-message";
+import { LoadingState } from "@/components/bui/loading-state";
+import { Markdown } from "@/components/bui/markdown";
+import { TaskBadge, TaskList, TaskRow, type TaskStatus } from "@/components/bui/task-rows";
+import { DiffChips, type DiffStat, ToolRow, ToolRun } from "@/components/bui/tool-chips";
+import { ValuePill } from "@/components/bui/value-pill";
+
+const viewCache = new WeakMap<ActionEvent, ToolView>();
+const statCache = new WeakMap<ActionEvent, DiffStat | null>();
+
+function viewFor(action: ActionEvent): ToolView {
+  let view = viewCache.get(action);
+  if (!view) {
+    view = toolView(action);
+    viewCache.set(action, view);
   }
-  return <>{view.preview ?? null}</>;
+  return view;
 }
 
-function StepLabel({
+function statFor(action: ActionEvent): DiffStat | undefined {
+  if (!statCache.has(action)) {
+    const change = viewFor(action).fileChange;
+    statCache.set(action, change ? diffStat(change) : null);
+  }
+  return statCache.get(action) ?? undefined;
+}
+
+function FileDiff({ view }: { view: ToolView }) {
+  if (!view.fileChange) return null;
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      {view.fileChange.kind === "snippet" && (
+        <p className="text-[12px] text-ink-3">
+          Replacing matched snippet in <span className="font-mono">{view.fileChange.path}</span>
+        </p>
+      )}
+      <ScrollablePreview>
+        <DiffViewer
+          oldFile={{ content: view.fileChange.oldContent, name: view.fileChange.path }}
+          newFile={{ content: view.fileChange.newContent, name: view.fileChange.path }}
+          viewMode="unified"
+        />
+      </ScrollablePreview>
+    </div>
+  );
+}
+
+function PendingApproval({
   view,
-  error,
-  onSelectFile,
+  onApprove,
+  onReject,
 }: {
   view: ToolView;
-  error?: boolean;
-  onSelectFile?: (path: string) => void;
+  onApprove: () => void;
+  onReject: () => void;
 }) {
   return (
-    <span className="flex items-center gap-2">
-      <span className={cn("font-medium", error && "text-destructive")}>
-        {view.verb}
-      </span>
-      {view.target &&
-        (view.filePath && onSelectFile ? (
-          <button
-            type="button"
-            onClick={() => onSelectFile(view.filePath as string)}
-            className="truncate font-mono text-muted-foreground text-xs hover:underline"
-          >
-            {view.target}
-          </button>
-        ) : /^https?:\/\//.test(view.target) ? (
-          <ExternalUrl
-            href={view.target}
-            className="truncate font-mono text-muted-foreground text-xs"
-          >
-            {view.target}
-          </ExternalUrl>
-        ) : (
-          <span
-            className="truncate font-mono text-muted-foreground text-xs"
-            title={view.target}
-          >
-            {view.target}
-          </span>
-        ))}
-    </span>
+    <ApprovalCard
+      footer={
+        <>
+          <span className="pl-0.5 text-[12.5px] text-ink-2">Approve this action?</span>
+          <div className="-mr-0.5 flex items-center gap-1.5">
+            <Pill variant="ghost" size="sm" onClick={onReject}>
+              Reject
+            </Pill>
+            <Pill variant="primary" size="sm" onClick={onApprove}>
+              Approve
+            </Pill>
+          </div>
+        </>
+      }
+    >
+      {view.fileChange ? <FileDiff view={view} /> : (view.preview ?? (
+        <span className="font-mono text-[12px] text-ink-2">{view.target ?? view.verb}</span>
+      ))}
+    </ApprovalCard>
   );
 }
 
@@ -149,40 +125,38 @@ function stepTiming(
     if (running) return `Running ${formatElapsed(elapsedMs)}`;
     if (!obs) return undefined;
     const ms =
-      obs.duration_ms != null
-        ? obs.duration_ms
-        : (obs.timestamp - action.timestamp) * 1000;
+      obs.duration_ms != null ? obs.duration_ms : (obs.timestamp - action.timestamp) * 1000;
     return formatDuration(ms);
   }
   return undefined;
 }
 
-function FanoutWorkersPanel({
-  workers,
-  live,
-}: {
-  workers: FanoutWorkerState[];
-  live: boolean;
-}) {
+const WORKER_STATUS: Record<FanoutWorkerState["status"], TaskStatus> = {
+  pending: "pending",
+  running: "running",
+  done: "done",
+  error: "failed",
+};
+
+function FanoutWorkersPanel({ workers, live }: { workers: FanoutWorkerState[]; live: boolean }) {
   if (workers.length === 0) return null;
   const done = workers.filter((w) => w.status === "done").length;
   const header = live
     ? `Spawning ${workers.length} read-only agent${workers.length === 1 ? "" : "s"}…`
     : `${done}/${workers.length} agent${workers.length === 1 ? "" : "s"} completed`;
-
   return (
-    <div className="mt-2 space-y-2.5 rounded-lg border border-border/60 bg-muted/20 p-3">
-      <p className="text-xs font-medium text-muted-foreground">{header}</p>
-      <ul className="space-y-2">
+    <div className="flex flex-col gap-1.5">
+      <p className="text-[12px] font-medium text-ink-2 tabular-nums">{header}</p>
+      <ul className="flex flex-col gap-1.5">
         {workers.map((worker) => (
-          <li key={worker.index} className="flex items-start gap-2.5">
-            <FanoutWorkerGlyph status={worker.status} />
-            <div className="min-w-0 space-y-0.5">
-              <p className="text-sm font-medium leading-snug">{worker.title}</p>
+          <li key={worker.index} className="flex items-start gap-2">
+            <span className="mt-px flex size-4 shrink-0 items-center justify-center">
+              <TaskBadge compact status={WORKER_STATUS[worker.status]} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[12.5px] leading-snug font-medium text-ink">{worker.title}</p>
               {worker.activity && (
-                <p className="text-muted-foreground text-xs leading-relaxed">
-                  {worker.activity}
-                </p>
+                <p className="text-[12px] leading-relaxed text-ink-3">{worker.activity}</p>
               )}
             </div>
           </li>
@@ -192,24 +166,11 @@ function FanoutWorkersPanel({
   );
 }
 
-function FanoutWorkerGlyph({ status }: { status: FanoutWorkerState["status"] }) {
-  if (status === "done") {
-    return (
-      <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-    );
-  }
-  if (status === "error") {
-    return <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-destructive" />;
-  }
-  if (status === "running") {
-    return <Spinner className="mt-0.5 size-4 shrink-0 text-amber-500" />;
-  }
-  return (
-    <CircleIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground/40" />
-  );
+function tailText(text: string, max = 8000): string {
+  return text.length > max ? `…${text.slice(-max)}` : text;
 }
 
-function ChainStep({
+const ChainStep = memo(function ChainStep({
   action,
   obs,
   isPending,
@@ -228,56 +189,86 @@ function ChainStep({
   onReject: () => void;
   onSelectFile?: (path: string) => void;
 }) {
-  const view = toolView(action);
+  const view = viewFor(action);
+  const stat = statFor(action);
   const unresolved = !obs && !isPending;
   const running = unresolved && live;
   const orphaned = unresolved && !live;
   const elapsed = useElapsed(running ? action.timestamp * 1000 : null, running);
   const timing = stepTiming(action, obs, running, elapsed);
-  const isError = obs?.error || orphaned;
+  const isError = !!obs?.error || orphaned;
   const observationDetail =
-    obs && isObservation(obs)
-      ? toolObservationDetail(action.tool_name, obs)
+    obs && isObservation(obs) ? toolObservationDetail(action.tool_name, obs) : undefined;
+  const output =
+    action.tool_name === "bash" && obs && !obs.error && obs.content?.trim()
+      ? tailText(obs.content.trim())
       : undefined;
+  const hasWorkers = action.tool_name === "fanout" && !!fanoutWorkers && fanoutWorkers.length > 0;
+  const workersLive = running || (live && !obs);
+
+  const hasDetail =
+    isPending ||
+    !!obs?.error ||
+    !!observationDetail ||
+    !!view.fileChange ||
+    !!view.preview ||
+    !!output ||
+    hasWorkers;
+  const autoOpen = !!obs?.error || (running && !!view.preview) || (hasWorkers && workersLive);
+  const [manual, setManual] = useState<boolean | null>(null);
+  const open = isPending || (manual ?? autoOpen);
+
+  const target = view.target;
+  const isUrl = !!target && /^https?:\/\//.test(target);
+  const filePath = view.filePath;
 
   return (
-    <ChainOfThoughtStep
+    <ToolRow
       icon={isError ? CircleAlertIcon : view.icon}
-      status={running || isPending ? "active" : "complete"}
-      label={
-        <StepLabel view={view} error={isError} onSelectFile={onSelectFile} />
-      }
-      description={orphaned ? "Interrupted" : timing}
+      label={view.verb}
+      chip={target || undefined}
+      chipMono={view.mono ?? false}
+      onChipClick={filePath && onSelectFile ? () => onSelectFile(filePath) : undefined}
+      chipHref={isUrl ? target : undefined}
+      stat={stat && !obs?.error ? stat : undefined}
+      meta={orphaned ? "Interrupted" : isPending ? "Needs approval" : timing}
+      status={running || isPending ? "running" : isError ? "error" : "done"}
+      open={open}
+      onToggle={hasDetail && !isPending ? () => setManual(!open) : undefined}
     >
-      {isPending && (
-        <div className="space-y-2">
-          <ApprovalDetail view={view} />
-          <div className="flex items-center justify-end gap-2">
-            <ConfirmationAction variant="outline" onClick={onReject}>
-              Reject
-            </ConfirmationAction>
-            <ConfirmationAction onClick={onApprove}>Approve</ConfirmationAction>
-          </div>
-        </div>
-      )}
-      {obs?.error && (
-        <ScrollablePreview>
-          <pre className="whitespace-pre-wrap break-words text-destructive text-xs">
-            {obs.content ?? ""}
-          </pre>
-        </ScrollablePreview>
-      )}
-      {observationDetail}
-      {!obs && !isPending && view.preview}
-      {action.tool_name === "fanout" && fanoutWorkers && fanoutWorkers.length > 0 && (
-        <FanoutWorkersPanel
-          workers={fanoutWorkers}
-          live={running || (live && !obs)}
-        />
-      )}
-    </ChainOfThoughtStep>
+      {hasDetail ? (
+        <>
+          {isPending ? (
+            <PendingApproval view={view} onApprove={onApprove} onReject={onReject} />
+          ) : (
+            <>
+              {view.fileChange && <FileDiff view={view} />}
+              {!view.fileChange && view.preview}
+            </>
+          )}
+          {output && (
+            <ScrollablePreview>
+              <pre className="whitespace-pre-wrap break-words rounded-control bg-inset px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-ink-2 shadow-hairline">
+                {output}
+              </pre>
+            </ScrollablePreview>
+          )}
+          {obs?.error && (
+            <ScrollablePreview>
+              <pre className="whitespace-pre-wrap break-words rounded-control bg-red-tint px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-red">
+                {obs.content ?? ""}
+              </pre>
+            </ScrollablePreview>
+          )}
+          {observationDetail}
+          {hasWorkers && fanoutWorkers && (
+            <FanoutWorkersPanel workers={fanoutWorkers} live={workersLive} />
+          )}
+        </>
+      ) : null}
+    </ToolRow>
   );
-}
+});
 
 function ActionChain({
   actions,
@@ -300,86 +291,100 @@ function ActionChain({
 }) {
   const obsFor = (a: ActionEvent) =>
     a.tool_call_id ? observationByCall.get(a.tool_call_id) : undefined;
-  // Only show the live "Working…" header while the conversation is actually
-  // running; a leftover unobserved action on a stopped chat isn't working.
   const active = live && actions.some((a) => !obsFor(a));
   const label = `${actions.length} tool ${actions.length === 1 ? "call" : "calls"}`;
 
+  let lastObsAt = 0;
+  let settled = true;
+  const files = new Map<string, DiffStat>();
+  for (const a of actions) {
+    const obs = obsFor(a);
+    if (!obs) {
+      settled = false;
+      continue;
+    }
+    lastObsAt = Math.max(lastObsAt, obs.timestamp);
+    const change = viewFor(a).fileChange;
+    const stat = statFor(a);
+    if (change && stat && !obs.error) {
+      const prev = files.get(change.path);
+      files.set(change.path, prev ? { add: prev.add + stat.add, del: prev.del + stat.del } : stat);
+    }
+  }
+  const startAt = actions[0]?.timestamp ?? 0;
+  const meta =
+    settled && lastObsAt > startAt ? formatDuration((lastObsAt - startAt) * 1000) : undefined;
+  const diffFiles = active
+    ? []
+    : Array.from(files, ([path, stat]) => ({ path, stat }));
+
   return (
-    <ChainOfThought defaultOpen>
-      <ChainOfThoughtHeader>
-        {active ? (
-          <span className="flex items-center gap-2">
-            <DotmSquare1 size={14} dotSize={2} muted />
-            {label}
-          </span>
-        ) : (
-          label
-        )}
-      </ChainOfThoughtHeader>
-      <ChainOfThoughtContent>
-        {actions.map((a) => (
-          <ChainStep
-            key={a.id}
-            action={a}
-            obs={obsFor(a)}
-            isPending={pendingId != null && a.id === pendingId}
-            live={live}
-            fanoutWorkers={
-              a.tool_name === "fanout" && a.tool_call_id
-                ? fanoutWorkersByCall.get(a.tool_call_id)
-                : undefined
-            }
-            onApprove={onApprove}
-            onReject={onReject}
-            onSelectFile={onSelectFile}
-          />
-        ))}
-      </ChainOfThoughtContent>
-    </ChainOfThought>
+    <ToolRun
+      label={label}
+      meta={meta}
+      live={active}
+      footer={diffFiles.length > 0 ? <DiffChips files={diffFiles} onSelect={onSelectFile} /> : null}
+    >
+      {actions.map((a) => (
+        <ChainStep
+          key={a.id}
+          action={a}
+          obs={obsFor(a)}
+          isPending={pendingId != null && a.id === pendingId}
+          live={live}
+          fanoutWorkers={
+            a.tool_name === "fanout" && a.tool_call_id
+              ? fanoutWorkersByCall.get(a.tool_call_id)
+              : undefined
+          }
+          onApprove={onApprove}
+          onReject={onReject}
+          onSelectFile={onSelectFile}
+        />
+      ))}
+    </ToolRun>
   );
 }
 
-function StepGlyph({ status }: { status: StepStatus }) {
-  if (status === "done")
-    return <CircleCheckIcon className="mt-0.5 size-4 shrink-0 text-emerald-500" />;
-  if (status === "in_progress")
-    return <Spinner className="mt-0.5 size-4 shrink-0 text-amber-500" />;
-  return (
-    <CircleIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground/40" />
-  );
-}
+const STEP_STATUS: Record<StepStatus, TaskStatus> = {
+  pending: "pending",
+  in_progress: "running",
+  done: "done",
+};
 
-function PlanStepRow({ step }: { step: PlanStep }) {
+function PlanStepRow({ step, index }: { step: PlanStep; index: number }) {
+  const files = step.files ?? [];
+  const hasDetail = !!step.description || files.length > 0;
   return (
-    <div className="flex items-start gap-2.5">
-      <StepGlyph status={step.status} />
-      <div className="min-w-0 space-y-0.5">
-        <p
-          className={cn(
-            "text-sm font-medium",
-            step.status === "done" && "text-muted-foreground line-through",
+    <TaskRow
+      label={step.title}
+      sub={step.description || undefined}
+      amount={files.length > 0 ? `${files.length} file${files.length === 1 ? "" : "s"}` : undefined}
+      status={STEP_STATUS[step.status] ?? "pending"}
+      step={index + 1}
+      strike={step.status === "done"}
+      index={index}
+    >
+      {hasDetail ? (
+        <>
+          {step.description && (
+            <p className="text-[12px] leading-relaxed text-ink-2">{step.description}</p>
           )}
-        >
-          {step.title}
-        </p>
-        {step.description && (
-          <p className="text-muted-foreground text-xs">{step.description}</p>
-        )}
-        {step.files?.length > 0 && (
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {step.files.map((f) => (
-              <span
-                key={f}
-                className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
-              >
-                {f}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+          {files.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {files.map((f) => (
+                <span
+                  key={f}
+                  className="inline-flex h-5.5 items-center rounded-chip bg-field px-1.5 font-mono text-[11px] text-ink-2 shadow-hairline"
+                >
+                  {f}
+                </span>
+              ))}
+            </div>
+          )}
+        </>
+      ) : null}
+    </TaskRow>
   );
 }
 
@@ -394,70 +399,108 @@ function PlanCard({
   isPending?: boolean;
   onBuild?: () => void;
 }) {
+  const [open, setOpen] = useState(true);
   const steps = liveSteps ?? ((ev.arguments?.steps as PlanStep[]) ?? []);
-  // Plans presented before the structured schema carry a markdown blob.
-  const legacyPlan =
-    steps.length === 0 ? String((ev.arguments?.plan as string) ?? "") : "";
+  const legacyPlan = steps.length === 0 ? String((ev.arguments?.plan as string) ?? "") : "";
+  const done = steps.filter((s) => s.status === "done").length;
+  const running = steps.some((s) => s.status === "in_progress");
+
   return (
-    <Plan defaultOpen>
-      <PlanHeader>
-        <div className="space-y-1">
-          <PlanTitle>{String(ev.arguments?.title ?? "Plan")}</PlanTitle>
-          <PlanDescription>
-            {isPending
-              ? "Review, then build, or reply to refine"
-              : "Send a message to approve or refine"}
-          </PlanDescription>
-        </div>
-        <PlanAction>
-          <PlanTrigger />
-        </PlanAction>
-      </PlanHeader>
-      <PlanContent>
-        {legacyPlan ? (
-          <MessageResponse>{legacyPlan}</MessageResponse>
-        ) : (
-          <div className="space-y-3">
-            {steps.map((step, i) => (
-              <PlanStepRow key={i} step={step} />
-            ))}
+    <div
+      className="w-full overflow-hidden rounded-card bg-surface shadow-card"
+      style={{ animation: "fade-up 380ms var(--ease-out-strong) both" }}
+    >
+      <div className="flex items-start justify-between gap-3 p-3">
+        <div className="min-w-0">
+          <div className="text-[14px] font-medium text-ink">{String(ev.arguments?.title ?? "Plan")}</div>
+          <div className="mt-0.5 text-[12.5px] text-ink-3">
+            {isPending ? "Review, then build, or reply to refine" : "Send a message to approve or refine"}
           </div>
-        )}
-      </PlanContent>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {steps.length > 0 && (
+            <ValuePill tone={done === steps.length ? "green" : running ? "brand" : "neutral"}>
+              {done}/{steps.length} done
+            </ValuePill>
+          )}
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label={open ? "Collapse plan" : "Expand plan"}
+            onClick={() => setOpen((current) => !current)}
+            className="inline-flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors duration-100 hover:bg-hover hover:text-ink"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+              className="transition-transform duration-300"
+              style={{ transform: open ? "rotate(180deg)" : "rotate(0)" }}
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      {open &&
+        (legacyPlan ? (
+          <div className="border-t border-line px-3 py-2.5 text-[14px] leading-relaxed text-ink">
+            <Markdown>{legacyPlan}</Markdown>
+          </div>
+        ) : (
+          <TaskList className="border-t border-line">
+            {steps.map((step, i) => (
+              <PlanStepRow key={i} step={step} index={i} />
+            ))}
+          </TaskList>
+        ))}
       {isPending && onBuild && (
-        <PlanFooter className="justify-end">
-          <Button size="sm" onClick={onBuild}>
-            <HammerIcon className="size-4" />
+        <div className="flex justify-end border-t border-line p-2.5">
+          <Pill variant="primary" size="sm" onClick={onBuild}>
+            <HammerIcon className="size-3.5" />
             Build
-          </Button>
-        </PlanFooter>
+          </Pill>
+        </div>
       )}
-    </Plan>
+    </div>
   );
 }
 
 function QuestionsSummary({ ev }: { ev: ActionEvent }) {
   const questions = (ev.arguments?.questions as { question: string }[]) ?? [];
   return (
-    <div className="rounded-lg border border-border bg-muted/30 p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-        <ClipboardListIcon className="size-4 text-muted-foreground" />
+    <div
+      className="w-full rounded-card bg-surface p-3 shadow-card"
+      style={{ animation: "fade-up 380ms var(--ease-out-strong) both" }}
+    >
+      <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
+        <ClipboardListIcon className="size-3.5 text-ink-3" />
         Asked you {questions.length === 1 ? "a question" : `${questions.length} questions`}
       </div>
-      <ul className="space-y-1 text-muted-foreground text-sm">
+      <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-[1.6rem] text-[13px] text-ink-2 marker:text-ink-3">
         {questions.map((q, i) => (
-          <li key={i}>• {q.question}</li>
+          <li key={i}>{q.question}</li>
         ))}
       </ul>
     </div>
   );
 }
 
-export function ThinkingIndicator({ label = "Working…" }: { label?: string }) {
+function ErrorRow({ message }: { message?: string }) {
   return (
-    <div className="flex items-center gap-2 py-1 text-muted-foreground text-sm">
-      <DotmSquare1 size={16} dotSize={2} muted />
-      <span>{label}</span>
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-control bg-red-tint px-3 py-2 text-[13px] text-red"
+      style={{ animation: "fade-up 300ms var(--ease-out-strong) both" }}
+    >
+      <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+      <span className="min-w-0 break-words">{message}</span>
     </div>
   );
 }
@@ -476,16 +519,13 @@ function finishText(action: ActionEvent, obs?: AgentEvent): string | null {
   return fromArgs || fromObs || null;
 }
 
-/** Tool-only turns store the answer in `finish` or `fanout`, not a message event. */
 function synthesizeToolResponse(
   actions: ActionEvent[],
   observationByCall: Map<string, AgentEvent>,
 ): string | null {
   for (let i = actions.length - 1; i >= 0; i--) {
     const action = actions[i];
-    const obs = action.tool_call_id
-      ? observationByCall.get(action.tool_call_id)
-      : undefined;
+    const obs = action.tool_call_id ? observationByCall.get(action.tool_call_id) : undefined;
     if (action.tool_name === "finish") {
       const text = finishText(action, obs);
       if (text) return text;
@@ -494,9 +534,7 @@ function synthesizeToolResponse(
   for (let i = actions.length - 1; i >= 0; i--) {
     const action = actions[i];
     if (action.tool_name !== "fanout") continue;
-    const obs = action.tool_call_id
-      ? observationByCall.get(action.tool_call_id)
-      : undefined;
+    const obs = action.tool_call_id ? observationByCall.get(action.tool_call_id) : undefined;
     if (obs?.content?.trim() && !obs.error) return obs.content.trim();
   }
   return null;
@@ -515,41 +553,54 @@ function hasLaterAssistantReply(groups: Group[], afterIndex: number): boolean {
   return false;
 }
 
-function ToolResponseRow({ text }: { text: string }) {
-  return (
-    <Message from="assistant">
-      <MessageContent>
-        <MessageResponse>{text}</MessageResponse>
-      </MessageContent>
-    </Message>
-  );
+function collectReplySources(
+  groups: Group[],
+  observationByCall: Map<string, AgentEvent>,
+): Map<string, Source[]> {
+  const out = new Map<string, Source[]>();
+  let turn: Source[] = [];
+  let replyKey: string | null = null;
+  const flush = () => {
+    if (replyKey && turn.length > 0) out.set(replyKey, uniqueSources(turn));
+    turn = [];
+    replyKey = null;
+  };
+  for (const group of groups) {
+    if (group.kind === "message") {
+      if (group.event.role === "user") flush();
+      else if (group.event.role === "assistant" && group.event.text?.trim()) {
+        replyKey = eventKey(group.event);
+      }
+    } else if (group.kind === "actions") {
+      for (const action of group.actions) {
+        if (action.tool_name !== "web_search" || !action.tool_call_id) continue;
+        const obs = observationByCall.get(action.tool_call_id);
+        if (obs && isObservation(obs)) turn.push(...observationSources(action.tool_name, obs));
+      }
+    }
+  }
+  flush();
+  return out;
 }
 
 function MessageRow({
   ev,
   isLatestUserTurn,
+  sources,
 }: {
   ev: MessageEvent;
   isLatestUserTurn?: boolean;
+  sources?: Source[];
 }) {
-  // Assistant turns can carry tool calls without visible text; skip the bubble.
   if (ev.role === "assistant" && !(ev.text ?? "").trim()) return null;
 
   if (ev.role === "user") {
     return (
-      <Message from="user" {...(isLatestUserTurn ? { "data-user-turn": "" } : {})}>
-        <MessageContent>{ev.text}</MessageContent>
-      </Message>
+      <UserBubble {...(isLatestUserTurn ? { "data-user-turn": "" } : {})}>{ev.text}</UserBubble>
     );
   }
 
-  return (
-    <Message from="assistant">
-      <MessageContent>
-        <MessageResponse>{ev.text ?? ""}</MessageResponse>
-      </MessageContent>
-    </Message>
-  );
+  return <AssistantMessage text={ev.text ?? ""} sources={sources} />;
 }
 
 function hasAssistantReplyAfterLastUser(groups: Group[]): boolean {
@@ -564,24 +615,18 @@ function hasAssistantReplyAfterLastUser(groups: Group[]): boolean {
   if (lastUserIdx === -1) return false;
   for (let i = lastUserIdx + 1; i < groups.length; i++) {
     const group = groups[i];
-    if (
-      group.kind === "message" &&
-      group.event.role === "assistant" &&
-      (group.event.text ?? "").trim()
-    ) {
+    if (group.kind === "message" && group.event.role === "assistant" && (group.event.text ?? "").trim()) {
       return true;
     }
   }
   return false;
 }
 
-function AssistantStreamingRow() {
+function AssistantStreamingRow({ since }: { since?: number }) {
   return (
-    <Message from="assistant" className="min-h-0 flex-1">
-      <MessageContent className="w-full min-h-32">
-        <ThinkingIndicator label="Working…" />
-      </MessageContent>
-    </Message>
+    <div className="flex min-h-32 min-w-0 flex-1 flex-col">
+      <LoadingState label="Working" since={since} className="py-1" />
+    </div>
   );
 }
 
@@ -591,12 +636,7 @@ function groupEvents(events: AgentEvent[]): Group[] {
   for (const ev of events) {
     if (isObservation(ev)) continue;
     if (isFanoutWorker(ev)) continue;
-    // System messages (e.g. the legacy "Workspace ready" banner) are noise in
-    // the timeline; skip them so old persisted logs stop rendering them too.
-    if (!isAction(ev) && !isErrorEvent(ev) && (ev as MessageEvent).role === "system")
-      continue;
-    // A presented plan is the turn's headline, not a tool-call detail, so break
-    // the chain and render it as its own card.
+    if (!isAction(ev) && !isErrorEvent(ev) && (ev as MessageEvent).role === "system") continue;
     if (isAction(ev) && ev.tool_name === "present_plan") {
       chain = null;
       groups.push({ kind: "plan", event: ev as ActionEvent });
@@ -648,9 +688,10 @@ export const ConversationTimeline = memo(function ConversationTimeline({
   onSelectFile,
 }: ConversationTimelineProps) {
   const groups = useMemo(() => groupEvents(events), [events]);
-  const fanoutWorkersByCall = useMemo(
-    () => buildFanoutWorkerMap(events),
-    [events],
+  const fanoutWorkersByCall = useMemo(() => buildFanoutWorkerMap(events), [events]);
+  const replySources = useMemo(
+    () => collectReplySources(groups, observationByCall),
+    [groups, observationByCall],
   );
   const userTurnStarts = useMemo(
     () =>
@@ -664,24 +705,20 @@ export const ConversationTimeline = memo(function ConversationTimeline({
   const hasActiveToolWork =
     live &&
     events.some(
-      (e) =>
-        isAction(e) &&
-        e.tool_call_id &&
-        !observationByCall.has(e.tool_call_id),
+      (e) => isAction(e) && e.tool_call_id && !observationByCall.has(e.tool_call_id),
     );
   const showAssistantStreaming =
-    status === "running" &&
-    !hasActiveToolWork &&
-    !hasAssistantReplyAfterLastUser(groups);
+    status === "running" && !hasActiveToolWork && !hasAssistantReplyAfterLastUser(groups);
+  const lastUserGroup = lastUserIdx >= 0 ? groups[lastUserIdx] : undefined;
+  const runSince =
+    lastUserGroup?.kind === "message" && lastUserGroup.event.timestamp
+      ? lastUserGroup.event.timestamp * 1000
+      : undefined;
 
   const renderGroup = (group: Group, i: number) => {
     if (group.kind === "actions") {
-      const toolResponse = synthesizeToolResponse(
-        group.actions,
-        observationByCall,
-      );
-      const showToolResponse =
-        toolResponse && !hasLaterAssistantReply(groups, i);
+      const toolResponse = synthesizeToolResponse(group.actions, observationByCall);
+      const showToolResponse = toolResponse && !hasLaterAssistantReply(groups, i);
       return (
         <Fragment key={group.actions[0]?.id ?? i}>
           <ActionChain
@@ -694,7 +731,7 @@ export const ConversationTimeline = memo(function ConversationTimeline({
             onReject={onReject}
             onSelectFile={onSelectFile}
           />
-          {showToolResponse && <ToolResponseRow text={toolResponse} />}
+          {showToolResponse && <AssistantMessage text={toolResponse} />}
         </Fragment>
       );
     }
@@ -703,9 +740,7 @@ export const ConversationTimeline = memo(function ConversationTimeline({
         <PlanCard
           key={group.event.id}
           ev={group.event}
-          liveSteps={
-            group.event.id === livePlan?.planId ? livePlan.steps : undefined
-          }
+          liveSteps={group.event.id === livePlan?.planId ? livePlan.steps : undefined}
           isPending={group.event.id === pendingPlanId}
           onBuild={onBuild}
         />
@@ -716,17 +751,15 @@ export const ConversationTimeline = memo(function ConversationTimeline({
       return <QuestionsSummary key={group.event.id} ev={group.event} />;
     }
     if (group.kind === "error") {
-      return (
-        <p key={group.event.id} className="text-destructive text-sm">
-          ⚠ {group.event.message}
-        </p>
-      );
+      return <ErrorRow key={group.event.id} message={group.event.message} />;
     }
+    const key = eventKey(group.event);
     return (
       <MessageRow
-        key={eventKey(group.event)}
+        key={key}
         ev={group.event}
         isLatestUserTurn={i === lastUserIdx}
+        sources={replySources.get(key)}
       />
     );
   };
@@ -745,10 +778,8 @@ export const ConversationTimeline = memo(function ConversationTimeline({
             data-active-turn={isLast ? "" : undefined}
             className={cn("flex flex-col gap-6", isLast && "min-h-[100cqh]")}
           >
-            {groups
-              .slice(start, end)
-              .map((group, j) => renderGroup(group, start + j))}
-            {isLast && showAssistantStreaming && <AssistantStreamingRow />}
+            {groups.slice(start, end).map((group, j) => renderGroup(group, start + j))}
+            {isLast && showAssistantStreaming && <AssistantStreamingRow since={runSince} />}
           </div>
         );
       })}

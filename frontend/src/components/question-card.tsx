@@ -1,14 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  ArrowRightIcon,
-  CheckIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  PencilLineIcon,
-  XIcon,
-} from "lucide-react";
+
+import { ApprovalCard, ApprovalIcon, ChoiceMark } from "@/components/bui/approval-card";
+import { Pill } from "@/components/bui/button";
+import { GlideMenu } from "@/components/bui/glide-menu";
 import { cn } from "@/lib/utils";
 
 export type Question = {
@@ -21,19 +17,17 @@ export type Question = {
 type Answer = {
   selected: string[];
   custom: string;
-  customActive: boolean;
   skipped: boolean;
 };
 
-const emptyAnswer = (): Answer => ({
-  selected: [],
-  custom: "",
-  customActive: false,
-  skipped: false,
-});
+const emptyAnswer = (): Answer => ({ selected: [], custom: "", skipped: false });
 
 function isResolved(a: Answer): boolean {
   return a.skipped || a.selected.length > 0 || a.custom.trim().length > 0;
+}
+
+function hasAnswer(a: Answer): boolean {
+  return a.selected.length > 0 || a.custom.trim().length > 0;
 }
 
 function answerText(a: Answer): string {
@@ -42,11 +36,6 @@ function answerText(a: Answer): string {
   return "(skipped)";
 }
 
-/**
- * Wizard that renders the agent's `ask_user` questions one at a time and
- * composes the user's reply. Selecting (single-select) auto-advances; the reply
- * is submitted as a normal message so the agent resumes from it.
- */
 export function QuestionCard({
   questions,
   onSubmit,
@@ -57,178 +46,151 @@ export function QuestionCard({
   onDismiss: () => void;
 }) {
   const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<Answer[]>(() =>
-    questions.map(emptyAnswer),
-  );
+  const [answers, setAnswers] = useState<Answer[]>(() => questions.map(emptyAnswer));
 
   const total = questions.length;
   const q = questions[index];
   const a = answers[index];
+  const last = index === total - 1;
   const allResolved = useMemo(() => answers.every(isResolved), [answers]);
+  const answered = answers.filter(isResolved).length;
 
-  function update(patch: Partial<Answer>) {
-    setAnswers((prev) =>
-      prev.map((it, i) => (i === index ? { ...it, ...patch } : it)),
-    );
-  }
+  if (!q || !a) return null;
 
-  function advance() {
-    setIndex((i) => Math.min(i + 1, total - 1));
-  }
+  const update = (patch: Partial<Answer>) =>
+    setAnswers((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)));
 
-  function pick(option: string) {
-    if (q.multi_select) {
-      const has = a.selected.includes(option);
-      update({
-        selected: has
-          ? a.selected.filter((o) => o !== option)
-          : [...a.selected, option],
-        skipped: false,
-        customActive: false,
-      });
-      return;
-    }
-    update({ selected: [option], custom: "", customActive: false, skipped: false });
-    if (index < total - 1) advance();
-  }
+  const goTo = (next: number) => setIndex(Math.min(Math.max(next, 0), total - 1));
 
-  function submit() {
+  const submit = () => {
     const text = questions
       .map((question, i) => `${i + 1}. ${question.question} → ${answerText(answers[i])}`)
       .join("\n");
     onSubmit(text);
-  }
+  };
+
+  const pick = (option: string) => {
+    if (q.multi_select) {
+      const has = a.selected.includes(option);
+      update({
+        selected: has ? a.selected.filter((o) => o !== option) : [...a.selected, option],
+        skipped: false,
+      });
+      return;
+    }
+    update({ selected: [option], custom: "", skipped: false });
+    if (!last) goTo(index + 1);
+  };
+
+  const skip = () => {
+    update({ skipped: true });
+    if (!last) goTo(index + 1);
+  };
+
+  const proceed = () => {
+    if (last) {
+      if (allResolved) submit();
+      return;
+    }
+    goTo(index + 1);
+  };
+
+  const type = q.multi_select ? "check" : "radio";
+  const primaryDisabled = last ? !allResolved : !hasAnswer(a);
 
   return (
-    <div className="rounded-xl border bg-card text-card-foreground shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-        <div className="min-w-0">
-          {q.header && (
-            <span className="text-muted-foreground text-xs">{q.header}</span>
-          )}
-          <h3 className="truncate font-medium text-sm">{q.question}</h3>
-        </div>
-        <div className="flex shrink-0 items-center gap-1 text-muted-foreground">
-          <button
-            type="button"
-            onClick={() => setIndex((i) => Math.max(i - 1, 0))}
-            disabled={index === 0}
-            aria-label="Previous question"
-            className="rounded p-1 hover:bg-muted/60 disabled:opacity-30"
-          >
-            <ChevronLeftIcon className="size-4" />
-          </button>
-          <span className="text-xs tabular-nums">
-            {index + 1} of {total}
-          </span>
-          <button
-            type="button"
-            onClick={advance}
-            disabled={index === total - 1}
-            aria-label="Next question"
-            className="rounded p-1 hover:bg-muted/60 disabled:opacity-30"
-          >
-            <ChevronRightIcon className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onDismiss}
-            aria-label="Dismiss questions"
-            className="ml-1 rounded p-1 hover:bg-muted/60"
-          >
-            <XIcon className="size-4" />
-          </button>
-        </div>
-      </div>
-
-      <ul className="divide-y">
-        {q.options.map((option, i) => {
-          const selected = a.selected.includes(option);
-          return (
-            <li key={option}>
-              <button
-                type="button"
-                onClick={() => pick(option)}
-                className={cn(
-                  "group flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors",
-                  selected ? "bg-muted/70" : "hover:bg-muted/40",
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded-md border text-xs tabular-nums",
-                    selected
-                      ? "border-foreground bg-foreground text-background"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {selected ? <CheckIcon className="size-3.5" /> : i + 1}
-                </span>
-                <span className={cn(!selected && "text-foreground/90")}>
-                  {option}
-                </span>
-                {selected && !q.multi_select && (
-                  <ArrowRightIcon className="ml-auto size-4 text-muted-foreground" />
-                )}
-              </button>
-            </li>
-          );
-        })}
-
-        <li className="flex items-center gap-3 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => update({ customActive: !a.customActive, skipped: false })}
-            aria-label="Something else"
-            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
-          >
-            <PencilLineIcon className="size-3.5" />
-          </button>
-          {a.customActive ? (
-            <input
-              autoFocus
-              value={a.custom}
-              onChange={(e) => update({ custom: e.target.value })}
-              placeholder="Type your own answer…"
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-            />
-          ) : (
+    <ApprovalCard
+      onDismiss={onDismiss}
+      dismissLabel="Dismiss questions"
+      footer={
+        <>
+          <div className="flex items-center gap-1 text-ink-3">
             <button
               type="button"
-              onClick={() => update({ customActive: true, skipped: false })}
-              className="flex-1 text-left text-muted-foreground text-sm"
+              aria-label="Previous question"
+              disabled={index === 0}
+              onClick={() => goTo(index - 1)}
+              className="flex size-[18px] items-center justify-center rounded-[5px] transition-colors duration-100 enabled:hover:text-ink disabled:opacity-30"
             >
-              Something else
+              <ApprovalIcon size={14} path={<path d="M18 15l-6-6-6 6" />} />
             </button>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              update({ skipped: true });
-              if (index < total - 1) advance();
-            }}
-            className="rounded-md border px-3 py-1 text-xs hover:bg-muted/60"
-          >
-            Skip
-          </button>
-        </li>
-      </ul>
-
-      <div className="flex items-center justify-between gap-3 border-t px-4 py-2.5">
-        <span className="text-muted-foreground text-xs">
-          {allResolved
-            ? "All set. Submit your answers."
-            : `${answers.filter(isResolved).length}/${total} answered`}
-        </span>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!allResolved}
-          className="rounded-md bg-foreground px-3 py-1.5 text-background text-xs font-medium hover:bg-foreground/90 disabled:opacity-40"
-        >
-          Submit answers
-        </button>
+            <span className="text-[12px] font-medium text-ink-3 tabular-nums" style={{ letterSpacing: "-0.1px" }}>
+              <span key={index} className="inline-block" style={{ animation: "fade-up 250ms var(--ease-out-strong) both" }}>
+                {index + 1}
+              </span>{" "}
+              / {total}
+            </span>
+            <button
+              type="button"
+              aria-label="Next question"
+              disabled={last}
+              onClick={() => goTo(index + 1)}
+              className="flex size-[18px] items-center justify-center rounded-[5px] transition-colors duration-100 enabled:hover:text-ink disabled:opacity-30"
+            >
+              <ApprovalIcon size={14} path={<path d="M6 9l6 6 6-6" />} />
+            </button>
+            {last && !allResolved && (
+              <span className="ml-1.5 text-[12px] text-ink-3 tabular-nums">
+                {answered}/{total} answered
+              </span>
+            )}
+          </div>
+          <div className="-mr-0.5 flex items-center gap-1.5">
+            <Pill variant="ghost" size="sm" onClick={skip}>
+              Skip
+            </Pill>
+            <Pill variant="brand" size="sm" disabled={primaryDisabled} onClick={proceed}>
+              {last ? "Submit answers" : "Continue"}
+            </Pill>
+          </div>
+        </>
+      }
+    >
+      <div key={index} aria-live="polite" style={{ animation: "fade-up 300ms var(--ease-out-strong) both" }}>
+        {q.header && <div className="pr-8 text-[12px] text-ink-3">{q.header}</div>}
+        <div className="pr-8 text-[14px] font-medium text-ink">{q.question}</div>
+        <GlideMenu className="mt-2.5 flex flex-col gap-1" highlightClassName="inset-x-0 rounded-control bg-hover">
+          {q.options.map((option) => {
+            const on = a.selected.includes(option);
+            return (
+              <button
+                key={option}
+                type="button"
+                data-menu-row
+                aria-pressed={on}
+                onClick={() => pick(option)}
+                className="relative z-10 flex items-center gap-1.5 rounded-control py-1 pr-2 pl-1 text-left transition-colors duration-100"
+              >
+                <ChoiceMark type={type} on={on} />
+                <span className={cn("text-[13px] leading-snug transition-colors duration-200", on ? "text-ink" : "text-ink-2")}>
+                  {option}
+                </span>
+              </button>
+            );
+          })}
+          <label data-menu-row className="relative z-10 flex items-center gap-1.5 rounded-control py-1 pr-2 pl-1 transition-colors duration-100">
+            <input
+              value={a.custom}
+              onChange={(event) =>
+                update({
+                  custom: event.target.value,
+                  skipped: false,
+                  ...(q.multi_select ? {} : { selected: [] }),
+                })
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !primaryDisabled) {
+                  event.preventDefault();
+                  proceed();
+                }
+              }}
+              placeholder="Something else…"
+              aria-label="Custom answer"
+              className="min-w-0 flex-1 bg-transparent pl-1.5 text-[13px] text-ink outline-none placeholder:text-ink-3"
+            />
+          </label>
+        </GlideMenu>
       </div>
-    </div>
+    </ApprovalCard>
   );
 }

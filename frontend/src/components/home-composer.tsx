@@ -5,19 +5,18 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/app/providers";
-import {
-  PromptInput,
-  PromptInputBody,
-  PromptInputFooter,
-  PromptInputSubmit,
-  PromptInputTools,
-} from "@/components/ai-elements/prompt-input";
 import { BranchPicker } from "@/components/branch-picker";
+import { Pill } from "@/components/bui/button";
+import {
+  PromptBar,
+  PromptBarFooter,
+  PromptBarSubmit,
+  PromptBarTools,
+} from "@/components/bui/prompt-bar";
 import { EnvironmentPicker } from "@/components/environment-picker";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
 import { RepoPicker } from "@/components/repo-picker";
 import { SkillChips, SkillSlashTextarea } from "@/components/skill-slash-menu";
-import { Button } from "@/components/ui/button";
 import type { Skill } from "@/lib/api";
 import {
   setComposerSelection,
@@ -97,42 +96,40 @@ export function HomeComposer() {
       </div>
 
       <div ref={wrapperRef}>
-        <PromptInput onSubmit={send}>
+        <PromptBar size="hero" onSubmit={send}>
           <SkillChips
             skills={skills}
             onRemove={(skill) =>
               setSkills((prev) => prev.filter((s) => s.id !== skill.id))
             }
           />
-          <PromptInputBody>
-            <SkillSlashTextarea
-              autoFocus
-              value={text}
-              onValueChange={setText}
-              excludeIds={skills.map((s) => s.id)}
-              onPickSkill={(skill) => setSkills((prev) => [...prev, skill])}
-              placeholder="Plan, build, / for skills"
-              disabled={startChat.isPending}
-            />
-          </PromptInputBody>
-          <PromptInputFooter>
-            <PromptInputTools>
+          <SkillSlashTextarea
+            autoFocus
+            value={text}
+            onValueChange={setText}
+            excludeIds={skills.map((s) => s.id)}
+            onPickSkill={(skill) => setSkills((prev) => [...prev, skill])}
+            placeholder="Plan, build, / for skills"
+            disabled={startChat.isPending}
+          />
+          <PromptBarFooter>
+            <PromptBarTools>
               <ModelPicker value={model} onChange={setModel} />
-            </PromptInputTools>
-            <PromptInputSubmit
+            </PromptBarTools>
+            <PromptBarSubmit
               status={startChat.isPending ? "submitted" : undefined}
               disabled={!canSend}
             />
-          </PromptInputFooter>
-        </PromptInput>
+          </PromptBarFooter>
+        </PromptBar>
       </div>
 
       {!connected && (
         <div className="flex justify-center pt-2">
-          <Button variant="outline" onClick={() => void signIn()}>
-            <HugeiconsIcon icon={Github01Icon} data-icon="inline-start" />
+          <Pill variant="secondary" size="sm" onClick={() => void signIn()}>
+            <HugeiconsIcon icon={Github01Icon} className="size-4" />
             Connect your repos
-          </Button>
+          </Pill>
         </div>
       )}
     </div>

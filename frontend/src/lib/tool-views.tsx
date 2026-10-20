@@ -7,17 +7,14 @@ import {
   FilePlusIcon,
   GlobeIcon,
   ListChecksIcon,
+  NetworkIcon,
   SearchIcon,
   TerminalIcon,
 } from "lucide-react";
+import { diffLines } from "diff";
 import type { ActionEvent, ObservationEvent } from "@/lib/events";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarGroup,
-  AvatarGroupCount,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { SourceList, type Source, uniqueSources } from "@/components/bui/chat-message";
+import type { DiffStat } from "@/components/bui/tool-chips";
 import { cn } from "@/lib/utils";
 
 export type FileChange = {
@@ -35,7 +32,7 @@ export function ScrollablePreview({
   className?: string;
 }) {
   return (
-    <div className={cn("max-h-64 overflow-y-auto", className)}>{children}</div>
+    <div className={cn("max-h-64 overflow-y-auto rounded-control", className)}>{children}</div>
   );
 }
 
@@ -43,6 +40,7 @@ export type ToolView = {
   icon: LucideIcon;
   verb: string;
   target?: string;
+  mono?: boolean;
   filePath?: string;
   fileChange?: FileChange | null;
   preview?: ReactNode;
@@ -51,81 +49,29 @@ export type ToolView = {
 type Args = Record<string, unknown>;
 type ToolRenderer = (args: Args) => ToolView;
 
-function hostnameFromUrl(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
+function countLines(text: string): number {
+  if (!text) return 0;
+  return text.replace(/\n$/, "").split("\n").length;
+}
+
+export function diffStat(change: FileChange): DiffStat {
+  if (!change.oldContent) return { add: countLines(change.newContent), del: 0 };
+  let add = 0;
+  let del = 0;
+  for (const part of diffLines(change.oldContent, change.newContent)) {
+    if (part.added) add += part.count ?? countLines(part.value);
+    else if (part.removed) del += part.count ?? countLines(part.value);
   }
+  return { add, del };
 }
 
-function faviconUrl(hostname: string): string {
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=16`;
-}
-
-function SourceAvatars({ results }: { results: { url: string; title?: string }[] }) {
-  const seen = new Set<string>();
-  const sources: { host: string; url: string; title?: string }[] = [];
-  for (const result of results) {
-    const host = hostnameFromUrl(result.url);
-    if (seen.has(host)) continue;
-    seen.add(host);
-    sources.push({ host, url: result.url, title: result.title });
-  }
-  if (sources.length === 0) return null;
-
-  const max = 6;
-  const shown = sources.slice(0, max);
-  const overflow = sources.length - max;
-
+function CodePreview({ children }: { children: string }) {
   return (
-    <div className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
-      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        Sources
-      </p>
-      <AvatarGroup className="-space-x-1">
-        {shown.map(({ host, url, title }) => (
-          <a
-            key={host}
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            title={title?.trim() || host}
-          >
-            <Avatar size="sm" className="size-5 after:border-0">
-              <AvatarImage src={faviconUrl(host)} alt={host} />
-              <AvatarFallback className="text-[9px] font-medium">
-                {host[0]?.toUpperCase() ?? "?"}
-              </AvatarFallback>
-            </Avatar>
-          </a>
-        ))}
-        {overflow > 0 && (
-          <AvatarGroupCount className="size-5 text-[9px]">+{overflow}</AvatarGroupCount>
-        )}
-      </AvatarGroup>
-    </div>
-  );
-}
-
-export function ExternalUrl({
-  href,
-  children,
-  className,
-}: {
-  href: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className={cn("truncate text-primary hover:underline", className)}
-    >
-      {children}
-    </a>
+    <ScrollablePreview>
+      <pre className="overflow-x-auto rounded-control bg-inset px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-ink-2 shadow-hairline">
+        {children}
+      </pre>
+    </ScrollablePreview>
   );
 }
 
@@ -137,25 +83,21 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
       icon: TerminalIcon,
       verb: "Bash",
       target: description || command,
-      preview: (
-        <ScrollablePreview>
-          <pre className="overflow-x-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-xs">
-            {command}
-          </pre>
-        </ScrollablePreview>
-      ),
+      mono: !description,
+      preview: <CodePreview>{command}</CodePreview>,
     };
   },
   file_edit: (a) => {
     const path = String(a.path ?? "file");
     if (a.command === "view") {
-      return { icon: FileIcon, verb: "Read", target: path, filePath: path };
+      return { icon: FileIcon, verb: "Read", target: path, mono: true, filePath: path };
     }
     if (a.command === "create") {
       return {
         icon: FilePlusIcon,
         verb: "Create",
         target: path,
+        mono: true,
         filePath: path,
         fileChange: {
           path,
@@ -169,6 +111,7 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
       icon: FilePenIcon,
       verb: "Update",
       target: path,
+      mono: true,
       filePath: path,
       fileChange: {
         path,
@@ -182,7 +125,7 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
   fanout: (a) => {
     const tasks = (a.tasks as { title?: string }[] | undefined) ?? [];
     return {
-      icon: FileIcon,
+      icon: NetworkIcon,
       verb: "Fan-out",
       target:
         tasks.length > 0
@@ -195,22 +138,17 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
     verb: a.status === "done" ? "Step done" : "Step started",
     target: `step ${a.step ?? "?"}`,
   }),
-  web_search: (a) => {
-    const query = String(a.query ?? "");
-    return {
-      icon: SearchIcon,
-      verb: "Web search",
-      target: query,
-    };
-  },
-  fetch_url: (a) => {
-    const url = String(a.url ?? "");
-    return {
-      icon: GlobeIcon,
-      verb: "Fetch URL",
-      target: url,
-    };
-  },
+  web_search: (a) => ({
+    icon: SearchIcon,
+    verb: "Web search",
+    target: String(a.query ?? ""),
+  }),
+  fetch_url: (a) => ({
+    icon: GlobeIcon,
+    verb: "Fetch URL",
+    target: String(a.url ?? ""),
+    mono: true,
+  }),
   web_research: (a) => ({
     icon: SearchIcon,
     verb: "Web research",
@@ -230,22 +168,17 @@ type WebSearchResultDetail = {
   snippet?: string;
 };
 
+export function observationSources(toolName: string, obs: ObservationEvent): Source[] {
+  if (toolName !== "web_search" || obs.error || !obs.details) return [];
+  const results = (obs.details.results as WebSearchResultDetail[] | undefined) ?? [];
+  return uniqueSources(results);
+}
+
 export function toolObservationDetail(
   toolName: string,
   obs: ObservationEvent,
 ): ReactNode | undefined {
-  const details = obs.details;
-  if (!details) return undefined;
-
-  if (toolName === "web_search") {
-    const results = (details.results as WebSearchResultDetail[] | undefined) ?? [];
-    if (results.length === 0) return undefined;
-    return <SourceAvatars results={results} />;
-  }
-
-  if (toolName === "fetch_url") {
-    return undefined;
-  }
-
-  return undefined;
+  const sources = observationSources(toolName, obs);
+  if (sources.length === 0) return undefined;
+  return <SourceList sources={sources} />;
 }

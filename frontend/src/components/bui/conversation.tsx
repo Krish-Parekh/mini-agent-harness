@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon } from "lucide-react";
 import {
@@ -251,7 +250,7 @@ export const ConversationScrollAnchor = ({
   return null;
 };
 
-export type ConversationScrollButtonProps = ComponentProps<typeof Button>;
+export type ConversationScrollButtonProps = ComponentProps<"button">;
 
 export const ConversationScrollButton = ({
   className,
@@ -260,18 +259,18 @@ export const ConversationScrollButton = ({
   const { isAtBottom, scrollToBottom } = useConversation();
   if (isAtBottom) return null;
   return (
-    <Button
+    <button
+      type="button"
+      aria-label="Scroll to bottom"
+      onClick={() => scrollToBottom()}
       className={cn(
-        "absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full",
+        "absolute bottom-4 left-1/2 flex size-8 -translate-x-1/2 items-center justify-center rounded-full bg-surface text-ink-2 shadow-raised transition-[transform,color] duration-150 hover:text-ink active:scale-95",
         className,
       )}
-      onClick={() => scrollToBottom()}
-      size="icon"
-      type="button"
-      variant="outline"
+      style={{ animation: "pop-in 180ms var(--ease-out-strong) both" }}
       {...props}
     >
       <ArrowDownIcon className="size-4" />
-    </Button>
+    </button>
   );
 };
