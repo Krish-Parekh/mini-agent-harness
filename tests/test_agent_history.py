@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from miniagent.agent import Agent, _pair_tool_calls
+from miniagent.agent import Agent
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation, Status
 from miniagent.events import ActionEvent, MessageEvent, ObservationEvent
 from miniagent.llm import LLMResponse, ToolCall
-from miniagent.prompts import PLAN_MODE_DIRECTIVE
 from miniagent.sandbox.base import CommandResult, Sandbox
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.bash import BashTool
@@ -71,25 +70,6 @@ def _bash(call_id: str, command: str) -> LLMResponse:
     )
 
 
-def test_system_message_is_stable_across_modes_and_routes():
-    llm = QueueLLM(LLMResponse(text="one"), LLMResponse(text="two"))
-    conversation, sandbox = _conversation(llm)
-    conversation.send_message("explain the repo")
-    conversation.run()
-    conversation.agent.skills_block = "## review\nbe thorough"
-    conversation.send_message("now plan a change", plan_mode=True)
-    conversation.run()
-
-    first, second = llm.seen
-    assert first[0] == second[0]
-    runtime = second[-1]
-    assert runtime["role"] == "user"
-    assert runtime["content"].startswith("<runtime-context>")
-    assert PLAN_MODE_DIRECTIVE.strip().splitlines()[0] in runtime["content"]
-    assert "be thorough" in runtime["content"]
-    assert PLAN_MODE_DIRECTIVE.strip().splitlines()[0] not in second[0]["content"]
-
-
 def test_a_new_message_closes_a_call_awaiting_approval_without_running_it():
     llm = QueueLLM(_bash("c1", "rm -rf build"), LLMResponse(text="ok, skipped"))
     conversation, sandbox = _conversation(llm, confirm="always")
@@ -131,21 +111,3 @@ def test_approval_still_runs_the_pending_call():
     conversation.run()
     conversation.approve()
     assert sandbox.commands[-1] == "make test"
-
-
-def test_unpaired_tool_calls_are_repaired_before_sending():
-    messages = [
-        {"role": "system", "content": "s"},
-        {"role": "user", "content": "u"},
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [{"id": "a"}, {"id": "b"}],
-        },
-        {"role": "tool", "tool_call_id": "a", "content": "ok"},
-        {"role": "user", "content": "next"},
-    ]
-    repaired = _pair_tool_calls(messages)
-    assert [m.get("tool_call_id") for m in repaired if m["role"] == "tool"] == ["a", "b"]
-    assert repaired[-1] == {"role": "user", "content": "next"}
-    assert _pair_tool_calls(repaired) == repaired

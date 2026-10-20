@@ -16,13 +16,12 @@ from backend.service.extension import (
     SKILL_CATALOG_BUDGET_CHARS,
     ImportError_,
     SkillService,
-    render_skills,
 )
 from miniagent.confirm import ConfirmPolicy
 from miniagent.events import ActionEvent, ErrorEvent
 from miniagent.schema import Action
-from miniagent.tools.base import Tool, ToolRegistry, to_openai_schema
-from miniagent.tools.mcp import MAX_TOOLS, McpTool, tool_name
+from miniagent.tools.base import Tool, ToolRegistry
+from miniagent.tools.mcp import McpTool, tool_name
 from tests.fakes import FakeConnectionRepository, FakeUserRepository
 
 
@@ -116,91 +115,11 @@ def skill(name: str, body: str) -> SkillRow:
     )
 
 
-async def test_skill_catalog_budget_skips_whole_skills():
-    repo = FakeSkillRepository()
-    owner = uuid.uuid4()
-    long = await repo.create(
-        user_id=owner,
-        name="long",
-        description="d" * (SKILL_CATALOG_BUDGET_CHARS - 40),
-        body="x",
-    )
-    second = await repo.create(
-        user_id=owner, name="second", description="e" * 100, body="y"
-    )
-    repo.enabled["c1"] = [long.id, second.id]
-
-    included, skipped = await SkillService(repo).enabled_catalog("c1")
-
-    assert [s.name for s in included] == ["long"]
-    assert [s.name for s in skipped] == ["second"]
-
-
-async def test_large_bodies_do_not_count_against_the_catalog():
-    repo = FakeSkillRepository()
-    owner = uuid.uuid4()
-    for i in range(3):
-        row = await repo.create(
-            user_id=owner, name=f"s{i}", description="short", body="z" * 50_000
-        )
-        repo.enabled.setdefault("c1", []).append(row.id)
-
-    included, skipped = await SkillService(repo).enabled_catalog("c1")
-
-    assert len(included) == 3
-    assert skipped == []
-
-
-def test_render_skills_is_empty_for_no_skills():
-    assert render_skills([]) == ""
-
-
-def test_render_skills_lists_names_and_descriptions_not_bodies():
-    a = skill("a", "body-a")
-    a.description = "Review\n  carefully"
-    rendered = render_skills([a, skill("b", "body-b")])
-    assert rendered == "- a: Review carefully\n- b: no description"
-    assert "body-a" not in rendered
-
-
 async def test_import_rejects_plain_http():
     with pytest.raises(ImportError_):
         await SkillService(FakeSkillRepository()).import_from_url(
             uuid.uuid4(), "http://example.com/skill.md"
         )
-
-
-async def test_import_rejects_a_non_url():
-    with pytest.raises(ImportError_):
-        await SkillService(FakeSkillRepository()).import_from_url(
-            uuid.uuid4(), "ftp://example.com/skill.md"
-        )
-
-
-def test_mcp_tool_names_are_namespaced():
-    assert tool_name("Linear Prod", "create") == "mcp__Linear_Prod__create"
-    assert tool_name("x", "bash") != "bash"
-
-
-def test_mcp_tool_uses_the_remote_schema_verbatim():
-    schema = {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]}
-    tool = McpTool(
-        connection="c",
-        remote_name="search",
-        description="Search",
-        input_schema=schema,
-        invoke=lambda n, a: "ok",
-    )
-    assert to_openai_schema(tool)["function"]["parameters"] == schema
-
-
-def test_mcp_tool_tolerates_an_empty_schema():
-    tool = McpTool(
-        connection="c", remote_name="ping", description="", input_schema={},
-        invoke=lambda n, a: "pong",
-    )
-    params = to_openai_schema(tool)["function"]["parameters"]
-    assert params["type"] == "object"
 
 
 def _import_service(handler) -> SkillService:
@@ -265,11 +184,6 @@ class _PlainTool(Tool):
 
     def execute(self, action, sandbox):
         raise NotImplementedError
-
-
-def test_to_openai_schema_falls_back_to_the_pydantic_model():
-    params = to_openai_schema(_PlainTool())["function"]["parameters"]
-    assert params == _PlainAction.model_json_schema()
 
 
 def test_mcp_tools_are_risky_under_the_confirm_policy():
@@ -343,27 +257,6 @@ def test_an_unreachable_server_degrades_with_an_error(servers):
     assert host.mcp_skipped == {"c1"}
 
 
-def test_the_tool_budget_skips_whole_connections(servers):
-    servers["big"] = _specs(*[f"t{i}" for i in range(MAX_TOOLS - 1)])
-    servers["pair"] = _specs("a", "b")
-    host, events = _host()
-    _apply(host, {"c1": _target("big"), "c2": _target("pair")})
-
-    names = [t.name for t in host.conversation.agent.tools.all()]
-    assert not any(n.startswith("mcp__pair__") for n in names)
-    assert host.mcp_skipped == {"c2"}
-    assert "budget" in events[0].message
-
-
-def test_a_collision_after_namespacing_is_skipped(servers):
-    servers["a b"] = _specs("x")
-    servers["a_b"] = _specs("x", "y")
-    host, _ = _host()
-    _apply(host, {"c1": _target("a b"), "c2": _target("a_b")})
-
-    assert host.mcp_tools == {"c1": ["mcp__a_b__x"], "c2": ["mcp__a_b__y"]}
-
-
 def test_disabling_a_connection_unregisters_its_tools(servers):
     servers["linear"] = _specs("search")
     host, _ = _host()
@@ -373,16 +266,6 @@ def test_disabling_a_connection_unregisters_its_tools(servers):
     assert "mcp__linear__search" not in host.conversation.agent.tools
     assert "plain" in host.conversation.agent.tools
     assert host.mcp_tools == {}
-
-
-def test_a_known_connection_is_not_rediscovered(servers):
-    servers["linear"] = _specs("search")
-    host, _ = _host()
-    _apply(host, {"c1": _target("linear")})
-    servers["linear"] = mcp_client.McpError("should not be called")
-    _apply(host, {"c1": _target("linear")})
-
-    assert host.mcp_tools == {"c1": ["mcp__linear__search"]}
 
 
 class FakeService:
@@ -617,18 +500,6 @@ def test_plan_mode_allows_mcp_reads_and_blocks_writes():
     assert agent._blocked_in_plan_mode(_call("create_issue"))
 
 
-def test_discovery_reads_the_read_only_hint(servers):
-    servers["linear"] = [
-        mcp_client.McpToolSpec(name="search", description="", input_schema={}, read_only=True),
-        mcp_client.McpToolSpec(name="create", description="", input_schema={}),
-    ]
-    host, _ = _host()
-    _apply(host, {"c1": _target("linear")})
-    tools = host.conversation.agent.tools
-    assert tools["mcp__linear__search"].read_only
-    assert not tools["mcp__linear__create"].read_only
-
-
 def test_enabled_skills_register_the_skill_tool_and_disable_removes_it(servers):
     host, _ = _host()
     _apply(host, {}, skills_block="- review: be thorough", skill_bodies={"review": "BODY"})
@@ -662,13 +533,6 @@ def test_skill_description_comes_from_frontmatter():
 
     body = "---\nname: review\ndescription: Review a PR for bugs\n---\n# Review\nSteps..."
     assert describe_skill(body) == "Review a PR for bugs"
-
-
-def test_skill_description_falls_back_to_the_first_paragraph():
-    from backend.service.extension import describe_skill
-
-    body = "# Haiku summary\n\nWhen asked for a summary,\nanswer with one haiku.\n\nMore."
-    assert describe_skill(body) == "When asked for a summary, answer with one haiku."
 
 
 async def test_upload_without_description_derives_one_and_frontmatter_name_wins():

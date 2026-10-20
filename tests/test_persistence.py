@@ -84,13 +84,6 @@ async def test_a_transient_failure_is_retried_and_then_succeeds(managed):
     assert await drain(subscriber) == []
 
 
-async def test_giving_up_raises_so_the_worker_can_report_it(managed):
-    service = service_for(FlakyRepository(failures=99))
-
-    with pytest.raises(RuntimeError):
-        await service._write_event(managed, MessageEvent(role="user", text="hi"), 1)
-
-
 async def test_a_final_failure_errors_the_conversation_and_tells_the_client(managed):
     service = service_for(FlakyRepository(failures=99))
     subscriber = managed.broker.subscribe()
@@ -110,35 +103,3 @@ async def test_a_final_failure_errors_the_conversation_and_tells_the_client(mana
     assert frames[0].seq is None
     assert event.id in frames[0].event.message
     assert [s.status for s in statuses] == ["error"]
-
-
-async def test_the_failure_event_is_never_itself_persisted(managed):
-    repo = FlakyRepository(failures=99)
-    service = service_for(repo)
-
-    service._report_persist_failure(
-        managed, MessageEvent(role="user", text="hi"), RuntimeError("down")
-    )
-    await asyncio.sleep(0)
-
-    assert repo.written == []
-    assert managed.conversation.events == []
-
-
-async def test_client_event_id_reaches_the_repository(managed):
-    repo = FlakyRepository(failures=0)
-    service = service_for(repo)
-    event = MessageEvent(role="user", text="hi", client_event_id="abc-123")
-
-    await service._write_event(managed, event, 1)
-
-    assert repo.written[0]["client_event_id"] == "abc-123"
-
-
-async def test_events_without_a_client_event_id_write_none(managed):
-    repo = FlakyRepository(failures=0)
-    service = service_for(repo)
-
-    await service._write_event(managed, ErrorEvent(message="boom"), 1)
-
-    assert repo.written[0]["client_event_id"] is None

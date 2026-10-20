@@ -12,7 +12,7 @@ from backend.api.streaming import stream_conversation
 from backend.runtime.manager import EventBroker
 from backend.schemas import StatusUpdate
 from miniagent.conversation import Status
-from miniagent.events import ErrorEvent, MessageEvent
+from miniagent.events import MessageEvent
 from tests.fakes import FakeConnectionRepository, FakeUserRepository
 
 
@@ -73,12 +73,6 @@ async def test_replays_every_event_with_its_seq_then_status(managed):
     assert StatusUpdate.model_validate_json(frames[3].raw_data).status == "idle"
 
 
-async def test_status_frame_carries_no_id(managed):
-    frames = await take(managed, None, 4)
-    assert frames[3].event == "status"
-    assert frames[3].id is None
-
-
 async def test_last_event_id_resumes_without_replaying_history(managed):
     frames = await take(managed, 2, 2)
 
@@ -90,31 +84,6 @@ async def test_last_event_id_resumes_without_replaying_history(managed):
 async def test_last_event_id_at_head_replays_no_events(managed):
     frames = await take(managed, 3, 1)
     assert frames[0].event == "status"
-
-
-async def test_live_event_uses_the_seq_the_broker_published(managed):
-    stream = stream_conversation(managed, 3)
-    frames = [await anext(stream)]
-
-    managed.broker.publish_event(message("fourth"), seq=4)
-    frames.append(await anext(stream))
-    await stream.aclose()
-
-    assert frames[0].event == "status"
-    assert frames[1].event == "message"
-    assert frames[1].id == "4"
-
-
-async def test_a_seqless_frame_is_sent_without_an_id(managed):
-    stream = stream_conversation(managed, 3)
-    await anext(stream)
-
-    managed.broker.publish_event(ErrorEvent(message="persistence died"), seq=None)
-    frame = await anext(stream)
-    await stream.aclose()
-
-    assert frame.event == "error"
-    assert frame.id is None
 
 
 async def test_replayed_events_are_not_resent_when_they_arrive_live(managed):

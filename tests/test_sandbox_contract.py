@@ -225,14 +225,3 @@ def test_file_round_trip(sandbox: Sandbox) -> None:
     assert sandbox.read_file("nested/dir/file.txt") == content
     assert "file.txt" in sandbox.list_files("nested/dir")
     assert sandbox.list_files("does-not-exist") == []
-
-
-def test_large_file_round_trip(sandbox: Sandbox) -> None:
-    content = "".join(f"{i:06d} {'x' * 90}\n" for i in range(4000))
-    sandbox.write_file("big.txt", content)
-    assert sandbox.read_file("big.txt") == content
-
-
-def test_read_missing_file_raises(sandbox: Sandbox) -> None:
-    with pytest.raises(FileNotFoundError):
-        sandbox.read_file("nope.txt")

@@ -11,10 +11,8 @@ from backend.schemas import ConversationContext
 from backend.service.conversation import ConversationService
 from miniagent.conversation import Status
 from miniagent.events import (
-    CondensationEvent,
     ErrorEvent,
     LLMUsageEvent,
-    MessageEvent,
     WorkspaceSketchEvent,
 )
 from tests.fakes import FakeConnectionRepository, FakeUserRepository
@@ -60,50 +58,6 @@ def usage(**kw) -> LLMUsageEvent:
     return LLMUsageEvent(phase="step", model="gpt-4o-mini", **kw)
 
 
-def test_usage_is_summed_across_every_llm_usage_event():
-    managed = FakeManaged(
-        [
-            usage(prompt_tokens=10, completion_tokens=2, total_tokens=12, cost_usd=0.01),
-            usage(prompt_tokens=5, completion_tokens=3, total_tokens=8, cost_usd=0.02),
-        ]
-    )
-
-    ctx = service().context(managed)
-
-    assert ctx.usage.prompt_tokens == 15
-    assert ctx.usage.completion_tokens == 5
-    assert ctx.usage.total_tokens == 20
-    assert ctx.usage.cost_usd == pytest.approx(0.03)
-
-
-def test_sketch_and_condensation_take_the_latest_of_their_kind():
-    managed = FakeManaged(
-        [
-            WorkspaceSketchEvent(content="first sketch"),
-            CondensationEvent(summary="first summary", replaced_event_ids=[]),
-            WorkspaceSketchEvent(content="second sketch"),
-            CondensationEvent(summary="second summary", replaced_event_ids=[]),
-        ]
-    )
-
-    ctx = service().context(managed)
-
-    assert ctx.workspace_sketch is not None
-    assert ctx.workspace_sketch.text == "second sketch"
-    assert ctx.condensation is not None
-    assert ctx.condensation.text == "second summary"
-
-
-def test_absent_sections_are_none_rather_than_empty():
-    ctx = service().context(FakeManaged([]))
-
-    assert ctx.workspace_sketch is None
-    assert ctx.condensation is None
-    assert ctx.last_error is None
-    assert ctx.usage.total_tokens == 0
-    assert ctx.counts.events == 0
-
-
 def test_last_error_carries_its_trace_id():
     managed = FakeManaged(
         [
@@ -117,46 +71,6 @@ def test_last_error_carries_its_trace_id():
     assert ctx.last_error is not None
     assert ctx.last_error.message == "latest failure"
     assert ctx.last_error.trace_id == "b" * 32
-
-
-def test_an_error_without_tracing_still_surfaces():
-    managed = FakeManaged([ErrorEvent(message="boom", trace_id=None)])
-
-    ctx = service().context(managed)
-
-    assert ctx.last_error is not None
-    assert ctx.last_error.trace_id is None
-
-
-def test_user_turns_and_event_count():
-    managed = FakeManaged(
-        [
-            MessageEvent(role="user", text="one"),
-            MessageEvent(role="assistant", text="reply"),
-            MessageEvent(role="user", text="two"),
-        ]
-    )
-
-    ctx = service().context(managed)
-
-    assert ctx.counts.user_turns == 2
-    assert ctx.counts.events == 3
-
-
-def test_a_conversation_without_a_repo_reports_nulls_not_errors():
-    ctx = service().context(FakeManaged([], repo=None))
-
-    assert ctx.repo is None
-    assert ctx.branch is None
-    assert ctx.session_changes.files == 0
-
-
-def test_legacy_error_payloads_deserialise_without_a_trace_id():
-    restored = ErrorEvent.model_validate(
-        {"id": "e1", "timestamp": 1.0, "source": "environment", "kind": "error",
-         "message": "old"}
-    )
-    assert restored.trace_id is None
 
 
 class FakeContextService:

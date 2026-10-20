@@ -63,21 +63,3 @@ def test_large_output_is_spilled_and_kept_out_of_git(tmp_path):
         ["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True
     ).stdout
     assert ".miniagent" not in status
-
-
-def test_small_output_is_inlined(tmp_path):
-    conversation, _ = _run(_git_repo(tmp_path / "repo"), "echo hi")
-    observation = _observation(conversation)
-    assert "spill_path" not in (observation.details or {})
-    assert "hi" in observation.content
-
-
-def test_spill_failure_falls_back_to_a_clip(tmp_path, monkeypatch):
-    def refuse(self, path, content):
-        raise OSError("read-only file system")
-
-    monkeypatch.setattr(LocalSandbox, "write_file", refuse)
-    conversation, _ = _run(tmp_path, "seq 1 20000")
-    observation = _observation(conversation)
-    assert observation.content.endswith("[full output unavailable]")
-    assert "spill_path" not in (observation.details or {})

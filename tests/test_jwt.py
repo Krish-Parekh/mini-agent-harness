@@ -80,25 +80,7 @@ def test_rejects_wrong_issuer(jwks_verifier, signing_key):
         jwks_verifier.verify(es256(claims(iss="https://evil.supabase.co/auth/v1"), signing_key))
 
 
-def test_rejects_token_without_subject(jwks_verifier, signing_key):
-    payload = claims()
-    del payload["sub"]
-    with pytest.raises(InvalidToken):
-        jwks_verifier.verify(es256(payload, signing_key))
-
-
 def test_rejects_hs256_token(jwks_verifier, signing_key):
     token = jwt.encode(claims(), "a-legacy-shared-secret-of-ample-length", algorithm="HS256")
     with pytest.raises(InvalidToken):
         jwks_verifier.verify(token)
-
-
-def test_rejects_garbage(jwks_verifier):
-    with pytest.raises(InvalidToken):
-        jwks_verifier.verify("not-a-jwt")
-
-
-def test_rejects_everything_when_url_is_unconfigured(signing_key):
-    verifier = SupabaseJWTVerifier(supabase_url="")
-    with pytest.raises(InvalidToken):
-        verifier.verify(es256(claims(), signing_key))

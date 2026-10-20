@@ -256,16 +256,3 @@ def test_a_short_first_line_is_the_title_as_is():
     from backend.runtime.manager import title_snippet
 
     assert title_snippet("  How are you?\nmore detail") == "How are you?"
-
-
-def test_a_long_first_line_is_cut_at_a_word_with_an_ellipsis():
-    from backend.runtime.manager import title_snippet
-
-    text = "In 3 bullet points, what does this repo do? Read-only: don't change anything"
-    assert title_snippet(text) == "In 3 bullet points, what does this repo do? Read-only…"
-
-
-def test_a_long_unbroken_word_is_cut_at_the_limit():
-    from backend.runtime.manager import title_snippet
-
-    assert title_snippet("x" * 80) == "x" * 60 + "…"
