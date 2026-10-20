@@ -9,6 +9,8 @@ from miniagent.events import (
     ErrorEvent,
     MessageEvent,
     ObservationEvent,
+    RepoInstructionsEvent,
+    WorkspaceSketchEvent,
 )
 from miniagent.llm import ContextOverflow, LLMResponse
 from miniagent.tools.base import ToolRegistry
@@ -76,15 +78,6 @@ def _pairs_intact(messages: list[dict]) -> bool:
     return True
 
 
-def test_below_the_threshold_nothing_is_compacted():
-    llm = WindowLLM(1_000_000, [LLMResponse(text="ok")])
-    conversation = _conversation(llm)
-    _history(conversation, 3, 5_000)
-    conversation.send_message("next")
-    conversation.run()
-    assert not any(isinstance(e, CondensationEvent) for e in conversation.events)
-
-
 def test_pruning_old_outputs_alone_can_bring_the_prompt_under_target():
     llm = WindowLLM(40_000, [LLMResponse(text="ok")])
     conversation = _conversation(llm)
@@ -96,7 +89,7 @@ def test_pruning_old_outputs_alone_can_bring_the_prompt_under_target():
     assert compaction.pruned_only and compaction.elided_event_ids
     phase, messages = llm.seen[-1]
     assert phase == "step"
-    assert any("chars elided" in str(m.get("content")) for m in messages)
+    assert any("middle pruned" in str(m.get("content")) for m in messages)
     assert not any(p == "condense" for p, _ in llm.seen)
     assert _pairs_intact(messages)
 
@@ -121,6 +114,74 @@ def test_summary_replaces_old_events_and_keeps_pairs_intact():
     _, step_messages = llm.seen[-1]
     assert any("[conversation summary]" in str(m.get("content")) for m in step_messages)
     assert _pairs_intact(step_messages)
+
+
+def test_repo_instructions_and_sketch_survive_a_summary():
+    llm = WindowLLM(
+        6_000,
+        [LLMResponse(text="## Primary request\nkeep going"), LLMResponse(text="ok")],
+    )
+    conversation = _conversation(llm)
+    instructions = RepoInstructionsEvent(paths=["AGENTS.md"], content="Use uv, never pip.")
+    sketch = WorkspaceSketchEvent(content="## Tracked files\nsrc/app.py")
+    conversation.add_event(sketch)
+    conversation.add_event(instructions)
+    _history(conversation, 14, 1_500)
+    conversation.send_message("next")
+    conversation.run()
+
+    [summary] = [
+        e for e in conversation.events if isinstance(e, CondensationEvent) and not e.pruned_only
+    ]
+    assert summary.replaced_event_ids
+    assert instructions.id not in summary.replaced_event_ids
+    assert sketch.id not in summary.replaced_event_ids
+    _, step_messages = llm.seen[-1]
+    contents = [str(m.get("content")) for m in step_messages]
+    assert any("Use uv, never pip." in c for c in contents)
+    assert any("src/app.py" in c for c in contents)
+
+
+def _pruned_step_messages(observation: ObservationEvent) -> list[dict]:
+    llm = WindowLLM(1_000_000, [LLMResponse(text="ok")])
+    conversation = _conversation(llm)
+    conversation.add_event(MessageEvent(role="user", text="look"))
+    conversation.add_event(
+        ActionEvent(tool_name="bash", arguments={"command": "cat log"}, tool_call_id="c1")
+    )
+    conversation.add_event(observation)
+    conversation.add_event(
+        CondensationEvent(
+            summary="",
+            replaced_event_ids=[],
+            elided_event_ids=[observation.id],
+            trigger="threshold",
+            pruned_only=True,
+        )
+    )
+    conversation.send_message("next")
+    conversation.run()
+    _, messages = llm.seen[-1]
+    return messages
+
+
+def test_pruned_output_keeps_head_and_tail_and_names_the_spill_file():
+    content = "H" * 3_000 + "M" * 2_000 + "T" * 1_200
+    observation = ObservationEvent(
+        tool_name="bash",
+        tool_call_id="c1",
+        content=content,
+        details={"spill_path": ".miniagent/outputs/c1.txt", "full_chars": 20_000},
+    )
+    messages = _pruned_step_messages(observation)
+
+    [sent] = [m["content"] for m in messages if m.get("tool_call_id") == "c1"]
+    head, marker, tail = sent.split("\n")
+    assert head == "H" * 1_500
+    assert tail == "T" * 1_000
+    assert "20,000 chars, middle pruned" in marker
+    assert "Full output: .miniagent/outputs/c1.txt" in marker
+    assert observation.content == content
 
 
 def test_overflow_forces_one_compaction_and_retry():

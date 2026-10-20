@@ -62,7 +62,9 @@ _MAX_FILE_SKETCH_CHARS = 2_000
 COMPACT_AT = 0.8
 PRUNE_TARGET = 0.6
 RETAIN_SHARE = 0.16
-ELIDE_ABOVE_CHARS = 2_000
+ELIDE_ABOVE_CHARS = 4_000
+ELIDE_HEAD_CHARS = 1_500
+ELIDE_TAIL_CHARS = 1_000
 _MIN_CONDENSE_EVENTS = 12
 _MAX_FAILURE_EVIDENCE_CHARS = 8_000
 _MAX_FAILURE_ITEM_CHARS = 1_000
@@ -114,9 +116,16 @@ def _file_sketch(sandbox: Sandbox) -> str:
     )
 
 
-def _elided_placeholder(event: ObservationEvent) -> str:
-    where = (event.details or {}).get("spill_path") or "re-run the call if needed"
-    return f"[old tool output: {len(event.content):,} chars elided, see {where}]"
+def _pruned_output(event: ObservationEvent) -> str:
+    details = event.details or {}
+    total = details.get("full_chars", len(event.content))
+    spill = details.get("spill_path")
+    where = f"Full output: {spill}" if spill else "Re-run the call for the full output"
+    return (
+        f"{event.content[:ELIDE_HEAD_CHARS]}\n"
+        f"[old tool output: {total:,} chars, middle pruned. {where}]\n"
+        f"{event.content[-ELIDE_TAIL_CHARS:]}"
+    )
 
 
 def _spill_oversized(call: ToolCall, result: ToolResult, sandbox: Sandbox) -> ToolResult:
@@ -399,11 +408,15 @@ class Agent:
         ) as span:
             if self._elide_old_outputs(conversation, sandbox, window, trigger):
                 span.set_attribute("pruned_only", True)
-                return True
-            summarized = self._summarize(conversation, sandbox, window, trigger)
-            span.set_attribute("pruned_only", False)
-            span.set_attribute("summarized", summarized)
-            return summarized
+                compacted = True
+            else:
+                compacted = self._summarize(conversation, sandbox, window, trigger)
+                span.set_attribute("pruned_only", False)
+                span.set_attribute("summarized", compacted)
+            span.set_attribute(
+                "tokens_after", self._prompt_tokens(conversation, sandbox)
+            )
+            return compacted
 
     def _prompt_tokens(self, conversation: Conversation, sandbox: Sandbox) -> int:
         messages = self._build_messages(conversation, sandbox)
@@ -435,7 +448,7 @@ class Agent:
                 and len(event.content) > ELIDE_ABOVE_CHARS
             ):
                 chosen.append(event.id)
-                tokens -= (len(event.content) - 200) // 4
+                tokens -= (len(event.content) - len(_pruned_output(event))) // 4
         if not chosen or tokens >= target:
             return False
         conversation.add_event(
@@ -552,7 +565,7 @@ class Agent:
             if message is None:
                 continue
             if event.id in elided and isinstance(event, ObservationEvent):
-                message = {**message, "content": _elided_placeholder(event)}
+                message = {**message, "content": _pruned_output(event)}
             # Clip oversized content so one giant observation can't exhaust the
             # context window; truncating (not dropping events) keeps tool_call
             # pairing intact, and clipping at send-time also rescues stored events.
