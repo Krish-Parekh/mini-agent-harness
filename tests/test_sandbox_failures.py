@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from miniagent.agent import Agent
-from miniagent.classification import TaskRoute
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation, Status
 from miniagent.events import ErrorEvent, ObservationEvent
@@ -40,11 +39,6 @@ class SafePolicy:
         return CommandPolicy(risk="safe", read_only=True)
 
 
-class DefaultRoute:
-    def classify_task_route(self, text: str) -> TaskRoute:
-        return TaskRoute.DEFAULT
-
-
 class FailingSandbox(Sandbox):
     """Fine for the workspace sketch, then fails on the agent's own command."""
 
@@ -71,7 +65,6 @@ def _run(error: SandboxError) -> tuple[Conversation, ScriptedLLM]:
         llm=llm,
         tools=ToolRegistry([BashTool(), FinishTool()]),
         policy=SafePolicy(),
-        task_router=DefaultRoute(),
     )
     conversation = Conversation(
         agent=agent,

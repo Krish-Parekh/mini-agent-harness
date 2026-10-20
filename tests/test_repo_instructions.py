@@ -9,7 +9,7 @@ from miniagent.conversation import Conversation
 from miniagent.sandbox.local import LocalSandbox
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.finish import FinishTool
-from tests.test_sandbox_failures import DefaultRoute, SafePolicy
+from tests.test_sandbox_failures import SafePolicy
 
 
 def _run(workspace) -> tuple[Conversation, QueueLLM]:
@@ -18,7 +18,6 @@ def _run(workspace) -> tuple[Conversation, QueueLLM]:
         llm=llm,
         tools=ToolRegistry([FinishTool()]),
         policy=SafePolicy(),
-        task_router=DefaultRoute(),
     )
     conversation = Conversation(
         agent=agent,

@@ -5,7 +5,6 @@ import threading
 import uuid
 from typing import TYPE_CHECKING, Callable
 
-from miniagent.classification import TaskRoute
 from miniagent.confirm import ConfirmPolicy
 from miniagent.events import (
     ActionEvent,
@@ -68,7 +67,6 @@ class Conversation:
         self.plan_mode = False
         self.plan: Plan | None = None
         self.implementing_plan = False
-        self.route = TaskRoute.DEFAULT
         if stuck_detection:
             self._stuck_detector = StuckDetector(
                 self,
@@ -85,7 +83,6 @@ class Conversation:
         self,
         text: str,
         plan_mode: bool = False,
-        route: TaskRoute | None = None,
         client_event_id: str | None = None,
     ) -> None:
         # Only ever turn it on here; plan approval clears it. A plain reply
@@ -97,9 +94,6 @@ class Conversation:
         )
         if self.status == Status.WAITING_FOR_CONFIRMATION:
             self.status = Status.IDLE
-        self.route = route or self.agent.classify_task_route(
-            text, plan_mode=self.plan_mode
-        )
         self.add_event(
             MessageEvent(role="user", text=text, client_event_id=client_event_id)
         )

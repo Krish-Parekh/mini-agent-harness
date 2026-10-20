@@ -476,7 +476,7 @@ def _mcp_agent():
         )
 
     tools = ToolRegistry([remote("search", True), remote("create_issue", False)])
-    agent = Agent(llm=SimpleNamespace(model="m"), tools=tools, policy=object(), task_router=object())
+    agent = Agent(llm=SimpleNamespace(model="m"), tools=tools, policy=object())
     policy = ConfirmPolicy("risky")
     conversation = SimpleNamespace(
         confirm_policy=policy, needs_confirmation=policy.needs_confirmation

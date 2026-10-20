@@ -48,6 +48,11 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - Verify in a tight loop with the narrowest meaningful command: one test file, one import, one build target, or one focused check.
 - If verification fails, fix the cause or report the unresolved failure honestly. Do not mark work complete if the relevant check is still failing.
 
+# Questions, reviews and pull requests
+- For a question or investigation, stay read-only unless the user asks for changes.
+- For a review, stay read-only unless the user asks for fixes. Lead with findings ordered by severity, then test gaps or remaining risk. If there are no issues, say so.
+- Only commit, push or open a pull request when the user explicitly asks for it.
+
 # Bash workflow
 - Search with `rg -n "pattern" path/`; use `git ls-files | rg name` to locate tracked files.
 - Inspect slices with `sed -n '40,90p' file.py` or use `file_edit view` before changing a single file.
@@ -268,11 +273,6 @@ E   AssertionError: assert 41 == 42
 <runtime-context>
 Runtime context for this step, set by MiniAgent rather than typed by the user. It reflects the current mode and enabled extensions.
 
-# Code-edit route
-The user is asking for a code change. Inspect the relevant code, make the
-smallest coherent edit, and verify after any workspace mutation. If verification
-cannot be run, explain why in the final `finish` message.
-
 # Skills
 Playbooks the user enabled for this conversation. Before a task one applies to, load it with the `skill` tool and follow it.
 - `tidy-imports`: sort and dedupe Python imports
@@ -325,6 +325,11 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - Discover verification commands from existing project files (`pyproject.toml`, `package.json`, `Makefile`, CI config, or nearby tests) before guessing.
 - Verify in a tight loop with the narrowest meaningful command: one test file, one import, one build target, or one focused check.
 - If verification fails, fix the cause or report the unresolved failure honestly. Do not mark work complete if the relevant check is still failing.
+
+# Questions, reviews and pull requests
+- For a question or investigation, stay read-only unless the user asks for changes.
+- For a review, stay read-only unless the user asks for fixes. Lead with findings ordered by severity, then test gaps or remaining risk. If there are no issues, say so.
+- Only commit, push or open a pull request when the user explicitly asks for it.
 
 # Bash workflow
 - Search with `rg -n "pattern" path/`; use `git ls-files | rg name` to locate tracked files.
@@ -469,11 +474,6 @@ Show me the sum again.
 <runtime-context>
 Runtime context for this step, set by MiniAgent rather than typed by the user. It reflects the current mode and enabled extensions.
 
-# Code-edit route
-The user is asking for a code change. Inspect the relevant code, make the
-smallest coherent edit, and verify after any workspace mutation. If verification
-cannot be run, explain why in the final `finish` message.
-
 # Skills
 Playbooks the user enabled for this conversation. Before a task one applies to, load it with the `skill` tool and follow it.
 - `tidy-imports`: sort and dedupe Python imports
@@ -526,6 +526,11 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - Discover verification commands from existing project files (`pyproject.toml`, `package.json`, `Makefile`, CI config, or nearby tests) before guessing.
 - Verify in a tight loop with the narrowest meaningful command: one test file, one import, one build target, or one focused check.
 - If verification fails, fix the cause or report the unresolved failure honestly. Do not mark work complete if the relevant check is still failing.
+
+# Questions, reviews and pull requests
+- For a question or investigation, stay read-only unless the user asks for changes.
+- For a review, stay read-only unless the user asks for fixes. Lead with findings ordered by severity, then test gaps or remaining risk. If there are no issues, say so.
+- Only commit, push or open a pull request when the user explicitly asks for it.
 
 # Bash workflow
 - Search with `rg -n "pattern" path/`; use `git ls-files | rg name` to locate tracked files.
@@ -605,11 +610,6 @@ Fix it.
 ````text
 <runtime-context>
 Runtime context for this step, set by MiniAgent rather than typed by the user. It reflects the current mode and enabled extensions.
-
-# Code-edit route
-The user is asking for a code change. Inspect the relevant code, make the
-smallest coherent edit, and verify after any workspace mutation. If verification
-cannot be run, explain why in the final `finish` message.
 
 # Skills
 Playbooks the user enabled for this conversation. Before a task one applies to, load it with the `skill` tool and follow it.

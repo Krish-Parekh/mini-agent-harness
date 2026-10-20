@@ -17,7 +17,7 @@ from miniagent.tools.base import ToolRegistry
 from miniagent.tools.bash import BashTool
 from miniagent.tools.finish import FinishTool
 from tests.test_agent_history import EchoSandbox
-from tests.test_sandbox_failures import DefaultRoute, SafePolicy
+from tests.test_sandbox_failures import SafePolicy
 
 
 class WindowLLM:
@@ -47,7 +47,6 @@ def _conversation(llm) -> Conversation:
         llm=llm,
         tools=ToolRegistry([BashTool(), FinishTool()]),
         policy=SafePolicy(),
-        task_router=DefaultRoute(),
     )
     return Conversation(
         agent=agent,

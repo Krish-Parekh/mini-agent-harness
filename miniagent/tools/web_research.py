@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from pydantic import Field
 
 from miniagent.agent import Agent
-from miniagent.classification import StaticTaskClassifier
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation
 from miniagent.events import ActionEvent, FanoutWorkerEvent, MessageEvent, ObservationEvent
@@ -116,7 +115,6 @@ class WebResearchTool(Tool):
             llm=self.llm,
             tools=self._worker_tools(),
             system_prompt=WEB_RESEARCH_WORKER_PROMPT,
-            task_router=StaticTaskClassifier(),
         )
         worker = Conversation(
             agent=agent,

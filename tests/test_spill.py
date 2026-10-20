@@ -12,7 +12,7 @@ from miniagent.tools.base import ToolRegistry
 from miniagent.tools.bash import BashTool
 from miniagent.tools.finish import FinishTool
 from tests.test_agent_history import QueueLLM
-from tests.test_sandbox_failures import DefaultRoute, SafePolicy
+from tests.test_sandbox_failures import SafePolicy
 
 
 def _run(workspace, command: str) -> tuple[Conversation, LocalSandbox]:
@@ -26,7 +26,6 @@ def _run(workspace, command: str) -> tuple[Conversation, LocalSandbox]:
         llm=llm,
         tools=ToolRegistry([BashTool(), FinishTool()]),
         policy=SafePolicy(),
-        task_router=DefaultRoute(),
     )
     sandbox = LocalSandbox(str(workspace))
     conversation = Conversation(

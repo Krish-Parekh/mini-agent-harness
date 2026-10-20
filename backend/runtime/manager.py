@@ -10,7 +10,6 @@ from typing import Any, Callable
 import logfire
 
 from miniagent.agent import Agent
-from miniagent.classification import TaskClassifier
 from miniagent.config import Settings
 from miniagent.confirm import ConfirmMode, ConfirmPolicy
 from miniagent.conversation import Conversation, Status
@@ -85,13 +84,6 @@ def _build_agent(
             max_tokens=1024,
         )
     )
-    task_router = TaskClassifier(
-        LLM(
-            model=settings.policy_model,
-            temperature=0.0,
-            max_tokens=512,
-        )
-    )
     tool_list: list = [
         BashTool(),
         FileEditTool(),
@@ -118,7 +110,6 @@ def _build_agent(
         repo=repo,
         branch=branch,
         policy=policy,
-        task_router=task_router,
     )
 
 

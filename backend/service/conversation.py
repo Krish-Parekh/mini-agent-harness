@@ -260,10 +260,9 @@ class ConversationService:
     ) -> None:
         if model:
             managed.set_model(model)
-        with self._turn_span(managed, "agent.route"):
-            managed.conversation.send_message(
-                text, plan_mode=plan_mode, client_event_id=client_event_id
-            )
+        managed.conversation.send_message(
+            text, plan_mode=plan_mode, client_event_id=client_event_id
+        )
         self._spawn(self._run(managed, managed.conversation.run))
 
     async def approve_plan(self, managed: ManagedConversation) -> None:
@@ -551,7 +550,7 @@ class ConversationService:
             managed._ai_titled = True
 
     @staticmethod
-    def _turn_span(managed: ManagedConversation, name: str = "agent.turn"):
+    def _turn_span(managed: ManagedConversation):
         cid = managed.conversation.id
         last_user = next(
             (
@@ -561,7 +560,7 @@ class ConversationService:
             ),
             None,
         )
-        span = logfire.span(name, conversation_id=cid)
+        span = logfire.span("agent.turn", conversation_id=cid)
         span.set_attributes(
             trace_attributes(
                 session_id=cid,

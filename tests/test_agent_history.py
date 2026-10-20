@@ -9,7 +9,7 @@ from miniagent.sandbox.base import CommandResult, Sandbox
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.bash import BashTool
 from miniagent.tools.finish import FinishTool
-from tests.test_sandbox_failures import DefaultRoute, SafePolicy
+from tests.test_sandbox_failures import SafePolicy
 
 
 class QueueLLM:
@@ -52,7 +52,6 @@ def _conversation(llm, confirm="never") -> tuple[Conversation, EchoSandbox]:
         llm=llm,
         tools=ToolRegistry([BashTool(), FinishTool()]),
         policy=SafePolicy(),
-        task_router=DefaultRoute(),
     )
     sandbox = EchoSandbox()
     conversation = Conversation(

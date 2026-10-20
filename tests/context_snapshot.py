@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from miniagent.agent import Agent
-from miniagent.classification import TaskRoute
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation
 from miniagent.events import CondensationEvent, ObservationEvent
@@ -49,11 +48,6 @@ class SnapshotSandbox(Sandbox):
     def close(self): ...
 
 
-class CodeEditRoute:
-    def classify_task_route(self, text: str) -> TaskRoute:
-        return TaskRoute.CODE_EDIT
-
-
 class ScriptedLLM:
     model = "scripted"
 
@@ -87,7 +81,6 @@ def capture() -> dict[str, list[dict]]:
         repo="acme/app",
         branch="main",
         policy=SafePolicy(),
-        task_router=CodeEditRoute(),
     )
     agent.skills_block = "- `tidy-imports`: sort and dedupe Python imports"
     conversation = Conversation(

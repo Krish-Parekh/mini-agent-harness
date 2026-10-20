@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from miniagent.agent import Agent
-from miniagent.classification import StaticTaskClassifier
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation
 from miniagent.events import ActionEvent, FanoutWorkerEvent, MessageEvent, ObservationEvent
@@ -217,7 +216,6 @@ class FanoutTool(Tool):
             repo=self.repo,
             branch=self.branch,
             policy=self.policy,
-            task_router=StaticTaskClassifier(),
         )
         conversation = Conversation(
             agent=agent,

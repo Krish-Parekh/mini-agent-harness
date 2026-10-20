@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 import logfire
 from pydantic import ValidationError
 
-from miniagent.classification import TaskClassifier, TaskRoute, TaskRouteProvider
 from miniagent.events import (
     ActionEvent,
     CondensationEvent,
@@ -31,10 +30,6 @@ from miniagent.prompts import (
     EARLY_STOP_PROMPT,
     IMPLEMENT_PLAN_DIRECTIVE,
     PLAN_MODE_DIRECTIVE,
-    ROUTE_CODE_EDIT_DIRECTIVE,
-    ROUTE_PR_FLOW_DIRECTIVE,
-    ROUTE_QUESTION_DIRECTIVE,
-    ROUTE_REVIEW_DIRECTIVE,
 )
 from miniagent.sandbox.base import SandboxError
 from miniagent.text import clip
@@ -200,7 +195,6 @@ class Agent:
         repo: str | None = None,
         branch: str | None = None,
         policy: PolicyProvider | None = None,
-        task_router: TaskRouteProvider | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -208,14 +202,8 @@ class Agent:
         self.repo = repo
         self.branch = branch
         self.policy = policy or PolicyClassifier(llm)
-        self.task_router = task_router or TaskClassifier(llm)
         self.skills_block = ""
         self.mcp_instructions: dict[str, str] = {}
-
-    def classify_task_route(self, text: str, plan_mode: bool = False) -> TaskRoute:
-        if plan_mode:
-            return TaskRoute.PLAN
-        return self.task_router.classify_task_route(text)
 
     def step(self, conversation: Conversation, sandbox: Sandbox) -> None:
         with logfire.span(
@@ -379,17 +367,6 @@ class Agent:
         sketch = _file_sketch(sandbox).strip()
         if sketch:
             conversation.add_event(WorkspaceSketchEvent(content=sketch))
-
-    def _route_block(self, conversation: Conversation) -> str:
-        if conversation.route == TaskRoute.QUESTION:
-            return "\n\n" + ROUTE_QUESTION_DIRECTIVE
-        if conversation.route == TaskRoute.CODE_EDIT:
-            return "\n\n" + ROUTE_CODE_EDIT_DIRECTIVE
-        if conversation.route == TaskRoute.REVIEW:
-            return "\n\n" + ROUTE_REVIEW_DIRECTIVE
-        if conversation.route == TaskRoute.PR_FLOW:
-            return "\n\n" + ROUTE_PR_FLOW_DIRECTIVE
-        return ""
 
     def _maybe_condense(
         self,
@@ -586,9 +563,6 @@ class Agent:
             "Runtime context for this step, set by MiniAgent rather than typed by "
             "the user. It reflects the current mode and enabled extensions."
         ]
-        route = self._route_block(conversation).strip()
-        if route:
-            sections.append(route)
         if conversation.plan_mode:
             sections.append(PLAN_MODE_DIRECTIVE.strip())
         elif conversation.implementing_plan:
