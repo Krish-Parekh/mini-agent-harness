@@ -1,0 +1,1 @@
+You replied with text but did not call a tool. If that reply is your final answer, call `finish` now and put the whole reply, unchanged and in full, in its message. If the task is not done yet, continue with your next tool call instead.

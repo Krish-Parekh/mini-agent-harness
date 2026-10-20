@@ -35,6 +35,8 @@ class WindowLLM:
         return sum(len(str(m.get("content") or "")) for m in messages) // 4
 
     def complete(self, messages, tools=None, phase="agent"):
+        if phase == "finish_nudge":
+            return LLMResponse()
         self.seen.append((phase, messages))
         item = self.responses.pop(0)
         if isinstance(item, Exception):

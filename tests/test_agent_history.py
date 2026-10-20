@@ -26,6 +26,8 @@ class QueueLLM:
         return 0
 
     def complete(self, messages, tools=None, phase="agent"):
+        if phase == "finish_nudge":
+            return LLMResponse()
         self.seen.append(messages)
         return self.responses.pop(0)
 

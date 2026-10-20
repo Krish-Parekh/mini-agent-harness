@@ -28,6 +28,7 @@ from miniagent.prompts import (
     CONDENSE_SYSTEM_PROMPT,
     DEFAULT_SYSTEM_PROMPT,
     EARLY_STOP_PROMPT,
+    FINISH_NUDGE_PROMPT,
     IMPLEMENT_PLAN_DIRECTIVE,
     PLAN_MODE_DIRECTIVE,
 )
@@ -268,20 +269,44 @@ class Agent:
                 return
         self._record_llm_usage(conversation, response, "step")
 
-        if response.text:
-            conversation.add_event(MessageEvent(role="assistant", text=response.text))
-
         if response.tool_calls:
-            actions = self._record_tool_calls(response.tool_calls, conversation)
-            self._execute_actions(actions, conversation, sandbox)
+            self._act_on(response, conversation, sandbox)
             return
 
-        # No tool call ends the turn; re-prompting here would loop to the cap.
         if not response.text:
             conversation.add_event(ErrorEvent(message="empty model response"))
             conversation.set_error()
             return
+
+        followup = self._nudge_finish(conversation, sandbox, response.text)
+        if followup is not None and followup.tool_calls:
+            self._act_on(followup, conversation, sandbox)
+            return
+        conversation.add_event(MessageEvent(role="assistant", text=response.text))
         conversation.set_idle()
+
+    def _act_on(
+        self, response: LLMResponse, conversation: Conversation, sandbox: Sandbox
+    ) -> None:
+        if response.text:
+            conversation.add_event(MessageEvent(role="assistant", text=response.text))
+        actions = self._record_tool_calls(response.tool_calls, conversation)
+        self._execute_actions(actions, conversation, sandbox)
+
+    def _nudge_finish(
+        self, conversation: Conversation, sandbox: Sandbox, text: str
+    ) -> LLMResponse | None:
+        messages = self._build_messages(conversation, sandbox)
+        messages.append({"role": "assistant", "content": text})
+        messages.append({"role": "user", "content": FINISH_NUDGE_PROMPT})
+        try:
+            response = self.llm.complete(
+                messages, self.tools.all(), phase="finish_nudge"
+            )
+        except ContextOverflow:
+            return None
+        self._record_llm_usage(conversation, response, "finish_nudge")
+        return response
 
     def _complete_step(
         self, conversation: Conversation, sandbox: Sandbox

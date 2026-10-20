@@ -50,7 +50,7 @@ Run a shell command and return its stdout, stderr, and exit code. The command ru
 
 ## `file_edit`
 
-View, create, or edit a file in the workspace. command='view' returns the file's raw text exactly as stored (no line numbers); pass view_range=[start, end] (1-based, end -1 = EOF) for a slice. command='create' writes content to a new file (overwriting an existing file requires viewing it first). command='str_replace' replaces a unique old_str with new_str; old_str must match the raw file bytes exactly (copy from view output, never include line-number prefixes) and appear exactly once, so include enough surrounding context to be unique. Edit only files you have viewed in this conversation; if a file changed since your last view, view it again before editing.
+View, create, or edit a file in the workspace. command='view' returns the file's raw text exactly as stored (no line numbers); pass view_range=[start, end] (1-based, end -1 = EOF) for a slice. command='create' writes content to a new file (overwriting an existing file requires viewing it first). command='str_replace' replaces a unique old_str with new_str; old_str must match the raw file bytes exactly (copy from view output, never include line-number prefixes) and appear exactly once, so include enough surrounding context to be unique. Edit only files you have viewed with command='view' in this conversation; reading a file with bash (cat, sed, head) does not count. If a file changed since your last view, view it again before editing. Change files only with this tool, never with bash scripts, sed -i or redirects.
 
 ```json
 {
