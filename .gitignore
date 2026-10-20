@@ -16,3 +16,6 @@ ROADMAP.md
 AGENTS.md
 CLAUDE.md
 CONTEXT.md
+
+evals/results/
+.deepeval/
