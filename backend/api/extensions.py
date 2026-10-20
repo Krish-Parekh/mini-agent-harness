@@ -1,21 +1,30 @@
 from __future__ import annotations
 
+from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
-from backend.api.deps import CurrentUser, ManagedDep, McpDep, SkillsDep
+from backend.api.deps import (
+    ConnectionsDep,
+    CurrentUser,
+    ManagedDep,
+    McpDep,
+    SkillsDep,
+)
+from backend.models import SkillRow
 from backend.schemas.extension import (
     CreateMcpConnectionRequest,
-    CreateSkillRequest,
     EnabledItem,
-    ImportSkillRequest,
+    InstallSkillRequest,
     McpConnectionOut,
     McpTestResult,
     SetEnabledRequest,
+    SetSkillRepoRequest,
     SkillOut,
 )
 from backend.service.extension import ImportError_, McpService, SkillService
+from miniagent.skills_registry import SkillHit
 
 router = APIRouter()
 
@@ -32,31 +41,66 @@ def _allowed_mcp_url(url: str) -> bool:
 
 
 
+def _skill_out(row: SkillRow, repos: list[str]) -> SkillOut:
+    return SkillOut(
+        id=row.id,
+        name=row.name,
+        description=row.description,
+        source_url=row.source_url,
+        registry_id=row.registry_id,
+        repos=repos,
+        created_at=row.created_at,
+    )
+
+
 @router.get("/skills", response_model=list[SkillOut])
 async def list_skills(user: CurrentUser, skills: SkillsDep):
-    return await skills.list_for_user(user.id)
+    repos = await skills.repos_by_skill(user.id)
+    return [
+        _skill_out(row, repos.get(row.id, []))
+        for row in await skills.list_for_user(user.id)
+    ]
 
 
-@router.post("/skills", response_model=SkillOut)
-async def create_skill(
-    body: CreateSkillRequest, user: CurrentUser, skills: SkillsDep
+@router.get("/skills/search", response_model=list[SkillHit])
+async def search_skills(
+    user: CurrentUser,
+    skills: SkillsDep,
+    q: Annotated[str, Query(min_length=1, max_length=100)],
 ):
     try:
-        return await SkillService(skills).create(
-            user.id, body.name, body.description, body.body
+        return await SkillService(skills).search(q)
+    except ImportError_ as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+
+
+@router.post("/skills/install", response_model=SkillOut)
+async def install_skill(
+    body: InstallSkillRequest,
+    user: CurrentUser,
+    skills: SkillsDep,
+    connections: ConnectionsDep,
+):
+    try:
+        row = await SkillService(skills, connections).install(
+            user.id, body.source, body.skill_id, body.repo
         )
     except ImportError_ as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    repos = await skills.repos_by_skill(user.id)
+    return _skill_out(row, repos.get(row.id, []))
 
 
-@router.post("/skills/import", response_model=SkillOut)
-async def import_skill(
-    body: ImportSkillRequest, user: CurrentUser, skills: SkillsDep
+@router.put("/skills/{skill_id}/repos", response_model=SkillOut)
+async def set_skill_repo(
+    skill_id: str, body: SetSkillRepoRequest, user: CurrentUser, skills: SkillsDep
 ):
-    try:
-        return await SkillService(skills).import_from_url(user.id, body.url)
-    except ImportError_ as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from None
+    row = await skills.get(skill_id, user.id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="skill not found")
+    await skills.set_repo_enabled(user.id, body.repo, skill_id, body.enabled)
+    repos = await skills.repos_by_skill(user.id)
+    return _skill_out(row, repos.get(row.id, []))
 
 
 @router.delete("/skills/{skill_id}")
@@ -72,7 +116,7 @@ async def list_conversation_skills(
 ):
     owned = await skills.list_for_user(user.id)
     included, skipped = await SkillService(skills).enabled_catalog(
-        managed.conversation.id
+        managed.conversation.id, managed.user_id, managed.repo
     )
     enabled = {row.id for row in included}
     over_budget = {row.id for row in skipped}

@@ -163,6 +163,15 @@ export function useConversationStream(id: string) {
     return candidate;
   }, [events]);
 
+  const pendingSkillProposal = useMemo(() => {
+    let candidate: AgentEvent | undefined;
+    for (const e of events) {
+      if (e.kind === "action" && e.tool_name === "propose_skills") candidate = e;
+      else if (e.kind === "message" && e.role === "user") candidate = undefined;
+    }
+    return candidate;
+  }, [events]);
+
   const pendingPlan = useMemo(() => {
     let candidate: AgentEvent | undefined;
     for (const e of events) {
@@ -228,6 +237,7 @@ export function useConversationStream(id: string) {
     observationByCall,
     lastUnresolvedAction,
     pendingQuestion,
+    pendingSkillProposal,
     pendingPlan,
     livePlan,
     lastUserTurnId,

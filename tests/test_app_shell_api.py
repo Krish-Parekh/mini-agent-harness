@@ -85,9 +85,7 @@ async def test_create_rejects_an_unavailable_provider(client, app):
 
 
 async def test_create_rejects_a_foreign_skill(client, app, user_b):
-    foreign = await app.state.skills.create(
-        user_id=uuid.UUID(user_b.sub), name="x", description="", body="b"
-    )
+    foreign = app.state.skills.add(uuid.UUID(user_b.sub), "x")
     resp = await client.post(
         "/conversations", json={"skill_ids": [foreign.id]}, headers=bearer("token-a")
     )
@@ -95,9 +93,7 @@ async def test_create_rejects_a_foreign_skill(client, app, user_b):
 
 
 async def test_create_passes_model_provider_and_skills(client, app, user_a):
-    own = await app.state.skills.create(
-        user_id=uuid.UUID(user_a.sub), name="mine", description="", body="b"
-    )
+    own = app.state.skills.add(uuid.UUID(user_a.sub), "mine")
     resp = await client.post(
         "/conversations",
         json={
@@ -222,7 +218,7 @@ async def test_the_first_run_sees_the_chosen_model_and_skills():
 
     managed = _Managed()
     skills = FakeSkillRepository()
-    row = await skills.create(user_id=managed.user_id, name="review", description="", body="B")
+    row = skills.add(managed.user_id, "review", body="B")
     manager = SimpleNamespace(create=lambda **kwargs: managed)
     service = ConversationService(
         manager=manager,

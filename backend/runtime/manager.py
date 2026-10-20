@@ -29,6 +29,7 @@ from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.ask import AskUserTool
 from miniagent.tools.fanout import FanoutTool
+from miniagent.tools.find_skills import FindSkillsTool, ProposeSkillsTool
 from miniagent.tools.plan import Plan, PresentPlanTool, UpdatePlanTool
 from miniagent.tools.fetch_url import FetchUrlTool
 from miniagent.tools.web_research import WebResearchTool
@@ -92,6 +93,8 @@ def _build_agent(
         UpdatePlanTool(),
         AskUserTool(),
         FanoutTool(llm, repo, branch, policy),
+        FindSkillsTool(),
+        ProposeSkillsTool(),
     ]
     if settings.tavily_api_key:
         web_search = WebSearchTool(settings.tavily_api_key)

@@ -10,17 +10,20 @@ class SkillOut(BaseModel):
     name: str
     description: str
     source_url: str | None = None
+    registry_id: str | None = None
+    repos: list[str] = []
     created_at: datetime | None = None
 
 
-class CreateSkillRequest(BaseModel):
-    name: str
-    description: str = ""
-    body: str
+class InstallSkillRequest(BaseModel):
+    source: str
+    skill_id: str
+    repo: str
 
 
-class ImportSkillRequest(BaseModel):
-    url: str
+class SetSkillRepoRequest(BaseModel):
+    repo: str
+    enabled: bool
 
 
 class McpConnectionOut(BaseModel):

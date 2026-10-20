@@ -16,8 +16,7 @@ import {
 import { EnvironmentPicker } from "@/components/environment-picker";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
 import { RepoPicker } from "@/components/repo-picker";
-import { SkillChips, SkillSlashTextarea } from "@/components/skill-slash-menu";
-import type { Skill } from "@/lib/api";
+import { SkillSlashTextarea } from "@/components/skill-slash-menu";
 import {
   setComposerSelection,
   useComposerFocusTick,
@@ -39,7 +38,6 @@ export function HomeComposer() {
   const [text, setText] = useState("");
   const [pickedModel, setModel] = useState<string | null>(null);
   const model = pickedModel ?? selection.model ?? DEFAULT_MODEL;
-  const [skills, setSkills] = useState<Skill[]>([]);
 
   const branch =
     branches.data && !branches.data.some((b) => b.name === selection.branch)
@@ -66,7 +64,6 @@ export function HomeComposer() {
       sandbox_provider: environment,
       model,
       initial_message: text.trim(),
-      skill_ids: skills.map((s) => s.id),
     });
   }
 
@@ -97,19 +94,11 @@ export function HomeComposer() {
 
       <div ref={wrapperRef}>
         <PromptBar size="hero" onSubmit={send}>
-          <SkillChips
-            skills={skills}
-            onRemove={(skill) =>
-              setSkills((prev) => prev.filter((s) => s.id !== skill.id))
-            }
-          />
           <SkillSlashTextarea
             autoFocus
             value={text}
             onValueChange={setText}
-            excludeIds={skills.map((s) => s.id)}
-            onPickSkill={(skill) => setSkills((prev) => [...prev, skill])}
-            placeholder="Plan, build, / for skills"
+            placeholder="Plan, build, / for commands"
             disabled={startChat.isPending}
           />
           <PromptBarFooter>

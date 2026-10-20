@@ -575,7 +575,9 @@ class ConversationService:
         if self._skills is None or self._mcp is None:
             return
         cid = managed.conversation.id
-        included, skipped = await SkillService(self._skills).enabled_catalog(cid)
+        included, skipped = await SkillService(self._skills).enabled_catalog(
+            cid, managed.user_id, managed.repo
+        )
         skipped_ids = {skill.id for skill in skipped}
         for skill in skipped:
             if skill.id in managed.skills_skipped:

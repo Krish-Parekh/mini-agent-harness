@@ -1,170 +1,190 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { ArrowUpRightIcon, SparklesIcon } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  SettingsEmpty,
-  SettingsGroup,
-  SettingsPage,
-  SettingsRow,
-} from "@/components/settings/settings-ui";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/lib/api";
+import { Pill } from "@/components/bui/button";
+import { GlideMenu } from "@/components/bui/glide-menu";
+import { LoadingState } from "@/components/bui/loading-state";
+import { ValuePill } from "@/components/bui/value-pill";
+import { SettingsPage } from "@/components/settings/settings-ui";
+import { api, type Skill } from "@/lib/api";
 import { messageFor } from "@/lib/errors";
 import { queryKeys, useSkills } from "@/lib/queries";
 
+const UNUSED = "Not used in any project";
+
+function groupByRepo(skills: Skill[]) {
+  const byName = (a: Skill, b: Skill) => a.name.localeCompare(b.name);
+  const repos = new Map<string, Skill[]>();
+  const unused: Skill[] = [];
+  for (const skill of skills) {
+    if (skill.repos.length === 0) unused.push(skill);
+    for (const repo of skill.repos) {
+      const list = repos.get(repo) ?? [];
+      list.push(skill);
+      repos.set(repo, list);
+    }
+  }
+  return {
+    repos: [...repos.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([repo, list]) => ({ repo, skills: list.sort(byName) })),
+    unused: unused.sort(byName),
+  };
+}
+
+function SkillRow({
+  skill,
+  action,
+  busy,
+  onAction,
+}: {
+  skill: Skill;
+  action: string;
+  busy: boolean;
+  onAction: () => void;
+}) {
+  return (
+    <div
+      data-menu-row
+      className="relative z-10 flex items-center justify-between gap-4 rounded-control px-2.5 py-2"
+    >
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[13.5px] font-medium text-ink">{skill.name}</span>
+          {skill.source_url && (
+            <a
+              href={skill.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex shrink-0 items-center gap-0.5 text-[12px] text-ink-3 transition-colors duration-100 hover:text-brand-ink"
+            >
+              {skill.registry_id ? "skills.sh" : "source"}
+              <ArrowUpRightIcon className="size-3" />
+            </a>
+          )}
+        </div>
+        <p className="truncate text-[12.5px] text-ink-2">
+          {skill.description || "No description"}
+        </p>
+      </div>
+      <Pill variant="ghost" size="xs" disabled={busy} onClick={onAction} className="shrink-0">
+        {action}
+      </Pill>
+    </div>
+  );
+}
+
+function SkillGroup({
+  title,
+  mono,
+  count,
+  children,
+}: {
+  title: string;
+  mono?: boolean;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 px-1">
+        <h2 className={mono ? "font-mono text-[12.5px] text-ink-2" : "text-[13px] text-ink-2"}>
+          {title}
+        </h2>
+        <ValuePill>{count}</ValuePill>
+      </div>
+      <GlideMenu
+        className="flex flex-col rounded-card bg-surface p-1 shadow-card"
+        highlightClassName="inset-x-1 rounded-control bg-hover"
+      >
+        {children}
+      </GlideMenu>
+    </section>
+  );
+}
+
 export default function SkillsSettingsPage() {
   const queryClient = useQueryClient();
-  const [url, setUrl] = useState("");
-  const fileInput = useRef<HTMLInputElement>(null);
   const { data: skills, isPending } = useSkills();
 
-  const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: queryKeys.skills });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.skills });
 
-  const importSkill = useMutation({
-    mutationFn: (value: string) => api.importSkill(value),
-    onSuccess: (skill) => {
-      setUrl("");
-      invalidate();
-      toast.success(`Imported “${skill.name}”`);
-    },
+  const removeFromRepo = useMutation({
+    mutationFn: ({ id, repo }: { id: string; repo: string }) =>
+      api.setSkillRepo(id, repo, false),
+    onSuccess: invalidate,
     onError: (e) => toast.error(messageFor(e)),
   });
 
-  const uploadSkill = useMutation({
-    mutationFn: async (file: File) =>
-      api.createSkill({
-        name: file.name.replace(/\.md$/i, ""),
-        description: "",
-        body: await file.text(),
-      }),
-    onSuccess: (skill) => {
-      invalidate();
-      toast.success(`Added “${skill.name}”`);
-    },
-    onError: (e) => toast.error(messageFor(e)),
-  });
-
-  const removeSkill = useMutation({
+  const deleteSkill = useMutation({
     mutationFn: (id: string) => api.deleteSkill(id),
     onSuccess: invalidate,
     onError: (e) => toast.error(messageFor(e)),
   });
 
+  const groups = skills ? groupByRepo(skills) : null;
+
   return (
     <SettingsPage title="Skills">
-      <SettingsGroup
-        title="Add a skill"
-        description="Playbooks the agent can follow. Type / in a composer to enable one for a chat."
-      >
-        <SettingsRow
-          title="Import from URL"
-          description="An https link to a Markdown file, up to 256 KB."
-        >
-          <form
-            className="flex w-full gap-2 sm:w-80"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (url.trim()) importSkill.mutate(url.trim());
-            }}
-          >
-            <Input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://example.com/skill.md"
-              className="h-8"
-            />
-            <Button
-              type="submit"
-              size="sm"
-              variant="outline"
-              disabled={!url.trim() || importSkill.isPending}
-            >
-              {importSkill.isPending ? "Importing…" : "Import"}
-            </Button>
-          </form>
-        </SettingsRow>
-        <SettingsRow
-          title="Upload a file"
-          description="A .md file from your computer."
-        >
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".md,text/markdown,text/plain"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) uploadSkill.mutate(file);
-              e.target.value = "";
-            }}
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => fileInput.current?.click()}
-            disabled={uploadSkill.isPending}
-          >
-            {uploadSkill.isPending ? "Uploading…" : "Choose file"}
-          </Button>
-        </SettingsRow>
-      </SettingsGroup>
+      <p className="-mt-5 text-[13px] text-ink-3">
+        Skills from skills.sh, included per project. A skill is active in every chat on the
+        projects it&apos;s included in.
+      </p>
 
-      <SettingsGroup title="Your skills">
-        {isPending ? (
-          <div className="flex flex-col gap-3 py-4">
-            <Skeleton className="h-5 w-1/2" />
-            <Skeleton className="h-5 w-2/3" />
-          </div>
-        ) : !skills?.length ? (
-          <SettingsEmpty>No skills yet. Import or upload one above.</SettingsEmpty>
-        ) : (
-          skills.map((skill) => (
-            <SettingsRow
-              key={skill.id}
-              title={skill.name}
-              description={
-                <span className="flex flex-col gap-0.5">
-                  <span className="line-clamp-2">
-                    {skill.description || "No description"}
-                  </span>
-                  <span className="text-xs text-muted-foreground/80">
-                    {skill.created_at &&
-                      `Added ${new Date(skill.created_at).toLocaleDateString()}`}
-                    {skill.source_url && (
-                      <>
-                        {skill.created_at && " · "}
-                        <a
-                          href={skill.source_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="underline"
-                        >
-                          source
-                        </a>
-                      </>
-                    )}
-                  </span>
-                </span>
-              }
-            >
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={removeSkill.isPending}
-                onClick={() => removeSkill.mutate(skill.id)}
-              >
-                Delete
-              </Button>
-            </SettingsRow>
-          ))
-        )}
-      </SettingsGroup>
+      {isPending ? (
+        <LoadingState label="Loading skills" />
+      ) : !skills?.length || !groups ? (
+        <div className="flex flex-col items-center gap-2 rounded-card bg-surface px-6 py-10 text-center shadow-card">
+          <span className="flex size-8 items-center justify-center rounded-full bg-brand-tint text-brand">
+            <SparklesIcon className="size-4" />
+          </span>
+          <p className="text-[14px] font-medium text-ink">No skills yet</p>
+          <p className="max-w-sm text-[13px] text-ink-3">
+            In any chat, type{" "}
+            <code className="rounded-chip bg-field px-1 py-0.5 font-mono text-[12px] text-ink-2 shadow-hairline">
+              /find-skill
+            </code>{" "}
+            followed by what you need. The agent searches skills.sh and proposes skills to
+            include for that project.
+          </p>
+        </div>
+      ) : (
+        <>
+          {groups.repos.map(({ repo, skills: list }) => (
+            <SkillGroup key={repo} title={repo} mono count={list.length}>
+              {list.map((skill) => (
+                <SkillRow
+                  key={skill.id}
+                  skill={skill}
+                  action={`Remove from ${repo}`}
+                  busy={
+                    removeFromRepo.isPending &&
+                    removeFromRepo.variables?.id === skill.id &&
+                    removeFromRepo.variables.repo === repo
+                  }
+                  onAction={() => removeFromRepo.mutate({ id: skill.id, repo })}
+                />
+              ))}
+            </SkillGroup>
+          ))}
+          {groups.unused.length > 0 && (
+            <SkillGroup title={UNUSED} count={groups.unused.length}>
+              {groups.unused.map((skill) => (
+                <SkillRow
+                  key={skill.id}
+                  skill={skill}
+                  action="Delete"
+                  busy={deleteSkill.isPending && deleteSkill.variables === skill.id}
+                  onAction={() => deleteSkill.mutate(skill.id)}
+                />
+              ))}
+            </SkillGroup>
+          )}
+        </>
+      )}
     </SettingsPage>
   );
 }

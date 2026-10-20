@@ -6,14 +6,19 @@ import { toast } from "sonner";
 
 import Link from "next/link";
 
-import { api, type Skill } from "@/lib/api";
+import { api } from "@/lib/api";
 import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
-import { useConversationContext } from "@/lib/queries";
+import { queryKeys, useConversationContext } from "@/lib/queries";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
 import { ConversationTimeline } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
 import { QuestionCard, type Question } from "@/components/question-card";
+import {
+  type ProposedSkill,
+  SKIPPED_SKILLS_MESSAGE,
+  includedSkillsMessage,
+} from "@/components/bui/skill-proposal-card";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { PanelRightIcon } from "@hugeicons/core-free-icons";
 import {
@@ -30,7 +35,7 @@ import {
   type PromptBarMessage,
 } from "@/components/bui/prompt-bar";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
-import { SkillChips, SkillSlashTextarea } from "@/components/skill-slash-menu";
+import { SkillSlashTextarea } from "@/components/skill-slash-menu";
 import { AlertTriangleIcon } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
@@ -59,6 +64,7 @@ export default function ChatPage({
     observationByCall,
     lastUnresolvedAction,
     pendingQuestion,
+    pendingSkillProposal,
     pendingPlan,
     livePlan,
     lastUserTurnId,
@@ -68,11 +74,9 @@ export default function ChatPage({
   const [input, setInput] = useState("");
   const [model, setModel] = useState<string | null>(null);
   const { data: context } = useConversationContext(id, exists);
-  const [sessionSkills, setSessionSkills] = useState<Skill[]>([]);
-  const [skillsFor, setSkillsFor] = useState(id);
-  if (skillsFor !== id) {
-    setSkillsFor(id);
-    setSessionSkills([]);
+  const [modelFor, setModelFor] = useState(id);
+  if (modelFor !== id) {
+    setModelFor(id);
     setModel(null);
   }
   const queryClient = useQueryClient();
@@ -89,6 +93,10 @@ export default function ChatPage({
     status !== "running";
 
   const showBuild = !!pendingPlan && status !== "running";
+
+  const showSkills = !!pendingSkillProposal && status !== "running";
+
+  const repo = conversation?.repo ?? null;
 
   const openFile = useCallback((path: string) => {
     setSelectedPath(path);
@@ -123,23 +131,48 @@ export default function ChatPage({
     [optimisticRun, id],
   );
 
-  async function submit(text: string, restoreInput: boolean) {
-    lastSentText.current = text;
-    const prev = status;
-    setStatus("running");
-    try {
-      await sendMessage({
-        conversationId: id,
-        clientEventId: crypto.randomUUID(),
-        text,
-        model: model ?? undefined,
-      }).isPersisted.promise;
-    } catch (e) {
-      if (restoreInput) setInput(text);
-      setStatus(prev);
-      toast.error(messageFor(e));
-    }
-  }
+  const submit = useCallback(
+    async (text: string, restoreInput: boolean) => {
+      lastSentText.current = text;
+      const prev = status;
+      setStatus("running");
+      try {
+        await sendMessage({
+          conversationId: id,
+          clientEventId: crypto.randomUUID(),
+          text,
+          model: model ?? undefined,
+        }).isPersisted.promise;
+      } catch (e) {
+        if (restoreInput) setInput(text);
+        setStatus(prev);
+        toast.error(messageFor(e));
+      }
+    },
+    [id, model, status, setStatus],
+  );
+
+  const installSkill = useCallback(
+    (skill: ProposedSkill) => {
+      if (!repo) return Promise.reject(new Error("This chat has no repository."));
+      return api.installSkill({
+        source: skill.source,
+        skill_id: skill.skill_id,
+        repo,
+      });
+    },
+    [repo],
+  );
+  const includeSkills = useCallback(
+    (names: string[]) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.skills });
+      if (!busy) void submit(includedSkillsMessage(names), false);
+    },
+    [queryClient, busy, submit],
+  );
+  const skipSkills = useCallback(() => {
+    if (!busy) void submit(SKIPPED_SKILLS_MESSAGE, false);
+  }, [busy, submit]);
 
   async function sendAnswer(text: string) {
     if (busy) return;
@@ -151,21 +184,6 @@ export default function ChatPage({
     // Restore the prompt right away; the turn is trimmed once status settles.
     if (lastSentText.current) setInput(lastSentText.current);
     stopRun();
-  }
-
-  async function toggleSkill(skill: Skill, enabled: boolean) {
-    try {
-      await api.setConversationSkill(id, skill.id, enabled);
-      setSessionSkills((prev) =>
-        enabled ? [...prev, skill] : prev.filter((s) => s.id !== skill.id),
-      );
-      queryClient.invalidateQueries({ queryKey: ["conversation-skills", id] });
-      toast.success(
-        enabled ? `Enabled “${skill.name}”` : `Disabled “${skill.name}”`,
-      );
-    } catch (e) {
-      toast.error(messageFor(e));
-    }
   }
 
   async function send(message: PromptBarMessage) {
@@ -236,11 +254,16 @@ export default function ChatPage({
                 pendingId={waiting ? lastUnresolvedAction?.id : undefined}
                 pendingQuestionId={showQuestion ? pendingQuestion?.id : undefined}
                 pendingPlanId={showBuild ? pendingPlan?.id : undefined}
+                pendingSkillsId={showSkills ? pendingSkillProposal?.id : undefined}
+                repo={repo}
                 livePlan={livePlan}
                 onBuild={approvePlan}
                 onApprove={approveAction}
                 onReject={rejectAction}
                 onSelectFile={openFile}
+                onInstallSkill={installSkill}
+                onIncludeSkills={includeSkills}
+                onSkipSkills={skipSkills}
               />
               <ConversationScrollAnchor turnKey={lastUserTurnId} />
             </ConversationContent>
@@ -287,21 +310,15 @@ export default function ChatPage({
           )}
 
           <PromptBar onSubmit={send} className="mt-3">
-            <SkillChips
-              skills={sessionSkills}
-              onRemove={(skill) => void toggleSkill(skill, false)}
-            />
             <SkillSlashTextarea
               value={input}
               onValueChange={setInput}
-              excludeIds={sessionSkills.map((s) => s.id)}
-              onPickSkill={(skill) => void toggleSkill(skill, true)}
               placeholder={
                 waiting
                   ? "Approve or reject the action above…"
-                  : showQuestion
+                  : showQuestion || showSkills
                     ? "Or reply directly…"
-                    : "Send a message, / for skills…"
+                    : "Send a message, / for commands…"
               }
               disabled={busy}
             />

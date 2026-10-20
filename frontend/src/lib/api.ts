@@ -44,7 +44,6 @@ export type CreateConversationBody = {
   sandbox_provider?: string | null;
   model?: string | null;
   initial_message?: string | null;
-  skill_ids?: string[];
 };
 
 export type ConversationStatus =
@@ -141,7 +140,18 @@ export type Skill = {
   name: string;
   description: string;
   source_url: string | null;
+  registry_id: string | null;
+  repos: string[];
   created_at: string | null;
+};
+
+export type SkillHit = {
+  id: string;
+  source: string;
+  skill_id: string;
+  name: string;
+  installs: number;
+  description: string;
 };
 
 export type McpConnection = {
@@ -318,23 +328,21 @@ export const api = {
 
   skills: () => request<Skill[]>("/skills"),
 
-  createSkill: (body: { name: string; description: string; body: string }) =>
-    post<Skill>("/skills", body),
+  searchSkills: (q: string) =>
+    request<SkillHit[]>(`/skills/search?q=${encodeURIComponent(q)}`),
 
-  importSkill: (url: string) => post<Skill>("/skills/import", { url }),
+  installSkill: (body: { source: string; skill_id: string; repo: string }) =>
+    post<Skill>("/skills/install", body),
+
+  setSkillRepo: (id: string, repo: string, enabled: boolean) =>
+    request<Skill>(`/skills/${id}/repos`, {
+      method: "PUT",
+      headers: jsonHeaders,
+      body: JSON.stringify({ repo, enabled }),
+    }),
 
   deleteSkill: (id: string) =>
     request<{ deleted: string }>(`/skills/${id}`, { method: "DELETE" }),
-
-  conversationSkills: (id: string) =>
-    request<EnabledItem[]>(`/conversations/${id}/skills`),
-
-  setConversationSkill: (id: string, skillId: string, enabled: boolean) =>
-    request<EnabledItem>(`/conversations/${id}/skills/${skillId}`, {
-      method: "PUT",
-      headers: jsonHeaders,
-      body: JSON.stringify({ enabled }),
-    }),
 
   mcpConnections: () => request<McpConnection[]>("/mcp/connections"),
 

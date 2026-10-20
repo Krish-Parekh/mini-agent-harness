@@ -381,6 +381,95 @@ Load the full text of a skill the user enabled for this conversation. The runtim
 }
 ```
 
+## `find_skills`
+
+Search skills.sh for skills (reusable agent playbooks) matching a query. Returns each hit as source/skill_id with its install count and description. Follow up with `propose_skills`; never install skills yourself.
+
+```json
+{
+  "properties": {
+    "query": {
+      "description": "What the skills should help with, e.g. 'react testing'.",
+      "title": "Query",
+      "type": "string"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "title": "FindSkillsAction",
+  "type": "object"
+}
+```
+
+## `propose_skills`
+
+Offer 1-5 skills from `find_skills` results to the user, who picks which to include in this project. Propose only genuinely relevant hits. Calling this pauses the turn until the user replies.
+
+```json
+{
+  "$defs": {
+    "ProposedSkill": {
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "installs": {
+          "default": 0,
+          "title": "Installs",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "skill_id": {
+          "description": "The skill id from find_skills.",
+          "title": "Skill Id",
+          "type": "string"
+        },
+        "source": {
+          "description": "GitHub repo of the skill, e.g. 'vercel-labs/agent-skills'.",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "skill_id",
+        "name"
+      ],
+      "title": "ProposedSkill",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "reason": {
+      "description": "One sentence on why these skills fit the project.",
+      "title": "Reason",
+      "type": "string"
+    },
+    "skills": {
+      "items": {
+        "$ref": "#/$defs/ProposedSkill"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "title": "Skills",
+      "type": "array"
+    }
+  },
+  "required": [
+    "skills",
+    "reason"
+  ],
+  "title": "ProposeSkillsAction",
+  "type": "object"
+}
+```
+
 ## `web_search`
 
 Search the public web with Tavily and return titles, URLs, and snippets. Use this for documentation, API references, changelogs, error messages, and other information outside the workspace. Prefer `web_research` when you need a broader investigation with follow-up fetches.

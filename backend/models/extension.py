@@ -13,7 +13,10 @@ from backend.core.db import Base
 class SkillRow(Base):
 
     __tablename__ = "skills"
-    __table_args__ = (UniqueConstraint("user_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "name"),
+        UniqueConstraint("user_id", "registry_id"),
+    )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -23,6 +26,7 @@ class SkillRow(Base):
     description: Mapped[str] = mapped_column(Text, server_default="")
     body: Mapped[str] = mapped_column(Text)
     source_url: Mapped[str | None] = mapped_column(Text)
+    registry_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()
@@ -52,6 +56,22 @@ class ConversationSkillRow(Base):
     conversation_id: Mapped[str] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"), primary_key=True
     )
+    skill_id: Mapped[str] = mapped_column(
+        ForeignKey("skills.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class RepoSkillRow(Base):
+
+    __tablename__ = "repo_skills"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    repo: Mapped[str] = mapped_column(Text, primary_key=True)
     skill_id: Mapped[str] = mapped_column(
         ForeignKey("skills.id", ondelete="CASCADE"), primary_key=True
     )

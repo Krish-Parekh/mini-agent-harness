@@ -52,7 +52,7 @@ export const SETTINGS_SECTIONS = [
     href: "/settings/skills",
     title: "Skills",
     icon: SparklesIcon,
-    keywords: "playbooks import upload markdown slash",
+    keywords: "playbooks skills.sh find-skill projects repos slash",
   },
   {
     href: "/settings/mcp",

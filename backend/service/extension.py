@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import asyncio
+import re
 import uuid
+from urllib.parse import quote
 
 import httpx
-from sqlalchemy.exc import IntegrityError
 
 from backend.models import McpConnectionRow, SkillRow
-from backend.repository import McpConnectionRepository, SkillRepository
+from backend.repository import (
+    GitHubConnectionRepository,
+    McpConnectionRepository,
+    SkillRepository,
+)
 from backend.runtime import mcp as mcp_client
+from miniagent import skills_registry
+from miniagent.skills_registry import SkillHit
 
 MAX_SKILL_BYTES = 256 * 1024
 IMPORT_TIMEOUT = 10.0
@@ -16,6 +24,12 @@ ALLOWED_PREFIXES = ("text/", "application/json")
 SKILL_CATALOG_BUDGET_CHARS = 2_000
 SKILL_DESCRIPTION_MAX_CHARS = 200
 MCP_INSTRUCTIONS_MAX_CHARS = 1_000
+MAX_SKILL_CANDIDATES = 10
+GITHUB_API = "https://api.github.com"
+RAW_GITHUB = "https://raw.githubusercontent.com"
+
+_REPO_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+_SKILL_ID = re.compile(r"[A-Za-z0-9_.:@-]+")
 
 
 class ImportError_(Exception):
@@ -74,9 +88,33 @@ def describe_skill(body: str) -> str:
     return ""
 
 
-def _name_from_url(url: str) -> str:
-    tail = url.rstrip("/").rsplit("/", 1)[-1] or "imported-skill"
-    return tail.removesuffix(".md")[:80]
+def _valid_repo(name: str) -> bool:
+    return bool(_REPO_NAME.fullmatch(name)) and ".." not in name
+
+
+def _github_headers(token: str | None) -> dict[str, str]:
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _candidate_paths(tree: list[dict], skill_id: str) -> tuple[str | None, list[str]]:
+    paths = [
+        item["path"]
+        for item in tree
+        if item.get("type") == "blob"
+        and (item.get("path") == "SKILL.md" or item.get("path", "").endswith("/SKILL.md"))
+    ]
+    for path in paths:
+        if path == f"{skill_id}/SKILL.md" or path.endswith(f"/{skill_id}/SKILL.md"):
+            return path, []
+
+    def rank(path: str) -> tuple[int, bool, str]:
+        folder = path.rsplit("/", 2)[-2] if "/" in path else ""
+        return path.count("/"), not (folder and folder in skill_id), path
+
+    return None, sorted(paths, key=rank)[:MAX_SKILL_CANDIDATES]
 
 
 class SkillService:
@@ -84,61 +122,88 @@ class SkillService:
     def __init__(
         self,
         skills: SkillRepository,
+        connections: GitHubConnectionRepository | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._skills = skills
+        self._connections = connections
         self._transport = transport
 
-    async def import_from_url(self, user_id: uuid.UUID, url: str) -> SkillRow:
-        if not url.lower().startswith("https://"):
-            raise ImportError_("Only https:// URLs can be imported.")
+    async def search(self, query: str) -> list[SkillHit]:
+        try:
+            return await asyncio.to_thread(skills_registry.search, query)
+        except skills_registry.RegistryError as exc:
+            raise ImportError_(str(exc)) from None
 
+    async def install(
+        self, user_id: uuid.UUID, source: str, skill_id: str, repo: str
+    ) -> SkillRow:
+        if not (_valid_repo(source) and _valid_repo(repo)):
+            raise ImportError_("Repositories must look like owner/name.")
+        if not _SKILL_ID.fullmatch(skill_id):
+            raise ImportError_(f"Invalid skill id: {skill_id}.")
+        token = (
+            await self._connections.token_for(user_id) if self._connections else None
+        )
         try:
             async with httpx.AsyncClient(
                 timeout=IMPORT_TIMEOUT,
                 follow_redirects=True,
                 max_redirects=MAX_REDIRECTS,
                 transport=self._transport,
+                headers=_github_headers(token),
             ) as client:
-                async with client.stream("GET", url) as response:
-                    _check_response(response)
-                    body = await _read_capped(response)
+                body = await self._find_skill_body(client, source, skill_id)
         except httpx.HTTPError as exc:
-            raise ImportError_(f"Could not fetch the URL: {exc}") from exc
+            raise ImportError_(f"Could not fetch the skill: {exc}") from exc
 
-        text = body.decode("utf-8", errors="replace")
-        return await self._save(
+        registry_id = f"{source}/{skill_id}"
+        name = _frontmatter(body).get("name") or skill_id
+        owned = await self._skills.list_for_user(user_id)
+        if any(r.name == name and r.registry_id != registry_id for r in owned):
+            name = registry_id
+        row = await self._skills.upsert_registry(
             user_id=user_id,
-            name=_frontmatter(text).get("name") or _name_from_url(url),
-            description=describe_skill(text),
-            body=text,
-            source_url=url,
-        )
-
-    async def create(
-        self, user_id: uuid.UUID, name: str, description: str, body: str
-    ) -> SkillRow:
-        if len(body.encode()) > MAX_SKILL_BYTES:
-            raise ImportError_("The skill is larger than 256 KB.")
-        return await self._save(
-            user_id=user_id,
-            name=_frontmatter(body).get("name") or name,
-            description=description.strip() or describe_skill(body),
+            registry_id=registry_id,
+            name=name,
+            description=describe_skill(body),
             body=body,
+            source_url=skills_registry.page_url(registry_id),
         )
+        await self._skills.set_repo_enabled(user_id, repo, row.id, True)
+        return row
 
-    async def _save(self, **fields) -> SkillRow:
-        try:
-            return await self._skills.create(**fields)
-        except IntegrityError:
+    async def _find_skill_body(
+        self, client: httpx.AsyncClient, source: str, skill_id: str
+    ) -> str:
+        response = await client.get(
+            f"{GITHUB_API}/repos/{source}/git/trees/HEAD", params={"recursive": "1"}
+        )
+        if response.status_code >= 400:
             raise ImportError_(
-                f"A skill named '{fields['name']}' already exists."
-            ) from None
+                f"GitHub returned HTTP {response.status_code} for {source}."
+            )
+        path, candidates = _candidate_paths(response.json().get("tree") or [], skill_id)
+        if path is not None:
+            return await self._fetch_raw(client, source, path)
+        for candidate in candidates:
+            body = await self._fetch_raw(client, source, candidate)
+            if _frontmatter(body).get("name") == skill_id:
+                return body
+        raise ImportError_(f"Couldn't find SKILL.md for {skill_id} in {source}")
+
+    @staticmethod
+    async def _fetch_raw(client: httpx.AsyncClient, source: str, path: str) -> str:
+        url = f"{RAW_GITHUB}/{source}/HEAD/{quote(path)}"
+        async with client.stream("GET", url) as response:
+            _check_response(response)
+            body = await _read_capped(response)
+        return body.decode("utf-8", errors="replace")
 
     async def enabled_catalog(
-        self, cid: str
+        self, cid: str, user_id: uuid.UUID | None = None, repo: str | None = None
     ) -> tuple[list[SkillRow], list[SkillRow]]:
-        enabled = await self._skills.enabled_for_conversation(cid)
+        enabled = await self._skills.enabled_for_conversation(cid, user_id, repo)
         included: list[SkillRow] = []
         skipped: list[SkillRow] = []
         used = 0

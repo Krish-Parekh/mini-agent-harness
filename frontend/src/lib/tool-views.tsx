@@ -7,6 +7,7 @@ import {
   FilePlusIcon,
   GlobeIcon,
   ListChecksIcon,
+  LibraryIcon,
   NetworkIcon,
   SearchIcon,
   TerminalIcon,
@@ -14,7 +15,9 @@ import {
 import { diffLines } from "diff";
 import type { ActionEvent, ObservationEvent } from "@/lib/events";
 import { SourceList, type Source, uniqueSources } from "@/components/bui/chat-message";
+import { formatInstalls } from "@/components/bui/skill-proposal-card";
 import type { DiffStat } from "@/components/bui/tool-chips";
+import { ValuePill } from "@/components/bui/value-pill";
 import { cn } from "@/lib/utils";
 
 export type FileChange = {
@@ -149,6 +152,17 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
     target: String(a.url ?? ""),
     mono: true,
   }),
+  skill: (a) => ({
+    icon: LibraryIcon,
+    verb: "Use skill",
+    target: String(a.name ?? ""),
+    mono: true,
+  }),
+  find_skills: (a) => ({
+    icon: SearchIcon,
+    verb: "Search skills.sh",
+    target: String(a.query ?? ""),
+  }),
   web_research: (a) => ({
     icon: SearchIcon,
     verb: "Web research",
@@ -174,10 +188,58 @@ export function observationSources(toolName: string, obs: ObservationEvent): Sou
   return uniqueSources(results);
 }
 
+type SkillSearchHit = { id: string; installs: number; description: string };
+
+const SKILL_HIT = /^- (\S+) \(([\d,]+) installs?\):?\s*(.*)$/;
+
+function parseSkillHits(content: string): SkillSearchHit[] {
+  const hits: SkillSearchHit[] = [];
+  for (const line of content.split("\n")) {
+    const match = SKILL_HIT.exec(line.trim());
+    if (match) {
+      hits.push({
+        id: match[1],
+        installs: Number(match[2].replace(/,/g, "")),
+        description: match[3].trim(),
+      });
+    }
+  }
+  return hits;
+}
+
+function SkillHitList({ content }: { content: string }) {
+  const hits = parseSkillHits(content);
+  if (hits.length === 0) {
+    return <p className="text-[12px] text-ink-3">{content.trim() || "No skills found."}</p>;
+  }
+  return (
+    <ScrollablePreview>
+      <ul className="flex flex-col gap-1.5">
+        {hits.map((hit) => (
+          <li key={hit.id} className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-mono text-[12px] text-ink">{hit.id}</span>
+              <ValuePill className="shrink-0">{formatInstalls(hit.installs)}</ValuePill>
+            </span>
+            {hit.description && (
+              <span className="line-clamp-2 text-[12px] leading-snug text-ink-3">
+                {hit.description}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </ScrollablePreview>
+  );
+}
+
 export function toolObservationDetail(
   toolName: string,
   obs: ObservationEvent,
 ): ReactNode | undefined {
+  if (toolName === "find_skills") {
+    return obs.error ? undefined : <SkillHitList content={obs.content ?? ""} />;
+  }
   const sources = observationSources(toolName, obs);
   if (sources.length === 0) return undefined;
   return <SourceList sources={sources} />;

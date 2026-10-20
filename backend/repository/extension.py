@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from backend.models import (
     ConversationMcpRow,
     ConversationSkillRow,
     McpConnectionRow,
+    RepoSkillRow,
     SkillRow,
 )
 
@@ -31,28 +33,65 @@ class SkillRepository:
             )
             return list(result.scalars().all())
 
-    async def create(
+    async def upsert_registry(
         self,
         *,
         user_id: uuid.UUID,
+        registry_id: str,
         name: str,
         description: str,
         body: str,
-        source_url: str | None = None,
+        source_url: str,
     ) -> SkillRow:
-        row = SkillRow(
-            id=_new_id(),
-            user_id=user_id,
-            name=name,
-            description=description,
-            body=body,
-            source_url=source_url,
+        fields = dict(
+            name=name, description=description, body=body, source_url=source_url
         )
         async with self._sessionmaker() as sess:
-            sess.add(row)
+            skill_id = await sess.scalar(
+                pg_insert(SkillRow)
+                .values(id=_new_id(), user_id=user_id, registry_id=registry_id, **fields)
+                .on_conflict_do_update(
+                    index_elements=[SkillRow.user_id, SkillRow.registry_id],
+                    set_=dict(**fields, updated_at=func.now()),
+                )
+                .returning(SkillRow.id)
+            )
             await sess.commit()
-            await sess.refresh(row)
+            row = await sess.get(SkillRow, skill_id)
+            assert row is not None
             return row
+
+    async def repos_by_skill(self, user_id: uuid.UUID) -> dict[str, list[str]]:
+        async with self._sessionmaker() as sess:
+            result = await sess.execute(
+                select(RepoSkillRow.skill_id, RepoSkillRow.repo)
+                .where(RepoSkillRow.user_id == user_id)
+                .order_by(RepoSkillRow.repo)
+            )
+            repos: dict[str, list[str]] = {}
+            for skill_id, repo in result.all():
+                repos.setdefault(skill_id, []).append(repo)
+            return repos
+
+    async def set_repo_enabled(
+        self, user_id: uuid.UUID, repo: str, skill_id: str, enabled: bool
+    ) -> None:
+        async with self._sessionmaker() as sess:
+            if enabled:
+                await sess.execute(
+                    pg_insert(RepoSkillRow)
+                    .values(user_id=user_id, repo=repo, skill_id=skill_id)
+                    .on_conflict_do_nothing()
+                )
+            else:
+                await sess.execute(
+                    delete(RepoSkillRow).where(
+                        RepoSkillRow.user_id == user_id,
+                        RepoSkillRow.repo == repo,
+                        RepoSkillRow.skill_id == skill_id,
+                    )
+                )
+            await sess.commit()
 
     async def get(self, skill_id: str, user_id: uuid.UUID) -> SkillRow | None:
         async with self._sessionmaker() as sess:
@@ -68,7 +107,9 @@ class SkillRepository:
             await sess.commit()
             return True
 
-    async def enabled_for_conversation(self, cid: str) -> list[SkillRow]:
+    async def enabled_for_conversation(
+        self, cid: str, user_id: uuid.UUID | None = None, repo: str | None = None
+    ) -> list[SkillRow]:
         async with self._sessionmaker() as sess:
             result = await sess.execute(
                 select(SkillRow)
@@ -79,7 +120,16 @@ class SkillRepository:
                 .where(ConversationSkillRow.conversation_id == cid)
                 .order_by(ConversationSkillRow.created_at)
             )
-            return list(result.scalars().all())
+            rows = list(result.scalars().all())
+            if user_id is not None and repo:
+                result = await sess.execute(
+                    select(SkillRow)
+                    .join(RepoSkillRow, RepoSkillRow.skill_id == SkillRow.id)
+                    .where(RepoSkillRow.user_id == user_id, RepoSkillRow.repo == repo)
+                    .order_by(RepoSkillRow.created_at, SkillRow.name)
+                )
+                rows += result.scalars().all()
+        return list({row.id: row for row in rows}.values())
 
     async def set_enabled(self, cid: str, skill_id: str, enabled: bool) -> None:
         async with self._sessionmaker() as sess:

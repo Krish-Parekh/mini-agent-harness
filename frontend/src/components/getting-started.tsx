@@ -6,11 +6,7 @@ import Link from "next/link";
 
 import { useAuth } from "@/app/providers";
 import { requestComposerFocus } from "@/lib/composer-selection";
-import {
-  useConversations,
-  useMcpConnections,
-  useSkills,
-} from "@/lib/queries";
+import { useConversations } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 type Step = {
@@ -23,10 +19,8 @@ type Step = {
 export function GettingStarted() {
   const { auth, signIn } = useAuth();
   const { data: conversations } = useConversations();
-  const { data: skills } = useSkills();
-  const { data: mcp } = useMcpConnections();
 
-  if (!conversations || !skills || !mcp) return null;
+  if (!conversations) return null;
 
   const steps: Step[] = [
     {
@@ -39,11 +33,6 @@ export function GettingStarted() {
       done: conversations.length > 0,
       href: "/",
       onClick: requestComposerFocus,
-    },
-    {
-      label: "Add a skill or MCP server",
-      done: skills.length > 0 || mcp.length > 0,
-      href: "/settings/skills",
     },
   ];
   const completed = steps.filter((s) => s.done).length;

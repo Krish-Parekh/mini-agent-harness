@@ -3,6 +3,7 @@ from backend.models.extension import (
     ConversationMcpRow,
     ConversationSkillRow,
     McpConnectionRow,
+    RepoSkillRow,
     SkillRow,
 )
 from backend.models.user import GitHubConnectionRow, UserRow
@@ -14,6 +15,7 @@ __all__ = [
     "EventRow",
     "GitHubConnectionRow",
     "McpConnectionRow",
+    "RepoSkillRow",
     "SkillRow",
     "UserRow",
 ]

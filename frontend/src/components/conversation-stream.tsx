@@ -34,6 +34,13 @@ import {
   uniqueSources,
 } from "@/components/bui/chat-message";
 import { LoadingState } from "@/components/bui/loading-state";
+import {
+  type ProposedSkill,
+  SkillProposalCard,
+  type SkillProposalOutcome,
+  SkillProposalSummary,
+  skillReplyOutcome,
+} from "@/components/bui/skill-proposal-card";
 import { Markdown } from "@/components/bui/markdown";
 import { TaskBadge, TaskList, TaskRow, type TaskStatus } from "@/components/bui/task-rows";
 import { DiffChips, type DiffStat, ToolRow, ToolRun } from "@/components/bui/tool-chips";
@@ -120,7 +127,8 @@ function stepTiming(
   if (
     action.tool_name === "bash" ||
     action.tool_name === "web_search" ||
-    action.tool_name === "fetch_url"
+    action.tool_name === "fetch_url" ||
+    action.tool_name === "find_skills"
   ) {
     if (running) return `Running ${formatElapsed(elapsedMs)}`;
     if (!obs) return undefined;
@@ -510,7 +518,18 @@ type Group =
   | { kind: "error"; event: AgentEvent }
   | { kind: "plan"; event: ActionEvent }
   | { kind: "questions"; event: ActionEvent }
+  | { kind: "skills"; event: ActionEvent }
   | { kind: "actions"; actions: ActionEvent[] };
+
+function skillProposalOutcome(groups: Group[], afterIndex: number): SkillProposalOutcome | undefined {
+  for (let i = afterIndex + 1; i < groups.length; i++) {
+    const group = groups[i];
+    if (group.kind === "message" && group.event.role === "user") {
+      return skillReplyOutcome(group.event.text ?? "");
+    }
+  }
+  return undefined;
+}
 
 function finishText(action: ActionEvent, obs?: AgentEvent): string | null {
   if (obs?.error) return null;
@@ -643,6 +662,9 @@ function groupEvents(events: AgentEvent[]): Group[] {
     } else if (isAction(ev) && ev.tool_name === "ask_user") {
       chain = null;
       groups.push({ kind: "questions", event: ev as ActionEvent });
+    } else if (isAction(ev) && ev.tool_name === "propose_skills") {
+      chain = null;
+      groups.push({ kind: "skills", event: ev as ActionEvent });
     } else if (isAction(ev)) {
       if (!chain) {
         chain = [];
@@ -667,11 +689,16 @@ export type ConversationTimelineProps = {
   pendingId?: string;
   pendingQuestionId?: string;
   pendingPlanId?: string;
+  pendingSkillsId?: string;
+  repo?: string | null;
   livePlan?: { planId: string; steps: PlanStep[] };
   onApprove: () => void;
   onReject: () => void;
   onBuild?: () => void;
   onSelectFile?: (path: string) => void;
+  onInstallSkill?: (skill: ProposedSkill) => Promise<{ name: string }>;
+  onIncludeSkills?: (names: string[]) => void;
+  onSkipSkills?: () => void;
 };
 
 export const ConversationTimeline = memo(function ConversationTimeline({
@@ -681,11 +708,16 @@ export const ConversationTimeline = memo(function ConversationTimeline({
   pendingId,
   pendingQuestionId,
   pendingPlanId,
+  pendingSkillsId,
+  repo,
   livePlan,
   onApprove,
   onReject,
   onBuild,
   onSelectFile,
+  onInstallSkill,
+  onIncludeSkills,
+  onSkipSkills,
 }: ConversationTimelineProps) {
   const groups = useMemo(() => groupEvents(events), [events]);
   const fanoutWorkersByCall = useMemo(() => buildFanoutWorkerMap(events), [events]);
@@ -749,6 +781,34 @@ export const ConversationTimeline = memo(function ConversationTimeline({
     if (group.kind === "questions") {
       if (group.event.id === pendingQuestionId) return null;
       return <QuestionsSummary key={group.event.id} ev={group.event} />;
+    }
+    if (group.kind === "skills") {
+      const skills = (group.event.arguments?.skills as ProposedSkill[] | undefined) ?? [];
+      if (
+        group.event.id === pendingSkillsId &&
+        onInstallSkill &&
+        onIncludeSkills &&
+        onSkipSkills
+      ) {
+        return (
+          <SkillProposalCard
+            key={group.event.id}
+            repo={repo ?? null}
+            reason={String(group.event.arguments?.reason ?? "").trim() || undefined}
+            skills={skills}
+            onInstall={onInstallSkill}
+            onInclude={onIncludeSkills}
+            onSkip={onSkipSkills}
+          />
+        );
+      }
+      return (
+        <SkillProposalSummary
+          key={group.event.id}
+          skills={skills}
+          outcome={skillProposalOutcome(groups, i)}
+        />
+      );
     }
     if (group.kind === "error") {
       return <ErrorRow key={group.event.id} message={group.event.message} />;

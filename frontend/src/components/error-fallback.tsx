@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { FailureReference } from "@/components/context-panel";
 import {
   Empty,
   EmptyContent,
@@ -14,6 +13,49 @@ import {
 } from "@/components/ui/empty";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon } from "@hugeicons/core-free-icons";
+
+import { cn } from "@/lib/utils";
+
+function FailureReference({
+  conversationId,
+  traceId,
+  className,
+}: {
+  conversationId: string;
+  traceId?: string | null;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const reference = traceId
+    ? `conversation=${conversationId} trace=${traceId}`
+    : `conversation=${conversationId}`;
+
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      <p className="text-xs text-muted-foreground">Reference</p>
+      <code className="block break-all rounded-md bg-muted/60 p-2 text-xs">
+        {reference}
+      </code>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          navigator.clipboard
+            .writeText(reference)
+            .then(() => setCopied(true))
+            .catch(() => setCopied(false));
+        }}
+      >
+        {copied ? "Copied" : "Copy reference"}
+      </Button>
+      {!traceId && (
+        <p className="text-xs text-muted-foreground">
+          No trace recorded. Tracing was not configured for this run.
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function ErrorFallback({
   error,

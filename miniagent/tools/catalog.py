@@ -8,6 +8,7 @@ from miniagent.tools.base import to_openai_schema
 from miniagent.tools.bash import BashTool
 from miniagent.tools.fanout import FanoutTool
 from miniagent.tools.fetch_url import FetchUrlTool
+from miniagent.tools.find_skills import FindSkillsTool, ProposeSkillsTool
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.plan import PresentPlanTool, UpdatePlanTool
@@ -26,6 +27,8 @@ TOOLS = (
     AskUserTool,
     FanoutTool,
     SkillTool,
+    FindSkillsTool,
+    ProposeSkillsTool,
     WebSearchTool,
     FetchUrlTool,
     WebResearchTool,

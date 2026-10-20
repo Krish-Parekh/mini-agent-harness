@@ -569,7 +569,7 @@ class Agent:
             sections.append(IMPLEMENT_PLAN_DIRECTIVE.strip())
         if self.skills_block:
             sections.append(
-                "# Skills\nPlaybooks the user enabled for this conversation. "
+                "# Skills\nPlaybooks the user enabled for this project. "
                 "Before a task one applies to, load it with the `skill` tool and "
                 "follow it.\n" + self.skills_block
             )
@@ -820,7 +820,7 @@ class Agent:
             conversation.implementing_plan = False
             conversation.set_idle()
             return True
-        if call.name == "ask_user":
+        if call.name in ("ask_user", "propose_skills"):
             # Soft pause for the user's answer; stay in plan mode if we were in it
             # so the planning flow resumes after they reply.
             conversation.set_idle()

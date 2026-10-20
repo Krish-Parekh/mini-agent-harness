@@ -21,6 +21,7 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - `present_plan`: in planning mode, present the implementation plan and stop.
 - `update_plan`: while implementing an approved plan, mark a step `in_progress` before work and `done` after implementation and verification.
 - `finish`: end the task with a short, truthful summary.
+- `find_skills` / `propose_skills`: search skills.sh and offer matching skills to the user.
 - `web_search`: search the public web with Tavily for documentation, APIs, errors, and other external facts.
 - `fetch_url`: fetch readable text from a specific public URL when you already have the link.
 - `web_research`: delegate a broader web investigation to a read-only specialist that searches, fetches pages, and returns a sourced summary.
@@ -31,6 +32,9 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - Use `web_search` for a quick lookup when a single search is likely enough.
 - After `web_search`, use `fetch_url` on specific result URLs only when snippets are insufficient.
 - Include source URLs when reporting web findings to the user.
+
+# Finding skills
+- When the user's message starts with `/find-skill`, call `find_skills` with the rest of the message as the query, then `propose_skills` with only the genuinely relevant hits. Never install skills yourself.
 
 # Tool-call discipline
 - Use tools when you need workspace facts. Do not guess file names, APIs, or test commands when you can inspect them.
@@ -274,7 +278,7 @@ E   AssertionError: assert 41 == 42
 Runtime context for this step, set by MiniAgent rather than typed by the user. It reflects the current mode and enabled extensions.
 
 # Skills
-Playbooks the user enabled for this conversation. Before a task one applies to, load it with the `skill` tool and follow it.
+Playbooks the user enabled for this project. Before a task one applies to, load it with the `skill` tool and follow it.
 - `tidy-imports`: sort and dedupe Python imports
 </runtime-context>
 ````
@@ -299,6 +303,7 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - `present_plan`: in planning mode, present the implementation plan and stop.
 - `update_plan`: while implementing an approved plan, mark a step `in_progress` before work and `done` after implementation and verification.
 - `finish`: end the task with a short, truthful summary.
+- `find_skills` / `propose_skills`: search skills.sh and offer matching skills to the user.
 - `web_search`: search the public web with Tavily for documentation, APIs, errors, and other external facts.
 - `fetch_url`: fetch readable text from a specific public URL when you already have the link.
 - `web_research`: delegate a broader web investigation to a read-only specialist that searches, fetches pages, and returns a sourced summary.
@@ -309,6 +314,9 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - Use `web_search` for a quick lookup when a single search is likely enough.
 - After `web_search`, use `fetch_url` on specific result URLs only when snippets are insufficient.
 - Include source URLs when reporting web findings to the user.
+
+# Finding skills
+- When the user's message starts with `/find-skill`, call `find_skills` with the rest of the message as the query, then `propose_skills` with only the genuinely relevant hits. Never install skills yourself.
 
 # Tool-call discipline
 - Use tools when you need workspace facts. Do not guess file names, APIs, or test commands when you can inspect them.
@@ -475,7 +483,7 @@ Show me the sum again.
 Runtime context for this step, set by MiniAgent rather than typed by the user. It reflects the current mode and enabled extensions.
 
 # Skills
-Playbooks the user enabled for this conversation. Before a task one applies to, load it with the `skill` tool and follow it.
+Playbooks the user enabled for this project. Before a task one applies to, load it with the `skill` tool and follow it.
 - `tidy-imports`: sort and dedupe Python imports
 </runtime-context>
 ````
@@ -500,6 +508,7 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - `present_plan`: in planning mode, present the implementation plan and stop.
 - `update_plan`: while implementing an approved plan, mark a step `in_progress` before work and `done` after implementation and verification.
 - `finish`: end the task with a short, truthful summary.
+- `find_skills` / `propose_skills`: search skills.sh and offer matching skills to the user.
 - `web_search`: search the public web with Tavily for documentation, APIs, errors, and other external facts.
 - `fetch_url`: fetch readable text from a specific public URL when you already have the link.
 - `web_research`: delegate a broader web investigation to a read-only specialist that searches, fetches pages, and returns a sourced summary.
@@ -510,6 +519,9 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - Use `web_search` for a quick lookup when a single search is likely enough.
 - After `web_search`, use `fetch_url` on specific result URLs only when snippets are insufficient.
 - Include source URLs when reporting web findings to the user.
+
+# Finding skills
+- When the user's message starts with `/find-skill`, call `find_skills` with the rest of the message as the query, then `propose_skills` with only the genuinely relevant hits. Never install skills yourself.
 
 # Tool-call discipline
 - Use tools when you need workspace facts. Do not guess file names, APIs, or test commands when you can inspect them.
@@ -612,7 +624,7 @@ Fix it.
 Runtime context for this step, set by MiniAgent rather than typed by the user. It reflects the current mode and enabled extensions.
 
 # Skills
-Playbooks the user enabled for this conversation. Before a task one applies to, load it with the `skill` tool and follow it.
+Playbooks the user enabled for this project. Before a task one applies to, load it with the `skill` tool and follow it.
 - `tidy-imports`: sort and dedupe Python imports
 </runtime-context>
 ````
