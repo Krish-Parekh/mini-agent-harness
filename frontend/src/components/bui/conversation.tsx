@@ -96,6 +96,7 @@ export const Conversation = ({
   const contentRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const atBottomRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
   const isAnimatingScrollRef = useRef(false);
   const cancelScrollRef = useRef<(() => void) | null>(null);
 
@@ -142,9 +143,14 @@ export const Conversation = ({
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const atBottom = nearBottom(el);
+    const movedUp = el.scrollTop < lastScrollTopRef.current;
+    lastScrollTopRef.current = el.scrollTop;
+    const atBottom = nearBottom(el) || (atBottomRef.current && !movedUp);
     atBottomRef.current = atBottom;
     setIsAtBottom(atBottom);
+    if (atBottom && !nearBottom(el) && !isAnimatingScrollRef.current) {
+      el.scrollTop = scrollBottom(el);
+    }
   }, []);
 
   useEffect(() => {

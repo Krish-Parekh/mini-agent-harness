@@ -1,5 +1,6 @@
 "use client";
 
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Fragment, memo, useMemo, useState } from "react";
 import { CircleAlertIcon, ClipboardListIcon, HammerIcon, Undo2Icon } from "lucide-react";
 import type { AgentEvent, ConversationStatus, PlanStep, StepStatus } from "@/lib/api";
@@ -36,6 +37,7 @@ import {
   uniqueSources,
 } from "@/components/bui/chat-message";
 import { LoadingState } from "@/components/bui/loading-state";
+import { useConversation } from "@/components/bui/conversation";
 import { MessageAttachments } from "@/components/message-attachments";
 import {
   type ProposedSkill,
@@ -606,7 +608,7 @@ function collectReplySources(
   return out;
 }
 
-function MessageRow({
+const MessageRow = memo(function MessageRow({
   ev,
   isLatestUserTurn,
   sources,
@@ -645,7 +647,7 @@ function MessageRow({
   }
 
   return <AssistantMessage text={ev.text ?? ""} sources={sources} />;
-}
+});
 
 function hasAssistantReplyAfterLastUser(groups: Group[]): boolean {
   let lastUserIdx = -1;
@@ -855,24 +857,45 @@ export const ConversationTimeline = memo(function ConversationTimeline({
   };
 
   const firstUserIdx = userTurnStarts[0] ?? groups.length;
+  const segments = [
+    ...(firstUserIdx > 0 ? [{ key: "prelude", start: 0, end: firstUserIdx }] : []),
+    ...userTurnStarts.map((start, t) => ({
+      key: eventKey((groups[start] as { event: MessageEvent }).event),
+      start,
+      end: userTurnStarts[t + 1] ?? groups.length,
+    })),
+  ];
+  const { scrollRef } = useConversation();
+  const virtualizer = useVirtualizer({
+    count: segments.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 480,
+    overscan: 3,
+    getItemKey: (index) => segments[index].key,
+  });
 
   return (
-    <>
-      {groups.slice(0, firstUserIdx).map((group, i) => renderGroup(group, i))}
-      {userTurnStarts.map((start, t) => {
-        const end = userTurnStarts[t + 1] ?? groups.length;
+    <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+      {virtualizer.getVirtualItems().map((item) => {
+        const { start, end } = segments[item.index];
         const isLast = start === lastUserIdx;
         return (
           <div
-            key={eventKey((groups[start] as { event: MessageEvent }).event)}
+            key={item.key}
+            ref={virtualizer.measureElement}
+            data-index={item.index}
             data-active-turn={isLast ? "" : undefined}
-            className={cn("flex flex-col gap-6", isLast && "min-h-[100cqh]")}
+            className={cn(
+              "absolute top-0 left-0 flex w-full flex-col gap-6 pb-6",
+              isLast && "min-h-[100cqh]",
+            )}
+            style={{ transform: `translateY(${item.start}px)` }}
           >
             {groups.slice(start, end).map((group, j) => renderGroup(group, start + j))}
             {isLast && showAssistantStreaming && <AssistantStreamingRow since={runSince} />}
           </div>
         );
       })}
-    </>
+    </div>
   );
 });
