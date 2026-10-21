@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft02Icon,
+  Brain01Icon,
   CpuIcon,
   Github01Icon,
   PlugSocketIcon,
@@ -53,6 +54,12 @@ export const SETTINGS_SECTIONS = [
     title: "Skills",
     icon: SparklesIcon,
     keywords: "playbooks skills.sh find-skill projects repos slash",
+  },
+  {
+    href: "/settings/memory",
+    title: "Memory",
+    icon: Brain01Icon,
+    keywords: "memories remember notes preferences forget",
   },
   {
     href: "/settings/mcp",

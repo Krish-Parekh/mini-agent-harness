@@ -145,6 +145,16 @@ export type Skill = {
   created_at: string | null;
 };
 
+export type Memory = {
+  id: string;
+  repo: string | null;
+  path: string;
+  content: string;
+  conversation_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type SkillHit = {
   id: string;
   source: string;
@@ -343,6 +353,18 @@ export const api = {
 
   deleteSkill: (id: string) =>
     request<{ deleted: string }>(`/skills/${id}`, { method: "DELETE" }),
+
+  memories: () => request<Memory[]>("/memories"),
+
+  updateMemory: (id: string, content: string) =>
+    request<Memory>(`/memories/${id}`, {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify({ content }),
+    }),
+
+  deleteMemory: (id: string) =>
+    request<{ deleted: string }>(`/memories/${id}`, { method: "DELETE" }),
 
   mcpConnections: () => request<McpConnection[]>("/mcp/connections"),
 

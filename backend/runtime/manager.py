@@ -20,9 +20,12 @@ from miniagent.sandbox.base import Sandbox, SandboxError
 from miniagent.sandbox import docker as docker_sandbox
 from miniagent.sandbox.factory import build_sandbox, default_provider, is_host_git
 from miniagent.sandbox.workspace import WorkspaceError, clone_repo
+from backend.repository.memory import MemoryRepository
 from backend.runtime import mcp
+from backend.runtime.memory import DbMemoryStore
 from backend.runtime.workspaces import BRANCH_PREFIX, WorkspaceManager
 from miniagent.tools.mcp import MAX_TOOLS as MAX_MCP_TOOLS, McpTool
+from miniagent.tools.memory import MemoryStore, MemoryTool
 from miniagent.tools.skill import SkillTool
 from miniagent.tools.bash import BashTool
 from miniagent.tools.base import ToolRegistry
@@ -74,6 +77,7 @@ def _build_agent(
     settings: Settings,
     repo: str | None,
     branch: str | None,
+    memory: MemoryStore | None,
 ) -> Agent:
     llm = LLM(
         model=settings.model,
@@ -110,6 +114,8 @@ def _build_agent(
                 WebResearchTool(llm, web_search, fetch_url),
             ]
         )
+    if memory is not None:
+        tool_list.append(MemoryTool(memory))
     tools = ToolRegistry(tool_list)
     return Agent(
         llm=llm,
@@ -117,6 +123,7 @@ def _build_agent(
         repo=repo,
         branch=branch,
         policy=policy,
+        memory=memory,
     )
 
 
@@ -351,8 +358,10 @@ class ConversationManager:
         self,
         settings: Settings,
         data_dir: Path = Path("data"),
+        memories: MemoryRepository | None = None,
     ) -> None:
         self._settings = settings
+        self._memories = memories
         self._workspaces = WorkspaceManager(data_dir)
         self._conversations: dict[str, ManagedConversation] = {}
         self._persist_hook: PersistHook = lambda *_: None
@@ -482,8 +491,13 @@ class ConversationManager:
         token: str | None,
     ) -> ManagedConversation:
         loop = asyncio.get_running_loop()
+        memory = (
+            DbMemoryStore(self._memories, loop, user_id, repo, cid)
+            if self._memories is not None
+            else None
+        )
         conversation = Conversation(
-            agent=_build_agent(self._settings, repo, branch),
+            agent=_build_agent(self._settings, repo, branch, memory),
             sandbox=sandbox,
             confirm_policy=ConfirmPolicy(confirm_mode),
             id=cid,

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  BrainIcon,
   CircleCheckIcon,
   FileIcon,
   FileSearchIcon,
@@ -181,6 +182,21 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
     target: String(a.pattern ?? ""),
     mono: true,
   }),
+  memory: (a) => ({
+    icon: BrainIcon,
+    verb: MEMORY_VERBS[String(a.command)] ?? "Memory",
+    target: String(a.path ?? a.old_path ?? ""),
+    mono: true,
+  }),
+};
+
+const MEMORY_VERBS: Record<string, string> = {
+  view: "Recall",
+  create: "Saved memory",
+  str_replace: "Updated memory",
+  insert: "Updated memory",
+  delete: "Forgot",
+  rename: "Renamed memory",
 };
 
 export function toolView(ev: ActionEvent): ToolView {

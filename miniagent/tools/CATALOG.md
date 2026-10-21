@@ -628,3 +628,142 @@ Delegate a web research task to a read-only specialist agent. Use this when you 
   "type": "object"
 }
 ```
+
+## `memory`
+
+Read and write your persistent memory, which is kept across conversations. /memories/user/ holds notes about the user that apply in every repository; /memories/repo/ holds notes about the current repository. Commands: `view` lists a directory or shows a file with line numbers (optional view_range); `create` creates or overwrites a file with file_text; `str_replace` replaces a unique old_str with new_str; `insert` adds insert_text after line insert_line (0 is the top); `delete` removes a file or directory; `rename` moves old_path to new_path. Keep one topic per file, update an existing file instead of adding a duplicate, and delete memories that turn out to be wrong.
+
+```json
+{
+  "properties": {
+    "command": {
+      "enum": [
+        "view",
+        "create",
+        "str_replace",
+        "insert",
+        "delete",
+        "rename"
+      ],
+      "title": "Command",
+      "type": "string"
+    },
+    "file_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "File Text"
+    },
+    "insert_line": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Insert Line"
+    },
+    "insert_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Insert Text"
+    },
+    "new_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "New Path"
+    },
+    "new_str": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "New Str"
+    },
+    "old_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Old Path"
+    },
+    "old_str": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Old Str"
+    },
+    "path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Path"
+    },
+    "view_range": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "View Range"
+    }
+  },
+  "required": [
+    "command"
+  ],
+  "title": "MemoryAction",
+  "type": "object"
+}
+```

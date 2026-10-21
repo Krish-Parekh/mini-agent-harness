@@ -11,6 +11,7 @@ from miniagent.tools.fetch_url import FetchUrlTool
 from miniagent.tools.find_skills import FindSkillsTool, ProposeSkillsTool
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.memory import MemoryTool
 from miniagent.tools.plan import PresentPlanTool, UpdatePlanTool
 from miniagent.tools.search import GlobTool, GrepTool
 from miniagent.tools.skill import SkillTool
@@ -35,6 +36,7 @@ TOOLS = (
     WebSearchTool,
     FetchUrlTool,
     WebResearchTool,
+    MemoryTool,
 )
 
 

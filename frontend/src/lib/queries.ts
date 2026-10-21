@@ -17,6 +17,7 @@ import {
   type CreateConversationBody,
   type McpConnection,
   type Repo,
+  type Memory,
   type SandboxProvider,
   type Skill,
 } from "@/lib/api";
@@ -28,6 +29,7 @@ export const queryKeys = {
   branches: (repo: string) => ["branches", repo] as const,
   sandboxProviders: ["sandbox-providers"] as const,
   skills: ["skills"] as const,
+  memories: ["memories"] as const,
   mcpConnections: ["mcp-connections"] as const,
   conversations: ["conversations"] as const,
   conversation: (id: string) => ["conversation", id] as const,
@@ -65,6 +67,13 @@ export function useSkills(enabled = true) {
     queryKey: queryKeys.skills,
     queryFn: api.skills,
     enabled,
+  });
+}
+
+export function useMemories() {
+  return useQuery<Memory[]>({
+    queryKey: queryKeys.memories,
+    queryFn: api.memories,
   });
 }
 

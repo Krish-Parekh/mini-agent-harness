@@ -13,6 +13,7 @@ from backend.models import UserRow
 from backend.repository import (
     GitHubConnectionRepository,
     McpConnectionRepository,
+    MemoryRepository,
     SkillRepository,
     UserRepository,
 )
@@ -141,6 +142,11 @@ def get_mcp(conn: HTTPConnection) -> McpConnectionRepository:
     return conn.app.state.mcp_connections
 
 
+def get_memories(conn: HTTPConnection) -> MemoryRepository:
+    return conn.app.state.memories
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SkillsDep = Annotated[SkillRepository, Depends(get_skills)]
 McpDep = Annotated[McpConnectionRepository, Depends(get_mcp)]
+MemoriesDep = Annotated[MemoryRepository, Depends(get_memories)]

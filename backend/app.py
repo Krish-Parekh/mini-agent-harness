@@ -11,6 +11,7 @@ from backend import models  # noqa: F401
 from backend.api.auth import router as auth_router
 from backend.api.conversations import router
 from backend.api.extensions import router as extensions_router
+from backend.api.memories import router as memories_router
 from backend.api.sandbox import router as sandbox_router
 from backend.api.github import router as github_router
 from backend.core import observability
@@ -20,6 +21,7 @@ from backend.repository import (
     ConversationRepository,
     GitHubConnectionRepository,
     McpConnectionRepository,
+    MemoryRepository,
     SkillRepository,
     UserRepository,
 )
@@ -50,7 +52,8 @@ async def lifespan(app: FastAPI):
     connections = GitHubConnectionRepository(sessionmaker)
     skills = SkillRepository(sessionmaker)
     mcp_connections = McpConnectionRepository(sessionmaker)
-    manager = ConversationManager(settings)
+    memories = MemoryRepository(sessionmaker)
+    manager = ConversationManager(settings, memories=memories)
     service = ConversationService(
         manager, repository, connections, skills, mcp_connections
     )
@@ -61,6 +64,7 @@ async def lifespan(app: FastAPI):
     app.state.connections = connections
     app.state.skills = skills
     app.state.mcp_connections = mcp_connections
+    app.state.memories = memories
     app.state.service = service
     app.state.auth_service = AuthService(users, connections)
 
@@ -82,4 +86,5 @@ app.include_router(router)
 app.include_router(auth_router)
 app.include_router(github_router)
 app.include_router(extensions_router)
+app.include_router(memories_router)
 app.include_router(sandbox_router)

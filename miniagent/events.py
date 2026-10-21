@@ -119,6 +119,19 @@ class RepoInstructionsEvent(Event):
         }
 
 
+class MemoryIndexEvent(Event):
+    kind: Literal["memory_index"] = "memory_index"
+    source: Source = "environment"
+    content: str
+
+    def to_chat_message(self) -> dict:
+        return {
+            "role": "user",
+            "content": "[memories saved in earlier conversations; open one with "
+            f"memory view]\n{self.content}",
+        }
+
+
 class WorkspaceSketchEvent(Event):
     kind: Literal["workspace_sketch"] = "workspace_sketch"
     source: Source = "environment"
@@ -171,6 +184,7 @@ Events: TypeAlias = Annotated[
         CondensationEvent,
         WorkspaceSketchEvent,
         RepoInstructionsEvent,
+        MemoryIndexEvent,
         LLMUsageEvent,
         FanoutWorkerEvent,
         ErrorEvent,

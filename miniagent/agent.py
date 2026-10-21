@@ -17,6 +17,7 @@ from miniagent.events import (
     ErrorEvent,
     Event,
     LLMUsageEvent,
+    MemoryIndexEvent,
     MessageEvent,
     ObservationEvent,
     RepoInstructionsEvent,
@@ -37,6 +38,7 @@ from miniagent.text import clip
 from miniagent.tools.base import ToolRegistry
 from miniagent.tracing import bind_context, tool_attributes, tool_result_attributes
 from miniagent.tools.mcp import NAME_PREFIX as MCP_PREFIX, McpTool
+from miniagent.tools.memory import MemoryStore, memory_index
 from miniagent.tools.plan import Plan
 
 if TYPE_CHECKING:
@@ -196,6 +198,7 @@ class Agent:
         repo: str | None = None,
         branch: str | None = None,
         policy: PolicyProvider | None = None,
+        memory: MemoryStore | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -203,6 +206,7 @@ class Agent:
         self.repo = repo
         self.branch = branch
         self.policy = policy or PolicyClassifier(llm)
+        self.memory = memory
         self.skills_block = ""
         self.mcp_instructions: dict[str, str] = {}
 
@@ -253,6 +257,7 @@ class Agent:
 
         self._ensure_workspace_sketch(conversation, sandbox)
         self._ensure_repo_instructions(conversation, sandbox)
+        self._ensure_memory_index(conversation)
         self._maybe_condense(conversation, sandbox)
         try:
             response = self._complete_step(conversation, sandbox)
@@ -383,6 +388,17 @@ class Agent:
         conversation.add_event(
             RepoInstructionsEvent(paths=paths, content=content, truncated=truncated)
         )
+
+    def _ensure_memory_index(self, conversation: Conversation) -> None:
+        if self.memory is None:
+            return
+        compacted = conversation.compacted_event_ids()
+        if any(
+            isinstance(event, MemoryIndexEvent) and event.id not in compacted
+            for event in conversation.events
+        ):
+            return
+        conversation.add_event(MemoryIndexEvent(content=memory_index(self.memory.load())))
 
     def _ensure_workspace_sketch(
         self, conversation: Conversation, sandbox: Sandbox

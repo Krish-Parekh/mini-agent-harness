@@ -6,6 +6,7 @@ from backend.models.extension import (
     RepoSkillRow,
     SkillRow,
 )
+from backend.models.memory import MemoryRow
 from backend.models.user import GitHubConnectionRow, UserRow
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "EventRow",
     "GitHubConnectionRow",
     "McpConnectionRow",
+    "MemoryRow",
     "RepoSkillRow",
     "SkillRow",
     "UserRow",
