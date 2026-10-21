@@ -12,11 +12,7 @@ Each Conversation gets its own checkout and branch. Two Conversations on the sam
 
 One task from prompt to pull request: the agent reads the repository, adds a `GET /version` endpoint, and shows the change as a per-file diff. Then **Create PR** pushes the branch and opens the pull request.
 
-<p align="center">
-  <a href="docs/media/demo.mp4">
-    <img alt="Demo: a prompt on Krish-Parekh/Sage, the agent's tool calls, three changed files, the diff for version.py, then Create PR opens PR #2" src="docs/media/demo.gif">
-  </a>
-</p>
+https://github.com/user-attachments/assets/52948164-f927-4c39-ba31-a04f34f150e0
 
 ## System
 
