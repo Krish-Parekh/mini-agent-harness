@@ -70,6 +70,7 @@ export default function ChatPage({
     livePlan,
     lastUserTurnId,
     stop: stopRun,
+    prStep,
   } = useConversationStream(id);
 
   const [input, setInput] = useState("");
@@ -351,6 +352,7 @@ export default function ChatPage({
           onClose={closePanel}
           onSynced={refreshChanges}
           revision={changesRevision}
+          prStep={prStep}
         />
       )}
     </div>

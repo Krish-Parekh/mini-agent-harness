@@ -12,6 +12,7 @@ from backend.schemas.conversation import (
     CreateConversationRequest,
     FileContent,
     FileDiff,
+    PrProgress,
     SendMessageRequest,
     StatusUpdate,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "FileDiff",
     "GitHubConnection",
     "ImportRepoRequest",
+    "PrProgress",
     "RepoOut",
     "SendMessageRequest",
     "StatusUpdate",

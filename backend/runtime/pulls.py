@@ -22,6 +22,30 @@ from miniagent.sandbox.workspace import (
 )
 
 _API = "https://api.github.com"
+_TEMPLATE_PATHS = (
+    ".github/pull_request_template.md",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    "docs/pull_request_template.md",
+    "PULL_REQUEST_TEMPLATE.md",
+    "pull_request_template.md",
+)
+_MAX_DIFF_CHARS = 12_000
+
+
+def staged_diff(sandbox: Sandbox) -> str:
+    sandbox.run_command("git add -A")
+    stat = sandbox.run_command("git diff --cached --stat").stdout
+    patch = sandbox.run_command("git diff --cached").stdout
+    return f"{stat}\n{patch[:_MAX_DIFF_CHARS]}".strip()
+
+
+def pr_template(sandbox: Sandbox) -> str | None:
+    for path in _TEMPLATE_PATHS:
+        try:
+            return sandbox.read_file(path)
+        except Exception:
+            continue
+    return None
 
 
 def commit_and_push(
@@ -51,13 +75,21 @@ async def create_pull_request(
     title: str,
     body: str,
 ) -> dict:
-    """Open a PR via the GitHub API and return its JSON (includes number, html_url)."""
+    """Return the branch's open PR, or open one via the GitHub API (JSON includes
+    number, html_url)."""
     owner, _, name = repo.partition("/")
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
     }
     async with httpx.AsyncClient(timeout=30) as client:
+        existing = await client.get(
+            f"{_API}/repos/{owner}/{name}/pulls",
+            headers=headers,
+            params={"head": f"{owner}:{head_branch}", "state": "open"},
+        )
+        if existing.status_code < 300 and existing.json():
+            return existing.json()[0]
         base = base_branch or await _default_branch(client, owner, name, headers)
         resp = await client.post(
             f"{_API}/repos/{owner}/{name}/pulls",

@@ -16,7 +16,7 @@ import {
   GitPullRequestIcon,
 } from "@hugeicons/core-free-icons";
 
-import { api, type ChangedFile } from "@/lib/api";
+import { api, type ChangedFile, type PrStep } from "@/lib/api";
 import { langForPath } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -278,11 +278,18 @@ function ChangeRow({
   );
 }
 
+const PR_STEP_LABELS: Partial<Record<PrStep, string>> = {
+  drafting: "Writing",
+  pushing: "Pushing",
+  opening: "Opening",
+};
+
 function PrBar({
   pr,
   changeCount,
   running,
   creating,
+  step,
   error,
   onSync,
 }: {
@@ -290,6 +297,7 @@ function PrBar({
   changeCount: number;
   running: boolean;
   creating: boolean;
+  step: PrStep | null;
   error: boolean;
   onSync: () => void;
 }) {
@@ -327,7 +335,7 @@ function PrBar({
         <Pill variant="primary" size="sm" onClick={onSync} disabled={running || creating} className="shrink-0">
           {creating ? (
             <>
-              {pr !== null ? "Updating" : "Creating"}
+              {(step && PR_STEP_LABELS[step]) ?? (pr !== null ? "Updating" : "Creating")}
               <Spinner className="size-3.5" />
             </>
           ) : running ? (
@@ -357,6 +365,7 @@ export const ChangesPanel = memo(function ChangesPanel({
   onClose,
   onSynced,
   revision,
+  prStep,
 }: {
   conversationId: string;
   changes: ChangedFile[];
@@ -368,6 +377,7 @@ export const ChangesPanel = memo(function ChangesPanel({
   onClose: () => void;
   onSynced?: () => void;
   revision: number;
+  prStep: PrStep | null;
 }) {
   const [tab, setTab] = useState<Tab>("changes");
   const [allFiles, setAllFiles] = useState<string[] | null>(null);
@@ -458,6 +468,7 @@ export const ChangesPanel = memo(function ChangesPanel({
           changeCount={changes.length}
           running={running}
           creating={creatingPr}
+          step={prStep}
           error={prError}
           onSync={syncPr}
         />

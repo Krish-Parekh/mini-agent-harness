@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import logfire
+from pydantic import BaseModel
 
 from miniagent.agent import Agent
 from miniagent.config import Settings
@@ -62,6 +63,21 @@ _TITLE_SYSTEM = (
     "Reply with the title only: 3 to 6 words, no quotes, no trailing "
     "punctuation."
 )
+
+_PR_SYSTEM = (
+    "You write the commit message and pull request for a coding agent's changes. "
+    "Use the conversation for intent and the diff for what changed. "
+    "commit_message: an imperative subject line under 72 characters, optionally "
+    "followed by a blank line and a short body. title: under 70 characters. "
+    "body: markdown summarising what changed and why; if a pull request template "
+    "is given, fill in its sections. Do not invent changes that are not in the diff."
+)
+
+
+class PrDraft(BaseModel):
+    commit_message: str
+    title: str
+    body: str
 
 
 def title_snippet(text: str, limit: int = TITLE_SNIPPET_CHARS) -> str:
@@ -232,6 +248,24 @@ class ManagedConversation:
             return None
         base = self.repo.split("/")[-1] if self.repo else None
         return f"{base}: {snippet}" if base else snippet
+
+    def draft_pr(self, diff: str, template: str | None) -> PrDraft:
+        agent = self.conversation.agent
+        llm = getattr(agent.policy, "llm", agent.llm)
+        sections = [
+            f"Conversation:\n{self._title_transcript()}",
+            f"Diff:\n{diff or '(no new changes)'}",
+        ]
+        if template:
+            sections.append(f"Pull request template:\n{template}")
+        return llm.complete_structured(
+            [
+                {"role": "system", "content": _PR_SYSTEM},
+                {"role": "user", "content": "\n\n".join(sections)},
+            ],
+            PrDraft,
+            phase="pr_draft",
+        )
 
     def _title_transcript(self) -> str:
         lines: list[str] = []

@@ -36,6 +36,7 @@ from backend.schemas import (
     ConversationInfo,
     FileContent,
     FileDiff,
+    PrProgress,
     StatusUpdate,
 )
 from miniagent.conversation import Status
@@ -426,25 +427,38 @@ class ConversationService:
     ) -> ConversationInfo:
         conv = managed.conversation
         head = f"{BRANCH_PREFIX}/{conv.id}"
-        title = managed.title or f"MiniAgent changes for {managed.repo}"
-        await asyncio.to_thread(
-            pulls.commit_and_push, managed.sandbox, managed.repo, head, token, title
-        )
-        if managed.pr_number is None:
-            pr = await pulls.create_pull_request(
-                managed.repo, head, managed.branch, token, title, self._pr_body(managed)
+        try:
+            managed.broker.publish(PrProgress(step="drafting"))
+            diff = await asyncio.to_thread(pulls.staged_diff, managed.sandbox)
+            template = await asyncio.to_thread(pulls.pr_template, managed.sandbox)
+            draft = await asyncio.to_thread(managed.draft_pr, diff, template)
+            managed.broker.publish(PrProgress(step="pushing"))
+            await asyncio.to_thread(
+                pulls.commit_and_push,
+                managed.sandbox,
+                managed.repo,
+                head,
+                token,
+                draft.commit_message,
             )
-            managed.pr_number = pr["number"]
-            managed.pr_url = pr["html_url"]
-            await self._repo.set_pr(conv.id, managed.pr_number, managed.pr_url)
+            if managed.pr_number is None:
+                managed.broker.publish(PrProgress(step="opening"))
+                pr = await pulls.create_pull_request(
+                    managed.repo,
+                    head,
+                    managed.branch,
+                    token,
+                    draft.title,
+                    f"{draft.body}\n\n_Opened by MiniAgent._",
+                )
+                managed.pr_number = pr["number"]
+                managed.pr_url = pr["html_url"]
+                await self._repo.set_pr(conv.id, managed.pr_number, managed.pr_url)
+        except Exception:
+            managed.broker.publish(PrProgress(step="failed"))
+            raise
+        managed.broker.publish(PrProgress(step="done"))
         return self.info(managed)
-
-    @staticmethod
-    def _pr_body(managed: ManagedConversation) -> str:
-        lines = ["Opened by MiniAgent."]
-        if managed.title:
-            lines.append(f"\n{managed.title}")
-        return "\n".join(lines)
 
     def context(self, managed: ManagedConversation) -> ConversationContext:
         conv = managed.conversation

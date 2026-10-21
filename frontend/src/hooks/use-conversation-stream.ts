@@ -12,6 +12,7 @@ import {
   type ChangedFile,
   type ConversationStatus,
   type PlanStep,
+  type PrStep,
   type StepStatus,
 } from "@/lib/api";
 import { eventsCollection } from "@/lib/collections";
@@ -32,6 +33,7 @@ export function useConversationStream(id: string) {
     [rows],
   );
   const [streamStatus, setStatus] = useState<ConversationStatus | null>(null);
+  const [prStep, setPrStep] = useState<PrStep | null>(null);
   const [changes, setChanges] = useState<ChangedFile[]>([]);
   const [streamGone, setStreamGone] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -62,6 +64,10 @@ export function useConversationStream(id: string) {
             .refetch()
             .catch((e) => toast.error(messageFor(e), { id: "resync-events" }));
         }
+        return;
+      }
+      if (frame.event === "pr_progress") {
+        setPrStep(JSON.parse(frame.data).step as PrStep);
         return;
       }
       collection.utils.writeUpsert(JSON.parse(frame.data) as AgentEvent);
@@ -243,5 +249,6 @@ export function useConversationStream(id: string) {
     livePlan,
     lastUserTurnId,
     stop,
+    prStep,
   };
 }

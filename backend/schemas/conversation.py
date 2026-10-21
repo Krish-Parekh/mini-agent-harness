@@ -57,6 +57,10 @@ class StatusUpdate(BaseModel):
     status: str
 
 
+class PrProgress(BaseModel):
+    step: Literal["drafting", "pushing", "opening", "done", "failed"]
+
+
 class ChangedFile(BaseModel):
     path: str
     additions: int

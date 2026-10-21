@@ -5,7 +5,7 @@ from collections.abc import AsyncIterable
 from fastapi.sse import ServerSentEvent
 
 from backend.runtime.manager import ManagedConversation, StreamFrame
-from backend.schemas import StatusUpdate
+from backend.schemas import PrProgress, StatusUpdate
 
 
 def _event_frame(event, seq: int | None) -> ServerSentEvent:
@@ -40,6 +40,9 @@ async def stream_conversation(
             item = await queue.get()
             if isinstance(item, StatusUpdate):
                 yield _status_frame(item.status)
+                continue
+            if isinstance(item, PrProgress):
+                yield ServerSentEvent(raw_data=item.model_dump_json(), event="pr_progress")
                 continue
             if not isinstance(item, StreamFrame):
                 continue

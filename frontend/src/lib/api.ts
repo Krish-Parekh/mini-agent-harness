@@ -56,6 +56,8 @@ export type ConversationStatus =
 
 export type StepStatus = "pending" | "in_progress" | "done";
 
+export type PrStep = "drafting" | "pushing" | "opening" | "done" | "failed";
+
 export type PlanStep = {
   title: string;
   files: string[];
