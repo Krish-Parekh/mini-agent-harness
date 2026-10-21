@@ -104,7 +104,10 @@ export function SkillSlashTextarea({ value, onValueChange, ...props }: Props) {
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (!open) return;
+    if (!open) {
+      props.onKeyDown?.(e);
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       setSlash(null);

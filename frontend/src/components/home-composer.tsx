@@ -4,6 +4,8 @@ import { Github01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 
+import { useComposerText } from "@/hooks/use-composer-text";
+
 import { useAuth } from "@/app/providers";
 import { BranchPicker } from "@/components/branch-picker";
 import { Pill } from "@/components/bui/button";
@@ -41,7 +43,7 @@ export function HomeComposer() {
   const focusTick = useComposerFocusTick();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const [text, setText] = useState("");
+  const { text, setText, record, onKeyDown } = useComposerText("home");
   const attachments = useComposerAttachments();
   const [pickedModel, setModel] = useState<string | null>(null);
   const model = pickedModel ?? selection.model ?? DEFAULT_MODEL;
@@ -69,6 +71,7 @@ export function HomeComposer() {
     if (!canSend) return;
     const uploaded = await attachments.upload();
     if (!uploaded) return;
+    if (text.trim()) record(text.trim());
     startChat.mutate(
       {
         repo,
@@ -120,6 +123,7 @@ export function HomeComposer() {
               autoFocus
               value={text}
               onValueChange={setText}
+              onKeyDown={onKeyDown}
               placeholder="Plan, build, / for commands"
               disabled={pending}
             />

@@ -10,7 +10,9 @@ import { api, type AttachmentRef } from "@/lib/api";
 import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
 import { queryKeys, useConversationContext, useTurns } from "@/lib/queries";
+import { useComposerText } from "@/hooks/use-composer-text";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
+import { useDelayedFlag } from "@/hooks/use-delayed-flag";
 import { ConversationTimeline } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
 import { QuestionCard, type Question } from "@/components/question-card";
@@ -81,7 +83,13 @@ export default function ChatPage({
   const { data: turns } = useTurns(id, status);
   const rewindable = useMemo(() => new Set(turns?.map((t) => t.id)), [turns]);
 
-  const [input, setInput] = useState("");
+  const {
+    text: input,
+    setText: setInput,
+    record: recordPrompt,
+    onKeyDown: recallPrompt,
+  } = useComposerText(id);
+  const reconnecting = useDelayedFlag(exists && !connected);
   const attachments = useComposerAttachments();
   const [model, setModel] = useState<string | null>(null);
   const { data: context } = useConversationContext(id, exists);
@@ -220,6 +228,7 @@ export default function ChatPage({
     if ((!text && attachments.items.length === 0) || busy || attachments.uploading) return;
     const uploaded = await attachments.upload();
     if (!uploaded) return;
+    if (text) recordPrompt(text);
     setInput("");
     if (await submit(text, true, uploaded)) attachments.clear();
   }
@@ -246,7 +255,7 @@ export default function ChatPage({
                 {conversation.repo}
               </span>
             )}
-            {exists && !connected && (
+            {reconnecting && (
               <span className="flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 <Spinner className="size-3" />
                 Reconnecting…
@@ -348,6 +357,7 @@ export default function ChatPage({
               <SkillSlashTextarea
                 value={input}
                 onValueChange={setInput}
+                onKeyDown={recallPrompt}
                 placeholder={
                   waiting
                     ? "Approve or reject the action above…"

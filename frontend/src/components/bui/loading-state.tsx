@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { Shimmer } from "@/components/bui/shimmer";
+import { useDelayedFlag } from "@/hooks/use-delayed-flag";
 import { cn } from "@/lib/utils";
 
 const CHEVRON = Array.from({ length: 9 }, (_, i) => {
@@ -56,6 +57,8 @@ export function LoadingState({
   since?: number;
   className?: string;
 }) {
+  const visible = useDelayedFlag(true);
+  if (!visible) return null;
   return (
     <div role="status" className={cn("flex w-fit items-center gap-2.5", className)}>
       <PixelLoader />
