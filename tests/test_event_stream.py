@@ -28,6 +28,7 @@ class FakeStreamManaged:
         self.user_id = user_id
         self.repo = None
         self.conversation = FakeConversationState(events)
+        self.persisted_seq = len(events)
         self.broker = broker
 
 
@@ -97,6 +98,19 @@ async def test_replayed_events_are_not_resent_when_they_arrive_live(managed):
     frame = await anext(stream)
     await stream.aclose()
 
+    assert frame.id == "4"
+
+
+async def test_uncommitted_events_wait_until_they_are_published(managed):
+    pending = message("not saved yet")
+    managed.conversation.events.append(pending)
+    stream = stream_conversation(managed, None)
+    frames = [await anext(stream) for _ in range(4)]
+    assert [f.id for f in frames] == ["1", "2", "3", None]
+
+    managed.broker.publish_event(pending, seq=4)
+    frame = await anext(stream)
+    await stream.aclose()
     assert frame.id == "4"
 
 

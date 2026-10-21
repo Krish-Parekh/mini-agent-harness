@@ -164,6 +164,47 @@ class ConversationRepository:
             )
             return set(result.scalars().all())
 
+    async def with_status(self, status: str) -> list[tuple[str, int]]:
+        async with self._sessionmaker() as sess:
+            result = await sess.execute(
+                select(ConversationRow.id, func.coalesce(func.max(EventRow.seq), 0))
+                .outerjoin(EventRow, EventRow.conversation_id == ConversationRow.id)
+                .where(ConversationRow.status == status)
+                .group_by(ConversationRow.id)
+            )
+            return [(cid, last_seq) for cid, last_seq in result.all()]
+
+    async def settle(
+        self,
+        cid: str,
+        *,
+        status: str,
+        event_id: str,
+        seq: int,
+        source: str,
+        kind: str,
+        payload: dict[str, Any],
+    ) -> None:
+        async with self._sessionmaker() as sess:
+            await sess.execute(
+                pg_insert(EventRow)
+                .values(
+                    id=event_id,
+                    conversation_id=cid,
+                    seq=seq,
+                    source=source,
+                    kind=kind,
+                    payload=payload,
+                )
+                .on_conflict_do_nothing(index_elements=[EventRow.id])
+            )
+            await sess.execute(
+                update(ConversationRow)
+                .where(ConversationRow.id == cid)
+                .values(status=status, updated_at=func.now())
+            )
+            await sess.commit()
+
     async def set_pr(self, cid: str, pr_number: int, pr_url: str) -> None:
         async with self._sessionmaker() as sess:
             await sess.execute(

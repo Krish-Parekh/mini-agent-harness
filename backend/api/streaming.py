@@ -29,7 +29,8 @@ async def stream_conversation(
     queue = managed.broker.subscribe()
     try:
         replayed: set[str] = set()
-        for seq, event in enumerate(list(managed.conversation.events), start=1):
+        committed = managed.conversation.events[: managed.persisted_seq]
+        for seq, event in enumerate(committed, start=1):
             if last_event_id is not None and seq <= last_event_id:
                 replayed.add(event.id)
                 continue

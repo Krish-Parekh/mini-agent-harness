@@ -16,7 +16,6 @@ export const conversationsCollection = createCollection(
     queryKey: ["conversations"],
     queryFn: () => api.conversations(),
     getKey: (c: ConversationInfo) => c.id,
-    refetchInterval: 5000,
     onDelete: async ({ transaction }) => {
       await Promise.all(
         transaction.mutations.map((m) => api.deleteConversation(String(m.key))),

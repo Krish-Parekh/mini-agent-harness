@@ -435,4 +435,7 @@ export const api = {
 
   eventStream: (id: string, lastEventId: string | null, signal: AbortSignal) =>
     readEventStream(`/conversations/${id}/events/stream`, lastEventId, signal),
+
+  changesStream: (signal: AbortSignal) =>
+    readEventStream("/conversations/changes/stream", null, signal),
 };

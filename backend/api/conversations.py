@@ -101,6 +101,18 @@ async def list_conversations(service: ServiceDep, user: CurrentUser):
     return await service.list_infos(user.id)
 
 
+@router.get("/conversations/changes/stream", response_class=EventSourceResponse)
+async def conversation_changes_stream(
+    service: ServiceDep, user: CurrentUser
+) -> AsyncIterable[ServerSentEvent]:
+    queue = service.subscribe_changes(user.id)
+    try:
+        while True:
+            yield ServerSentEvent(raw_data=await queue.get(), event="changed")
+    finally:
+        service.unsubscribe_changes(user.id, queue)
+
+
 @router.get("/conversations/{cid}", response_model=ConversationInfo)
 async def get_conversation(managed: ManagedDep, service: ServiceDep):
     return service.info(managed)
@@ -108,7 +120,10 @@ async def get_conversation(managed: ManagedDep, service: ServiceDep):
 
 @router.get("/conversations/{cid}/events")
 async def get_events(managed: ManagedDep):
-    return [event.model_dump() for event in managed.conversation.events]
+    return [
+        event.model_dump()
+        for event in managed.conversation.events[: managed.persisted_seq]
+    ]
 
 
 @router.get("/conversations/{cid}/context", response_model=ConversationContext)

@@ -106,3 +106,55 @@ async def test_a_final_failure_errors_the_conversation_and_tells_the_client(mana
     assert frames[0].seq is None
     assert event.id in frames[0].event.message
     assert [s.status for s in statuses] == ["error"]
+
+
+async def _run_worker(service, managed, event, seq):
+    service.start()
+    service._enqueue_persist(managed, event, seq)
+    await asyncio.sleep(0)
+    await service._persist_queue.join()
+    service._persist_task.cancel()
+    for task in service._tasks:
+        task.cancel()
+
+
+async def test_an_event_is_published_only_after_it_commits(managed):
+    managed.persisted_seq = 0
+    service = ConversationService(
+        manager=_HookSink(), repository=FlakyRepository(failures=0), connections=None
+    )
+    subscriber = managed.broker.subscribe()
+    event = MessageEvent(role="user", text="hi")
+
+    await _run_worker(service, managed, event, 1)
+    await asyncio.sleep(0)
+
+    [frame] = [i for i in await drain(subscriber) if isinstance(i, StreamFrame)]
+    assert frame.event.id == event.id and frame.seq == 1
+    assert managed.persisted_seq == 1
+
+
+async def test_an_event_that_never_commits_is_never_published(managed):
+    managed.persisted_seq = 0
+    service = ConversationService(
+        manager=_HookSink(), repository=FlakyRepository(failures=99), connections=None
+    )
+    subscriber = managed.broker.subscribe()
+    event = MessageEvent(role="user", text="hi")
+
+    await _run_worker(service, managed, event, 1)
+    await asyncio.sleep(0)
+
+    frames = [i for i in await drain(subscriber) if isinstance(i, StreamFrame)]
+    assert all(f.event.id != event.id for f in frames)
+    assert managed.persisted_seq == 0
+
+
+class _HookSink:
+    sandbox_idle_stop_s = 3600
+
+    def set_persist_hook(self, hook) -> None:
+        self.hook = hook
+
+    def live(self):
+        return []

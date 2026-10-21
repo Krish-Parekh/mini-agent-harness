@@ -25,6 +25,7 @@ import {
   sidebarRowClass,
 } from "@/components/bui/sidebar-nav";
 import { GettingStarted } from "@/components/getting-started";
+import { useConversationChanges } from "@/hooks/use-conversation-changes";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Collapsible,
@@ -394,6 +395,7 @@ export function useCloseSidebarOnMobile() {
 }
 
 export function AppSidebar() {
+  useConversationChanges();
   const pathname = usePathname();
   const closeOnMobile = useCloseSidebarOnMobile();
   const activeId = pathname.startsWith("/chat/")

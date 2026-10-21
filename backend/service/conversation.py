@@ -15,6 +15,7 @@ from backend.runtime.manager import (
     AI_TITLE_AFTER_TURNS,
     ConversationManager,
     ManagedConversation,
+    publish_committed,
 )
 from backend.repository import (
     ConversationRepository,
@@ -92,7 +93,18 @@ class ConversationService:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._persist_task: asyncio.Task | None = None
         self._tasks: set[asyncio.Task] = set()
+        self._change_feeds: dict[uuid.UUID, set[asyncio.Queue[str]]] = {}
 
+    def subscribe_changes(self, user_id: uuid.UUID) -> asyncio.Queue[str]:
+        queue: asyncio.Queue[str] = asyncio.Queue()
+        self._change_feeds.setdefault(user_id, set()).add(queue)
+        return queue
+
+    def unsubscribe_changes(self, user_id: uuid.UUID, queue: asyncio.Queue[str]) -> None:
+        feeds = self._change_feeds.get(user_id, set())
+        feeds.discard(queue)
+        if not feeds:
+            self._change_feeds.pop(user_id, None)
 
     def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -111,6 +123,22 @@ class ConversationService:
             if managed.lock.locked() or managed.conversation.status == Status.RUNNING:
                 continue
             await asyncio.to_thread(managed.sandbox.stop_if_idle, idle_s)
+
+    async def settle_interrupted_runs(self) -> None:
+        for cid, last_seq in await self._repo.with_status(Status.RUNNING.value):
+            event = ErrorEvent(
+                message="The server restarted while this run was in progress. "
+                "Send a message to continue."
+            )
+            await self._repo.settle(
+                cid,
+                status=Status.ERROR.value,
+                event_id=event.id,
+                seq=last_seq + 1,
+                source=event.source,
+                kind=event.kind,
+                payload=event.model_dump(),
+            )
 
     async def reconcile_sandboxes(self) -> None:
         try:
@@ -168,6 +196,8 @@ class ConversationService:
                         raise
                     except Exception as exc:
                         self._report_persist_failure(managed, event, exc)
+                    else:
+                        publish_committed(managed, event, seq)
             finally:
                 self._persist_queue.task_done()
 
@@ -226,19 +256,24 @@ class ConversationService:
             StatusUpdate(status=status or managed.conversation.status.value)
         )
 
-    async def _persist_status(self, managed: ManagedConversation) -> None:
+    async def _persist_status(
+        self, managed: ManagedConversation, status: str | None = None
+    ) -> None:
+        status = status or managed.conversation.status.value
         await self._repo.upsert_conversation(
             cid=managed.conversation.id,
             user_id=managed.user_id,
             repo=managed.repo,
             branch=managed.branch,
-            status=managed.conversation.status.value,
+            status=status,
             title=managed.title,
             workspace_dir=managed.sandbox.workspace_dir,
             **self._plan_state(managed),
             **self._sandbox_state(managed),
         )
-
+        self._emit_status(managed, status)
+        for queue in self._change_feeds.get(managed.user_id, ()):
+            queue.put_nowait(managed.conversation.id)
 
     def create(
         self,
@@ -384,7 +419,6 @@ class ConversationService:
             return True
         if conv.status == Status.WAITING_FOR_CONFIRMATION:
             conv.set_idle()
-            self._emit_status(managed)
             await self._rollback_cancelled_turn(managed, self._last_user_id(conv.live_events()))
             await self._persist_status(managed)
             return True
@@ -663,9 +697,10 @@ class ConversationService:
         task.add_done_callback(self._tasks.discard)
 
     async def _run(self, managed: ManagedConversation, trigger) -> None:
-        self._emit_status(managed, "running")
-        await self._persist_status(managed)
+        managed.run_generation += 1
+        generation = managed.run_generation
         turn_start = self._last_user_id(managed.conversation.live_events())
+        await self._persist_status(managed, Status.RUNNING.value)
         async with managed.lock:
             await asyncio.to_thread(
                 managed.extend_sandbox, self._manager.sandbox_lifetime_s
@@ -678,7 +713,8 @@ class ConversationService:
             if conv.cancel_event.is_set() and conv.status != Status.FINISHED:
                 await self._rollback_cancelled_turn(managed, turn_start)
         await self._maybe_ai_title(managed)
-        self._emit_status(managed)
+        if managed.run_generation != generation:
+            return
         await self._persist_status(managed)
 
     async def _checkpoint(self, managed: ManagedConversation, message_id: str | None) -> None:
@@ -722,6 +758,10 @@ class ConversationService:
         managed._seq = len(conv.events)
         await self._persist_queue.join()
         await self._repo.delete_events(conv.id, [e.id for e in removed])
+        managed.persisted_seq = len(conv.events)
+        for event in removed[1:]:
+            if isinstance(event, MessageEvent) and event.role == "user":
+                conv.add_event(event)
 
     @staticmethod
     def _last_user_id(events: list[Event]) -> str | None:
@@ -810,8 +850,7 @@ class ConversationService:
         attachments: list[Attachment] | None = None,
         storage_token: str | None = None,
     ) -> None:
-        self._emit_status(managed, "running")
-        await self._persist_status(managed)
+        await self._persist_status(managed, Status.RUNNING.value)
         await self._enable_skills(managed, skill_ids or [])
         async with managed.lock:
             await asyncio.to_thread(managed.bootstrap)
@@ -823,7 +862,6 @@ class ConversationService:
                     managed.conversation.add_event(ErrorEvent(message=str(exc)))
                     managed.conversation.status = Status.ERROR
             if managed.conversation.status == Status.ERROR:
-                self._emit_status(managed)
                 await self._persist_status(managed)
                 return
             if initial_message or attachments:
@@ -835,5 +873,4 @@ class ConversationService:
                 )
                 with self._turn_span(managed):
                     await asyncio.to_thread(managed.conversation.run)
-        self._emit_status(managed)
         await self._persist_status(managed)

@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI):
         manager, repository, connections, skills, mcp_connections, storage
     )
     service.start()
+    await service.settle_interrupted_runs()
     await service.reconcile_sandboxes()
 
     app.state.users = users

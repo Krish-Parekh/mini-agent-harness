@@ -43,6 +43,11 @@ from miniagent.tools.web_search import WebSearchTool
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
 
+
+def publish_committed(managed: ManagedConversation, event: Event, seq: int) -> None:
+    managed.persisted_seq = seq
+    managed.broker.publish_event(event, seq)
+
 _log = logging.getLogger(__name__)
 
 MCP_INSTRUCTIONS_MAX_CHARS = 1_000
@@ -196,8 +201,10 @@ class ManagedConversation:
         self.pr_number: int | None = None
         self.pr_url: str | None = None
         self._seq = 0
+        self.persisted_seq = 0
+        self.run_generation = 0
         self.lock = asyncio.Lock()
-        self.persist_hook: PersistHook = lambda *_: None
+        self.persist_hook: PersistHook = publish_committed
         self.mcp_tools: dict[str, list[str]] = {}
         self.mcp_skipped: set[str] = set()
         self.mcp_instructions: dict[str, tuple[str, str]] = {}
@@ -207,7 +214,6 @@ class ManagedConversation:
         self._seq += 1
         self._maybe_set_title(event)
         self.persist_hook(self, event, self._seq)
-        self.broker.publish_event(event, self._seq)
 
     def set_model(self, model: str) -> None:
         self.conversation.agent.llm.model = model
@@ -398,7 +404,7 @@ class ConversationManager:
         self._memories = memories
         self._workspaces = WorkspaceManager(data_dir)
         self._conversations: dict[str, ManagedConversation] = {}
-        self._persist_hook: PersistHook = lambda *_: None
+        self._persist_hook: PersistHook = publish_committed
 
     def set_persist_hook(self, hook: PersistHook) -> None:
         self._persist_hook = hook
@@ -508,6 +514,7 @@ class ConversationManager:
         managed.pr_number = pr_number
         managed.pr_url = pr_url
         managed._seq = len(events)
+        managed.persisted_seq = len(events)
         try:
             managed.conversation.status = Status(status)
         except ValueError:

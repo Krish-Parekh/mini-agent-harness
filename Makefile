@@ -1,6 +1,6 @@
 .PHONY: dev db backend frontend install supabase
 
-UVICORN := uv run uvicorn backend.app:app --reload --port 8000 --reload-dir backend --reload-dir miniagent
+UVICORN := uv run uvicorn backend.app:app --reload --port 8000 --reload-dir backend --reload-dir miniagent --timeout-graceful-shutdown 2
 
 # Start Postgres (required by the API).
 db:
