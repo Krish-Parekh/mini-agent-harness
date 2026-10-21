@@ -51,7 +51,17 @@ def provider_problem(settings: Settings, provider: str) -> str | None:
         _check(settings, provider)
     except SandboxConfigError as exc:
         return str(exc)
+    if provider == "docker":
+        from miniagent.sandbox.docker import docker_problem
+
+        return docker_problem(settings.docker_image)
     return None
+
+
+def default_provider(settings: Settings) -> str:
+    if provider_problem(settings, settings.sandbox_provider) is None:
+        return settings.sandbox_provider
+    return "local"
 
 
 def check_provider(settings: Settings) -> None:
@@ -96,7 +106,7 @@ def build_sandbox(
     provider: str | None = None,
     workspace_dir: str | None = None,
     sandbox_id: str | None = None,
-    host_mounts: list[str] | None = None,
+    host_mounts: dict[str, str] | None = None,
 ) -> Sandbox:
     """Build the sandbox for one Conversation. Remote providers connect
     lazily, so this never blocks on the network."""
@@ -110,11 +120,12 @@ def build_sandbox(
         from miniagent.sandbox.docker import DockerSandbox
 
         ws = str(Path(workspace_dir or settings.workspace_dir).resolve())
-        mounts = sorted({str(Path(m).resolve()) for m in (host_mounts or [ws])})
+        mounts = {str(Path(p).resolve()): mode for p, mode in (host_mounts or {ws: "rw"}).items()}
         return DockerSandbox(
             workspace_dir=ws,
             image=settings.docker_image,
             mounts=mounts,
+            conversation_id=cid,
             sandbox_id=sandbox_id,
             name=None if sandbox_id else name,
             cpus=settings.sandbox_cpu,

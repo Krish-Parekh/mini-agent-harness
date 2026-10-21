@@ -17,7 +17,8 @@ from miniagent.events import ErrorEvent, Event, MessageEvent
 from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier
 from miniagent.sandbox.base import Sandbox, SandboxError
-from miniagent.sandbox.factory import build_sandbox, is_host_git
+from miniagent.sandbox import docker as docker_sandbox
+from miniagent.sandbox.factory import build_sandbox, default_provider, is_host_git
 from miniagent.sandbox.workspace import WorkspaceError, clone_repo
 from backend.runtime import mcp
 from backend.runtime.workspaces import BRANCH_PREFIX, WorkspaceManager
@@ -314,10 +315,10 @@ class ManagedConversation:
             return
         try:
             if is_host_git(self.sandbox.provider):
-                worktree = self._workspaces.prepare(
+                checkout = self._workspaces.prepare(
                     self.conversation.id, self.repo, self.branch, self._token
                 )
-                self.sandbox.set_working_dir(worktree)
+                self.sandbox.set_working_dir(checkout)
             else:
                 clone_repo(
                     self.sandbox,
@@ -352,7 +353,6 @@ class ConversationManager:
         data_dir: Path = Path("data"),
     ) -> None:
         self._settings = settings
-        self._data_dir = data_dir.resolve()
         self._workspaces = WorkspaceManager(data_dir)
         self._conversations: dict[str, ManagedConversation] = {}
         self._persist_hook: PersistHook = lambda *_: None
@@ -372,18 +372,25 @@ class ConversationManager:
         provider: str | None = None,
     ) -> ManagedConversation:
         cid = uuid.uuid4().hex[:8]
-        provider = provider or self._settings.sandbox_provider
+        provider = provider or default_provider(self._settings)
         if not is_host_git(provider):
             ws = None
         elif repo:
-            ws = str(self._workspaces.worktree_dir(cid))
+            ws = str(self._workspaces.checkout_dir(cid))
+        elif provider == "docker":
+            ws = self._workspaces.empty_checkout(cid)
         else:
             ws = workspace_dir or self._settings.workspace_dir
-        sandbox = self._sandbox(cid, provider, ws, None)
+        sandbox = self._sandbox(cid, provider, ws, None, repo)
         return self._build(cid, sandbox, confirm_mode, user_id, repo, branch, token)
 
     def _sandbox(
-        self, cid: str, provider: str, workspace_dir: str | None, sandbox_id: str | None
+        self,
+        cid: str,
+        provider: str,
+        workspace_dir: str | None,
+        sandbox_id: str | None,
+        repo: str | None,
     ) -> Sandbox:
         return build_sandbox(
             self._settings,
@@ -391,12 +398,25 @@ class ConversationManager:
             provider=provider,
             workspace_dir=workspace_dir,
             sandbox_id=sandbox_id,
-            host_mounts=[str(self._data_dir), self._settings.workspace_dir],
+            host_mounts=self._workspaces.mounts(cid, repo),
         )
 
     @property
     def sandbox_lifetime_s(self) -> int:
         return self._settings.sandbox_lifetime_s
+
+    @property
+    def sandbox_idle_stop_s(self) -> int:
+        return self._settings.sandbox_idle_stop_s
+
+    def live(self) -> list[ManagedConversation]:
+        return list(self._conversations.values())
+
+    def sandbox_containers(self) -> dict[str, str]:
+        return docker_sandbox.conversation_containers()
+
+    def remove_containers(self, containers: dict[str, str]) -> None:
+        docker_sandbox.remove_containers(containers)
 
     def destroy_sandbox(
         self, cid: str, provider: str, sandbox_id: str | None, workspace_dir: str | None
@@ -407,7 +427,7 @@ class ConversationManager:
             return
         if not sandbox_id:
             return
-        self._sandbox(cid, provider, workspace_dir, sandbox_id).close()
+        self._sandbox(cid, provider, workspace_dir, sandbox_id, None).close()
 
     def release_workspace(self, cid: str, repo: str | None) -> None:
         self._workspaces.release(cid, repo)
@@ -435,7 +455,7 @@ class ConversationManager:
             ws = workspace_dir or self._settings.workspace_dir
         else:
             ws = workspace_dir or None
-        sandbox = self._sandbox(cid, sandbox_provider, ws, sandbox_id)
+        sandbox = self._sandbox(cid, sandbox_provider, ws, sandbox_id, repo)
         managed = self._build(cid, sandbox, "risky", user_id, repo, branch, token)
         managed.conversation.events = events
         managed.conversation.plan = Plan.model_validate(plan) if plan else None

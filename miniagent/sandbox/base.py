@@ -62,5 +62,8 @@ class Sandbox(ABC):
     def extend(self, seconds: int) -> None:
         """Push the provider's deadline forward. No-op where nothing expires."""
 
+    def stop_if_idle(self, idle_s: int) -> bool:
+        return False
+
     @abstractmethod
     def close(self) -> None: ...

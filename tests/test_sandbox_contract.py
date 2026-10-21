@@ -23,7 +23,7 @@ def _docker(tmp_path, request) -> Sandbox:
     return DockerSandbox(
         workspace_dir=str(tmp_path),
         image=os.environ.get("MINIAGENT_DOCKER_IMAGE", "miniagent-sandbox:latest"),
-        mounts=[str(tmp_path)],
+        mounts={str(tmp_path): "rw"},
     )
 
 

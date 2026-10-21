@@ -83,6 +83,34 @@ class ConversationService:
         self._loop = asyncio.get_running_loop()
         self._manager.set_persist_hook(self._enqueue_persist)
         self._persist_task = asyncio.create_task(self._persistence_worker())
+        self._spawn(self._idle_sweeper())
+
+    async def _idle_sweeper(self) -> None:
+        idle_s = self._manager.sandbox_idle_stop_s
+        while True:
+            await asyncio.sleep(min(60, idle_s))
+            await self.stop_idle_sandboxes(idle_s)
+
+    async def stop_idle_sandboxes(self, idle_s: int) -> None:
+        for managed in self._manager.live():
+            if managed.lock.locked() or managed.conversation.status == Status.RUNNING:
+                continue
+            await asyncio.to_thread(managed.sandbox.stop_if_idle, idle_s)
+
+    async def reconcile_sandboxes(self) -> None:
+        try:
+            containers = await asyncio.to_thread(self._manager.sandbox_containers)
+        except Exception as exc:
+            _log.info("skipping docker orphan cleanup: %s", exc)
+            return
+        known = await self._repo.existing_ids(list(containers))
+        orphans = {
+            cid: container
+            for cid, container in containers.items()
+            if cid not in known and self._manager.get(cid) is None
+        }
+        if orphans:
+            await asyncio.to_thread(self._manager.remove_containers, orphans)
 
 
     def _enqueue_persist(
@@ -560,7 +588,12 @@ class ConversationService:
             ),
             None,
         )
-        span = logfire.span("agent.turn", conversation_id=cid)
+        span = logfire.span(
+            "agent.turn",
+            conversation_id=cid,
+            sandbox_provider=managed.sandbox.provider,
+            sandbox_id=managed.sandbox.sandbox_id,
+        )
         span.set_attributes(
             trace_attributes(
                 session_id=cid,

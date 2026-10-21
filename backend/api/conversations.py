@@ -28,7 +28,7 @@ from backend.schemas import (
     SendMessageRequest,
 )
 from miniagent.conversation import Status
-from miniagent.sandbox.factory import provider_problem
+from miniagent.sandbox.factory import default_provider, provider_problem
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 
 router = APIRouter()
@@ -56,9 +56,10 @@ async def create_conversation(
     skills: SkillsDep,
 ):
     if body.sandbox_provider:
-        problem = provider_problem(settings, body.sandbox_provider)
+        problem = await asyncio.to_thread(provider_problem, settings, body.sandbox_provider)
         if problem:
             raise HTTPException(status_code=400, detail=problem)
+    provider = body.sandbox_provider or await asyncio.to_thread(default_provider, settings)
     for skill_id in body.skill_ids:
         if await skills.get(skill_id, user.id) is None:
             raise HTTPException(status_code=404, detail="skill not found")
@@ -71,7 +72,7 @@ async def create_conversation(
         token=token,
         initial_message=body.initial_message,
         model=body.model,
-        sandbox_provider=body.sandbox_provider,
+        sandbox_provider=provider,
         skill_ids=body.skill_ids,
     )
     return service.info(managed)

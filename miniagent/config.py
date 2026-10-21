@@ -52,8 +52,9 @@ class Settings(BaseSettings):
 
     sandbox_provider: Literal[
         "local", "docker", "e2b", "daytona", "modal", "vercel", "space"
-    ] = "local"
+    ] = "docker"
     sandbox_lifetime_s: int = 3600
+    sandbox_idle_stop_s: int = 1800
     sandbox_cpu: float = 2
     sandbox_memory_mb: int = 4096
 

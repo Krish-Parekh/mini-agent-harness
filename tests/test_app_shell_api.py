@@ -62,12 +62,46 @@ async def client(app):
         yield c
 
 
-async def test_providers_list_local_as_available_default(client):
+def _docker(monkeypatch, problem):
+    monkeypatch.setattr("miniagent.sandbox.docker.docker_problem", lambda image: problem)
+
+
+async def test_providers_default_to_docker_when_it_is_running(client, monkeypatch):
+    _docker(monkeypatch, None)
     resp = await client.get("/sandbox/providers", headers=bearer("token-a"))
     providers = {p["id"]: p for p in resp.json()}
-    assert providers["local"]["available"] and providers["local"]["default"]
+    assert providers["docker"]["available"] and providers["docker"]["default"]
+    assert providers["local"]["available"] and not providers["local"]["default"]
     assert providers["e2b"]["available"] is False
     assert "E2B_API_KEY" in providers["e2b"]["reason"]
+
+
+async def test_providers_fall_back_to_local_when_docker_is_down(client, monkeypatch):
+    _docker(monkeypatch, "Docker is not running")
+    resp = await client.get("/sandbox/providers", headers=bearer("token-a"))
+    providers = {p["id"]: p for p in resp.json()}
+    assert providers["docker"]["available"] is False
+    assert providers["docker"]["reason"] == "Docker is not running"
+    assert not providers["docker"]["default"]
+    assert providers["local"]["default"]
+
+
+async def test_create_without_a_provider_uses_the_effective_default(client, app, monkeypatch):
+    _docker(monkeypatch, "Docker is not running")
+    resp = await client.post("/conversations", json={"repo": "o/r"}, headers=bearer("token-a"))
+    assert resp.status_code == 200
+    assert app.state.service.created[-1]["sandbox_provider"] == "local"
+
+
+async def test_create_rejects_docker_when_it_is_down(client, app, monkeypatch):
+    _docker(monkeypatch, "Docker is not running")
+    resp = await client.post(
+        "/conversations",
+        json={"repo": "o/r", "sandbox_provider": "docker"},
+        headers=bearer("token-a"),
+    )
+    assert resp.status_code == 400
+    assert app.state.service.created == []
 
 
 async def test_providers_require_auth(client):

@@ -155,6 +155,15 @@ class ConversationRepository:
             row = await sess.get(ConversationRow, cid)
             return row if row is not None and row.user_id == user_id else None
 
+    async def existing_ids(self, cids: list[str]) -> set[str]:
+        if not cids:
+            return set()
+        async with self._sessionmaker() as sess:
+            result = await sess.execute(
+                select(ConversationRow.id).where(ConversationRow.id.in_(cids))
+            )
+            return set(result.scalars().all())
+
     async def set_pr(self, cid: str, pr_number: int, pr_url: str) -> None:
         async with self._sessionmaker() as sess:
             await sess.execute(
