@@ -16,7 +16,15 @@ import {
   GitPullRequestIcon,
 } from "@hugeicons/core-free-icons";
 
-import { api, type ChangedFile, type PrStep } from "@/lib/api";
+import { api, type ChangedFile, type FileDiff, type PrStep, type TurnInfo } from "@/lib/api";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { langForPath } from "@/lib/lang";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -157,28 +165,74 @@ function DetailHeader({
 function FileDiffView({
   conversationId,
   path,
+  scope,
   revision,
 }: {
   conversationId: string;
   path: string;
+  scope: string;
   revision: number;
 }) {
-  const [patch, setPatch] = useState<string | null>(null);
+  const [diff, setDiff] = useState<FileDiff | null>(null);
 
   useEffect(() => {
     let active = true;
     api
-      .fileDiff(conversationId, path)
-      .then((d) => active && setPatch(d.patch))
-      .catch(() => active && setPatch(""));
+      .fileDiff(conversationId, path, scope)
+      .then((d) => active && setDiff(d))
+      .catch(() => active && setDiff({ path, patch: "" }));
     return () => {
       active = false;
     };
-  }, [conversationId, path, revision]);
+  }, [conversationId, path, scope, revision]);
 
-  if (patch === null) return <LoadingState label="Loading diff" className="px-4 py-5" />;
-  if (!patch) return <PanelMessage>No changes to show.</PanelMessage>;
-  return <DiffViewer patch={patch} viewMode="unified" variant="ghost" />;
+  if (diff === null) return <LoadingState label="Loading diff" className="px-4 py-5" />;
+  if (!diff.patch) return <PanelMessage>No changes to show.</PanelMessage>;
+  return (
+    <>
+      <DiffViewer patch={diff.patch} viewMode="unified" variant="ghost" />
+      {diff.truncated && <PanelMessage>This diff is too large to show in full.</PanelMessage>}
+    </>
+  );
+}
+
+function ScopeSelect({
+  scope,
+  turns,
+  onChange,
+}: {
+  scope: string;
+  turns: TurnInfo[];
+  onChange: (scope: string) => void;
+}) {
+  const label = (value: string) => {
+    if (value === "all") return "All changes";
+    if (value === "branch") return "Branch vs base";
+    const index = turns.findIndex((t) => t.id === value);
+    return `Turn ${index + 1}`;
+  };
+  return (
+    <div className="shrink-0 border-b border-line px-2 py-1.5">
+      <Select value={scope} onValueChange={(value) => onChange(value as string)}>
+        <SelectTrigger size="sm" className="h-7 w-full text-[12.5px]">
+          <SelectValue>{(value: string) => label(value)}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="all">All changes</SelectItem>
+            <SelectItem value="branch">Branch vs base</SelectItem>
+            {turns.map((turn, i) => (
+              <SelectItem key={turn.id} value={turn.id}>
+                <span className="truncate">
+                  Turn {i + 1} · {turn.text || "attachment"}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
 
 function FileContentView({
@@ -211,12 +265,14 @@ function FileDetail({
   conversationId,
   path,
   changed,
+  scope,
   revision,
   onBack,
 }: {
   conversationId: string;
   path: string;
   changed: ChangedFile | undefined;
+  scope: string;
   revision: number;
   onBack: () => void;
 }) {
@@ -240,7 +296,12 @@ function FileDetail({
       </DetailHeader>
       <ScrollArea className="min-h-0 flex-1">
         {mode === "diff" ? (
-          <FileDiffView conversationId={conversationId} path={path} revision={revision} />
+          <FileDiffView
+            conversationId={conversationId}
+            path={path}
+            scope={scope}
+            revision={revision}
+          />
         ) : (
           <FileContentView conversationId={conversationId} path={path} revision={revision} />
         )}
@@ -380,6 +441,9 @@ export const ChangesPanel = memo(function ChangesPanel({
   prStep: PrStep | null;
 }) {
   const [tab, setTab] = useState<Tab>("changes");
+  const [pickedScope, setScope] = useState("all");
+  const [turns, setTurns] = useState<TurnInfo[]>([]);
+  const [scoped, setScoped] = useState<{ scope: string; files: ChangedFile[] } | null>(null);
   const [allFiles, setAllFiles] = useState<string[] | null>(null);
   const [createdPr, setCreatedPr] = useState<{ number: number; url: string } | null>(null);
   const [creatingPr, setCreatingPr] = useState(false);
@@ -443,7 +507,37 @@ export const ChangesPanel = memo(function ChangesPanel({
     };
   }, [tab, conversationId, changes]);
 
-  const changed = selectedPath ? changes.find((c) => c.path === selectedPath) : undefined;
+  useEffect(() => {
+    if (tab !== "changes") return;
+    let active = true;
+    api
+      .turns(conversationId)
+      .then((t) => active && setTurns(t))
+      .catch(() => active && setTurns([]));
+    return () => {
+      active = false;
+    };
+  }, [tab, conversationId, revision]);
+
+  const scope =
+    pickedScope === "all" || pickedScope === "branch" || turns.some((t) => t.id === pickedScope)
+      ? pickedScope
+      : "all";
+
+  useEffect(() => {
+    if (scope === "all") return;
+    let active = true;
+    api
+      .changes(conversationId, scope)
+      .then((files) => active && setScoped({ scope, files }))
+      .catch(() => active && setScoped({ scope, files: [] }));
+    return () => {
+      active = false;
+    };
+  }, [conversationId, scope, revision]);
+
+  const shown = scope === "all" ? changes : scoped?.scope === scope ? scoped.files : null;
+  const changed = selectedPath ? shown?.find((c) => c.path === selectedPath) : undefined;
   const back = useCallback(() => onSelectPath(null), [onSelectPath]);
 
   return (
@@ -496,12 +590,17 @@ export const ChangesPanel = memo(function ChangesPanel({
         </button>
       </div>
 
+      {tab === "changes" && !selectedPath && (
+        <ScopeSelect scope={scope} turns={turns} onChange={setScope} />
+      )}
+
       {selectedPath ? (
         <FileDetail
           key={selectedPath}
           conversationId={conversationId}
           path={selectedPath}
           changed={changed}
+          scope={tab === "changes" ? scope : "all"}
           revision={revision}
           onBack={back}
         />
@@ -515,7 +614,9 @@ export const ChangesPanel = memo(function ChangesPanel({
             <FileTree paths={allFiles} selectedPath={selectedPath} onSelect={onSelectPath} />
           )}
         </ScrollArea>
-      ) : changes.length === 0 ? (
+      ) : shown === null ? (
+        <LoadingState label="Loading changes" className="px-4 py-5" />
+      ) : shown.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 pb-10 text-center">
           <span className="flex size-9 items-center justify-center rounded-control bg-field text-ink-3 shadow-hairline">
             <HugeiconsIcon icon={GitPullRequestIcon} className="size-4" />
@@ -529,7 +630,7 @@ export const ChangesPanel = memo(function ChangesPanel({
             className="flex flex-col gap-px py-1.5"
             highlightClassName="inset-x-2 rounded-[7px] bg-hover-2"
           >
-            {changes.map((file) => (
+            {shown.map((file) => (
               <ChangeRow
                 key={file.path}
                 file={file}

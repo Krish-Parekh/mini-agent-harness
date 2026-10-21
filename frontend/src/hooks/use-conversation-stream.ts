@@ -28,10 +28,11 @@ export function useConversationStream(id: string) {
   const queryClient = useQueryClient();
   const collection = eventsCollection(id);
   const { data: rows } = useLiveQuery(() => collection, [id]);
-  const events = useMemo(
-    () => (rows ? [...rows].sort((a, b) => a.timestamp - b.timestamp) : []),
-    [rows],
-  );
+  const events = useMemo(() => {
+    const sorted = rows ? [...rows].sort((a, b) => a.timestamp - b.timestamp) : [];
+    const hidden = new Set(sorted.flatMap((e) => e.hidden_event_ids ?? []));
+    return sorted.filter((e) => e.kind !== "rewind" && !hidden.has(e.id));
+  }, [rows]);
   const [streamStatus, setStatus] = useState<ConversationStatus | null>(null);
   const [prStep, setPrStep] = useState<PrStep | null>(null);
   const [changes, setChanges] = useState<ChangedFile[]>([]);

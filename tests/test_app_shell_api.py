@@ -221,6 +221,7 @@ class _Managed:
             id="c1",
             status=Status.IDLE,
             events=[],
+            live_events=lambda: [],
             plan=None,
             implementing_plan=False,
             agent=SimpleNamespace(llm=SimpleNamespace(model="default")),

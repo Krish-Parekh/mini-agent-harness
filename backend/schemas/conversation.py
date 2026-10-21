@@ -78,6 +78,15 @@ class SendMessageRequest(BaseModel):
     attachments: list[AttachmentIn] = Field(default=[], max_length=MAX_ATTACHMENTS)
 
 
+class RewindRequest(BaseModel):
+    message_id: str
+
+
+class RewindResult(BaseModel):
+    text: str
+    attachments: list[AttachmentIn]
+
+
 class ConfirmRequest(BaseModel):
     tool_call_id: str
     approve: bool
@@ -108,6 +117,12 @@ class ChangedFile(BaseModel):
 class FileDiff(BaseModel):
     path: str
     patch: str
+    truncated: bool = False
+
+
+class TurnInfo(BaseModel):
+    id: str
+    text: str
 
 
 class FileContent(BaseModel):

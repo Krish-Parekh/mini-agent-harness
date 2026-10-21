@@ -24,7 +24,8 @@ from backend.repository import (
 )
 from backend.service.extension import McpService, SkillService, render_skills
 from miniagent.tracing import trace_attributes
-from backend.runtime import changes, pulls
+from backend.runtime import changes, checkpoints, pulls
+from backend.runtime.checkpoints import CheckpointError
 from backend.runtime.attachments import (
     ATTACHMENTS_DIR,
     LINK_TTL_S,
@@ -47,6 +48,7 @@ from backend.schemas import (
     FileDiff,
     PrProgress,
     StatusUpdate,
+    TurnInfo,
 )
 from miniagent.conversation import Status
 from miniagent.sandbox.base import SandboxError, SandboxExpired
@@ -382,8 +384,8 @@ class ConversationService:
             return True
         if conv.status == Status.WAITING_FOR_CONFIRMATION:
             conv.set_idle()
-            await self._rollback_cancelled_turn(managed)
             self._emit_status(managed)
+            await self._rollback_cancelled_turn(managed, self._last_user_id(conv.live_events()))
             await self._persist_status(managed)
             return True
         return False
@@ -601,15 +603,50 @@ class ConversationService:
             counts=ContextCounts(events=len(events), user_turns=user_turns),
         )
 
-    def list_changes(self, managed: ManagedConversation) -> list[ChangedFile]:
+    def list_changes(self, managed: ManagedConversation, scope: str = "all") -> list[ChangedFile]:
         if managed.repo is None:
             return []
-        return changes.list_changes(managed.sandbox)
+        return changes.list_changes(managed.sandbox, self._revs(managed, scope))
 
-    def file_diff(self, managed: ManagedConversation, path: str) -> FileDiff:
+    def file_diff(self, managed: ManagedConversation, path: str, scope: str = "all") -> FileDiff:
         if managed.repo is None:
             return FileDiff(path=path, patch="")
-        return changes.file_diff(managed.sandbox, path)
+        return changes.file_diff(managed.sandbox, path, self._revs(managed, scope))
+
+    def turns(self, managed: ManagedConversation) -> list[TurnInfo]:
+        if managed.repo is None:
+            return []
+        recorded = checkpoints.names(managed.sandbox)
+        return [
+            TurnInfo(id=e.id, text=e.text)
+            for e in self._user_messages(managed)
+            if e.id in recorded
+        ]
+
+    def _revs(self, managed: ManagedConversation, scope: str) -> str:
+        if scope == "all":
+            return "HEAD"
+        if scope == "branch":
+            base = f"origin/{managed.branch}" if managed.branch else "origin/HEAD"
+            return changes.merge_base(managed.sandbox, base)
+        users = [e.id for e in self._user_messages(managed)]
+        if scope not in users or not checkpoints.exists(managed.sandbox, scope):
+            raise CheckpointError("no checkpoint was recorded for that turn")
+        later = users[users.index(scope) + 1 :]
+        end = (
+            checkpoints.ref(later[0])
+            if later and checkpoints.exists(managed.sandbox, later[0])
+            else checkpoints.snapshot(managed.sandbox)
+        )
+        return f"{checkpoints.ref(scope)} {end}"
+
+    @staticmethod
+    def _user_messages(managed: ManagedConversation) -> list[MessageEvent]:
+        return [
+            e
+            for e in managed.conversation.live_events()
+            if isinstance(e, MessageEvent) and e.role == "user"
+        ]
 
     def list_files(self, managed: ManagedConversation) -> list[str]:
         if managed.repo is None:
@@ -628,24 +665,56 @@ class ConversationService:
     async def _run(self, managed: ManagedConversation, trigger) -> None:
         self._emit_status(managed, "running")
         await self._persist_status(managed)
+        turn_start = self._last_user_id(managed.conversation.live_events())
         async with managed.lock:
             await asyncio.to_thread(
                 managed.extend_sandbox, self._manager.sandbox_lifetime_s
             )
             await self._load_extensions(managed)
+            await self._checkpoint(managed, turn_start)
             with self._turn_span(managed):
                 await asyncio.to_thread(trigger)
             conv = managed.conversation
             if conv.cancel_event.is_set() and conv.status != Status.FINISHED:
-                await self._rollback_cancelled_turn(managed)
+                await self._rollback_cancelled_turn(managed, turn_start)
         await self._maybe_ai_title(managed)
         self._emit_status(managed)
         await self._persist_status(managed)
 
-    async def _rollback_cancelled_turn(self, managed: ManagedConversation) -> None:
+    async def _checkpoint(self, managed: ManagedConversation, message_id: str | None) -> None:
+        if managed.repo is None or message_id is None:
+            return
+        try:
+            await asyncio.to_thread(checkpoints.record, managed.sandbox, message_id)
+        except (CheckpointError, SandboxError) as exc:
+            _log.warning("checkpoint failed for %s: %s", managed.conversation.id, exc)
+
+    async def rewind(self, managed: ManagedConversation, message_id: str) -> MessageEvent:
+        conv = managed.conversation
+        if managed.lock.locked() or conv.status in (Status.RUNNING, Status.WAITING_FOR_CONFIRMATION):
+            raise CheckpointError("stop the current run before rewinding")
+        users = self._user_messages(managed)
+        target = next((e for e in users if e.id == message_id), None)
+        if target is None:
+            raise CheckpointError("that message is not in this conversation")
+        async with managed.lock:
+            if managed.repo is not None:
+                if not await asyncio.to_thread(checkpoints.exists, managed.sandbox, target.id):
+                    raise CheckpointError("no checkpoint was recorded for that message")
+                await asyncio.to_thread(checkpoints.restore, managed.sandbox, target.id)
+                await asyncio.to_thread(
+                    checkpoints.drop, managed.sandbox, [e.id for e in users[users.index(target):]]
+                )
+            conv.rewind(target.id)
+        await self._persist_status(managed)
+        return target
+
+    async def _rollback_cancelled_turn(
+        self, managed: ManagedConversation, turn_start: str | None
+    ) -> None:
         conv = managed.conversation
         events = conv.events
-        idx = self._last_user_index(events)
+        idx = next((i for i, e in enumerate(events) if e.id == turn_start), None)
         if idx is None:
             return
         removed = events[idx:]
@@ -655,12 +724,15 @@ class ConversationService:
         await self._repo.delete_events(conv.id, [e.id for e in removed])
 
     @staticmethod
-    def _last_user_index(events: list[Event]) -> int | None:
-        for i in range(len(events) - 1, -1, -1):
-            e = events[i]
-            if isinstance(e, MessageEvent) and e.role == "user":
-                return i
-        return None
+    def _last_user_id(events: list[Event]) -> str | None:
+        return next(
+            (
+                e.id
+                for e in reversed(events)
+                if isinstance(e, MessageEvent) and e.role == "user"
+            ),
+            None,
+        )
 
     async def _maybe_ai_title(self, managed: ManagedConversation) -> None:
         if managed._ai_titled or managed.user_turns() < AI_TITLE_AFTER_TURNS:
@@ -757,6 +829,9 @@ class ConversationService:
             if initial_message or attachments:
                 managed.conversation.send_message(
                     initial_message or "", attachments=attachments
+                )
+                await self._checkpoint(
+                    managed, self._last_user_id(managed.conversation.live_events())
                 )
                 with self._turn_span(managed):
                     await asyncio.to_thread(managed.conversation.run)

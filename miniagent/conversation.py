@@ -11,8 +11,12 @@ from miniagent.events import (
     Attachment,
     ErrorEvent,
     Event,
+    MemoryIndexEvent,
     MessageEvent,
     ObservationEvent,
+    RepoInstructionsEvent,
+    RewindEvent,
+    WorkspaceSketchEvent,
 )
 from miniagent.failures import classify, redact
 from miniagent.sandbox.base import SandboxError, SandboxExpired
@@ -35,6 +39,7 @@ class Status(str, enum.Enum):
 
 
 DOC_SUFFIXES = (".md", ".mdx", ".markdown", ".txt", ".rst", ".adoc")
+_ENVIRONMENT_EVENTS = (RepoInstructionsEvent, WorkspaceSketchEvent, MemoryIndexEvent)
 
 
 def _is_doc(path: str) -> bool:
@@ -140,14 +145,38 @@ class Conversation:
         return pending[0] if pending else None
 
     def pending_actions(self) -> list[ActionEvent]:
-        observed = {
-            e.tool_call_id for e in self.events if isinstance(e, ObservationEvent)
-        }
+        live = self.live_events()
+        observed = {e.tool_call_id for e in live if isinstance(e, ObservationEvent)}
         return [
             event
-            for event in self.events
+            for event in live
             if isinstance(event, ActionEvent) and event.tool_call_id not in observed
         ]
+
+    def live_events(self) -> list[Event]:
+        hidden = {
+            event_id
+            for event in self.events
+            if isinstance(event, RewindEvent)
+            for event_id in event.hidden_event_ids
+        }
+        if not hidden:
+            return self.events
+        return [event for event in self.events if event.id not in hidden]
+
+    def rewind(self, message_id: str) -> None:
+        live = self.live_events()
+        start = next(i for i, e in enumerate(live) if e.id == message_id)
+        self.add_event(
+            RewindEvent(
+                hidden_event_ids=[
+                    event.id
+                    for event in live[start:]
+                    if not isinstance(event, _ENVIRONMENT_EVENTS)
+                ]
+            )
+        )
+        self.status = Status.IDLE
 
     def close_orphaned_actions(self, reason: str) -> None:
         for action in self.pending_actions():
@@ -163,8 +192,9 @@ class Conversation:
     def compacted_event_ids(self) -> set[str]:
         from miniagent.events import CondensationEvent
 
-        replaced: set[str] = set()
-        for event in self.events:
+        live = self.live_events()
+        replaced = {e.id for e in self.events} - {e.id for e in live}
+        for event in live:
             if isinstance(event, CondensationEvent):
                 replaced.update(event.replaced_event_ids)
         return replaced
@@ -173,7 +203,7 @@ class Conversation:
         from miniagent.events import CondensationEvent
 
         elided: set[str] = set()
-        for event in self.events:
+        for event in self.live_events():
             if isinstance(event, CondensationEvent):
                 elided.update(event.elided_event_ids)
         return elided
@@ -248,13 +278,14 @@ class Conversation:
         return dirty
 
     def _observed_actions(self) -> list[tuple[ActionEvent, ObservationEvent]]:
+        live = self.live_events()
         actions = {
             event.tool_call_id: event
-            for event in self.events
+            for event in live
             if isinstance(event, ActionEvent)
         }
         pairs: list[tuple[ActionEvent, ObservationEvent]] = []
-        for event in self.events:
+        for event in live:
             if not isinstance(event, ObservationEvent):
                 continue
             action = actions.get(event.tool_call_id)
@@ -263,9 +294,10 @@ class Conversation:
         return pairs
 
     def _last_user_index(self) -> int | None:
+        live = {event.id for event in self.live_events()}
         for index in range(len(self.events) - 1, -1, -1):
             event = self.events[index]
-            if isinstance(event, MessageEvent) and event.role == "user":
+            if isinstance(event, MessageEvent) and event.role == "user" and event.id in live:
                 return index
         return None
 

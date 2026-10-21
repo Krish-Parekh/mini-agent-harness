@@ -6,6 +6,7 @@ from backend.schemas import ChangedFile, FileContent, FileDiff
 from miniagent.sandbox.base import Sandbox
 
 _STATUS = {"A": "added", "M": "modified", "D": "deleted"}
+MAX_PATCH_CHARS = 200_000
 
 _EXCLUDE_DIRS = ("node_modules", ".next", "dist", "build", ".venv", "__pycache__")
 _EXCLUDE = " ".join(
@@ -19,11 +20,11 @@ def _intent_to_add(sandbox: Sandbox) -> None:
     sandbox.run_command(f"git add -A -N -- . {_EXCLUDE}")
 
 
-def list_changes(sandbox: Sandbox) -> list[ChangedFile]:
+def list_changes(sandbox: Sandbox, revs: str = "HEAD") -> list[ChangedFile]:
     _intent_to_add(sandbox)
-    numstat = sandbox.run_command(f"git diff HEAD --numstat -- . {_EXCLUDE}").stdout
+    numstat = sandbox.run_command(f"git diff {revs} --numstat -- . {_EXCLUDE}").stdout
     name_status = sandbox.run_command(
-        f"git diff HEAD --name-status -- . {_EXCLUDE}"
+        f"git diff {revs} --name-status -- . {_EXCLUDE}"
     ).stdout
 
     counts: dict[str, tuple[int, int]] = {}
@@ -55,10 +56,17 @@ def list_changes(sandbox: Sandbox) -> list[ChangedFile]:
     return changes
 
 
-def file_diff(sandbox: Sandbox, path: str) -> FileDiff:
+def file_diff(sandbox: Sandbox, path: str, revs: str = "HEAD") -> FileDiff:
     _intent_to_add(sandbox)
-    patch = sandbox.run_command(f"git diff HEAD -- {shlex.quote(path)}").stdout
-    return FileDiff(path=path, patch=patch)
+    patch = sandbox.run_command(f"git diff {revs} -- {shlex.quote(path)}").stdout
+    if len(patch) <= MAX_PATCH_CHARS:
+        return FileDiff(path=path, patch=patch)
+    return FileDiff(path=path, patch=patch[:MAX_PATCH_CHARS], truncated=True)
+
+
+def merge_base(sandbox: Sandbox, base: str) -> str:
+    result = sandbox.run_command(f"git merge-base HEAD {shlex.quote(base)}")
+    return result.stdout.strip() if result.exit_code == 0 else "HEAD"
 
 
 def list_files(sandbox: Sandbox) -> list[str]:

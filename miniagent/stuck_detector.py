@@ -87,7 +87,7 @@ class StuckDetector:
         return self.reason() is not None
 
     def _events_since_last_user(self) -> list[Event]:
-        events = list(self._conversation.events[-MAX_EVENTS_TO_SCAN:])
+        events = list(self._conversation.live_events()[-MAX_EVENTS_TO_SCAN:])
         last_user = next(
             (
                 i

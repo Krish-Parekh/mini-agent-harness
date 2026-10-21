@@ -113,7 +113,10 @@ export type AgentEvent = {
   duration_ms?: number | null;
   details?: Record<string, unknown> | null;
   message?: string;
+  hidden_event_ids?: string[];
 };
+
+export type RewindResult = { text: string; attachments: AttachmentRef[] };
 
 export type ChangedFile = {
   path: string;
@@ -193,7 +196,9 @@ export type EnabledItem = {
   skipped: boolean;
 };
 
-export type FileDiff = { path: string; patch: string };
+export type FileDiff = { path: string; patch: string; truncated?: boolean };
+
+export type TurnInfo = { id: string; text: string };
 
 export type FileContent = { path: string; content: string };
 
@@ -336,6 +341,9 @@ export const api = {
 
   stop: (id: string) => post<ConversationInfo>(`/conversations/${id}/stop`),
 
+  rewind: (id: string, messageId: string) =>
+    post<RewindResult>(`/conversations/${id}/rewind`, { message_id: messageId }),
+
   createPr: (id: string) => post<ConversationInfo>(`/conversations/${id}/pr`),
 
   approvePlan: (id: string) =>
@@ -406,12 +414,17 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
 
-  changes: (id: string) => request<ChangedFile[]>(`/conversations/${id}/changes`),
-
-  fileDiff: (id: string, path: string) =>
-    request<FileDiff>(
-      `/conversations/${id}/changes/diff?path=${encodeURIComponent(path)}`,
+  changes: (id: string, scope = "all") =>
+    request<ChangedFile[]>(
+      `/conversations/${id}/changes?scope=${encodeURIComponent(scope)}`,
     ),
+
+  fileDiff: (id: string, path: string, scope = "all") =>
+    request<FileDiff>(
+      `/conversations/${id}/changes/diff?path=${encodeURIComponent(path)}&scope=${encodeURIComponent(scope)}`,
+    ),
+
+  turns: (id: string) => request<TurnInfo[]>(`/conversations/${id}/turns`),
 
   files: (id: string) => request<string[]>(`/conversations/${id}/files`),
 

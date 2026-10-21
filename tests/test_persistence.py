@@ -39,6 +39,9 @@ class FakeConversationState:
         self.plan = None
         self.implementing_plan = False
 
+    def live_events(self) -> list:
+        return self.events
+
 
 class FakeManagedConversation:
     def __init__(self, broker: EventBroker) -> None:

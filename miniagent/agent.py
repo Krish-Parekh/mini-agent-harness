@@ -229,7 +229,7 @@ class Agent:
         def context() -> BashContext:
             recent = [
                 e.text
-                for e in conversation.events
+                for e in conversation.live_events()
                 if isinstance(e, MessageEvent) and e.role == "user"
             ][-3:]
             return BashContext(
@@ -533,7 +533,7 @@ class Agent:
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
         compacted = conversation.compacted_event_ids()
         elided = conversation.elided_event_ids()
-        for event in conversation.events:
+        for event in conversation.live_events():
             if isinstance(event, CondensationEvent):
                 summary = event.to_chat_message()
                 if summary is not None:
@@ -1005,15 +1005,12 @@ class Agent:
     @staticmethod
     def _prior_identical_calls(conversation: Conversation, call: ToolCall) -> int:
         """How many already-observed calls match this tool name + arguments."""
-        observed = {
-            e.tool_call_id
-            for e in conversation.events
-            if isinstance(e, ObservationEvent)
-        }
+        live = conversation.live_events()
+        observed = {e.tool_call_id for e in live if isinstance(e, ObservationEvent)}
         sig = (call.name, json.dumps(call.arguments, sort_keys=True))
         return sum(
             1
-            for e in conversation.events
+            for e in live
             if isinstance(e, ActionEvent)
             and e.tool_call_id in observed
             and (e.tool_name, json.dumps(e.arguments, sort_keys=True)) == sig

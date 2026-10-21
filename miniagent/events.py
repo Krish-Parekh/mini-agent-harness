@@ -121,6 +121,12 @@ class ObservationEvent(Event):
         }
 
 
+class RewindEvent(Event):
+    kind: Literal["rewind"] = "rewind"
+    source: Source = "user"
+    hidden_event_ids: list[str]
+
+
 class CondensationEvent(Event):
     kind: Literal["condensation"] = "condensation"
     source: Source = "agent"
@@ -215,6 +221,7 @@ Events: TypeAlias = Annotated[
         ActionEvent,
         ObservationEvent,
         CondensationEvent,
+        RewindEvent,
         WorkspaceSketchEvent,
         RepoInstructionsEvent,
         MemoryIndexEvent,

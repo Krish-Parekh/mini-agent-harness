@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, memo, useMemo, useState } from "react";
-import { CircleAlertIcon, ClipboardListIcon, HammerIcon } from "lucide-react";
+import { CircleAlertIcon, ClipboardListIcon, HammerIcon, Undo2Icon } from "lucide-react";
 import type { AgentEvent, ConversationStatus, PlanStep, StepStatus } from "@/lib/api";
 import { failureMessage } from "@/lib/errors";
 import {
@@ -610,15 +610,19 @@ function MessageRow({
   ev,
   isLatestUserTurn,
   sources,
+  onRewind,
 }: {
   ev: MessageEvent;
   isLatestUserTurn?: boolean;
   sources?: Source[];
+  onRewind?: (messageId: string) => void;
 }) {
   if (ev.role === "assistant" && !(ev.text ?? "").trim()) return null;
 
   if (ev.role === "user") {
+    const saved = ev.id !== ev.client_event_id;
     return (
+      <div className="group/user flex flex-col items-end gap-1">
         <UserBubble
           className="w-full"
           {...(isLatestUserTurn ? { "data-user-turn": "" } : {})}
@@ -626,6 +630,17 @@ function MessageRow({
           {!!ev.attachments?.length && <MessageAttachments attachments={ev.attachments} />}
           {ev.text}
         </UserBubble>
+        {onRewind && saved && (
+          <button
+            type="button"
+            onClick={() => onRewind(ev.id)}
+            className="flex items-center gap-1 rounded-control px-1.5 py-0.5 text-[12px] text-ink-3 opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 hover:text-ink focus-visible:opacity-100"
+          >
+            <Undo2Icon className="size-3" />
+            Rewind to here
+          </button>
+        )}
+      </div>
     );
   }
 
@@ -709,6 +724,8 @@ export type ConversationTimelineProps = {
   onInstallSkill?: (skill: ProposedSkill) => Promise<{ name: string }>;
   onIncludeSkills?: (names: string[]) => void;
   onSkipSkills?: () => void;
+  onRewind?: (messageId: string) => void;
+  rewindable?: ReadonlySet<string>;
 };
 
 export const ConversationTimeline = memo(function ConversationTimeline({
@@ -728,6 +745,8 @@ export const ConversationTimeline = memo(function ConversationTimeline({
   onInstallSkill,
   onIncludeSkills,
   onSkipSkills,
+  onRewind,
+  rewindable,
 }: ConversationTimelineProps) {
   const groups = useMemo(() => groupEvents(events), [events]);
   const fanoutWorkersByCall = useMemo(() => buildFanoutWorkerMap(events), [events]);
@@ -830,6 +849,7 @@ export const ConversationTimeline = memo(function ConversationTimeline({
         ev={group.event}
         isLatestUserTurn={i === lastUserIdx}
         sources={replySources.get(key)}
+        onRewind={!live && rewindable?.has(group.event.id) ? onRewind : undefined}
       />
     );
   };

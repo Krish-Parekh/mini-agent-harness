@@ -20,6 +20,7 @@ import {
   type Repo,
   type Memory,
   type SandboxProvider,
+  type TurnInfo,
   type Skill,
 } from "@/lib/api";
 import { signedAttachmentUrl } from "@/lib/attachments";
@@ -38,6 +39,7 @@ export const queryKeys = {
   context: (id: string) => ["context", id] as const,
   events: (id: string) => ["events", id] as const,
   files: (id: string) => ["files", id] as const,
+  turns: (id: string) => ["turns", id] as const,
 };
 
 export function useRepos(enabled = true) {
@@ -77,6 +79,14 @@ export function useAttachmentUrl(attachment: AttachmentRef) {
     queryKey: ["attachment-url", attachment.path],
     queryFn: () => signedAttachmentUrl(attachment),
     staleTime: 50 * 60_000,
+  });
+}
+
+export function useTurns(id: string, status: string | undefined) {
+  return useQuery<TurnInfo[]>({
+    queryKey: [...queryKeys.turns(id), status],
+    queryFn: () => api.turns(id),
+    enabled: status !== undefined && status !== "running",
   });
 }
 

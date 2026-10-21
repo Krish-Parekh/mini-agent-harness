@@ -19,7 +19,9 @@ from backend.api.deps import (
 )
 from backend.api.streaming import stream_conversation
 from backend.runtime.attachments import AttachmentError
+from backend.runtime.checkpoints import CheckpointError
 from backend.schemas import (
+    AttachmentIn,
     ChangedFile,
     ConfirmRequest,
     ConversationContext,
@@ -27,7 +29,10 @@ from backend.schemas import (
     CreateConversationRequest,
     FileContent,
     FileDiff,
+    RewindRequest,
+    RewindResult,
     SendMessageRequest,
+    TurnInfo,
 )
 from miniagent.conversation import Status
 from miniagent.sandbox.factory import default_provider, provider_problem
@@ -46,6 +51,8 @@ async def _in_sandbox(fn: Callable[..., T], *args) -> T:
         raise HTTPException(status_code=409, detail="sandbox_expired") from exc
     except SandboxError as exc:
         raise HTTPException(status_code=503, detail="sandbox_unavailable") from exc
+    except CheckpointError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/conversations", response_model=ConversationInfo)
@@ -110,13 +117,20 @@ async def get_context(managed: ManagedDep, service: ServiceDep):
 
 
 @router.get("/conversations/{cid}/changes", response_model=list[ChangedFile])
-async def get_changes(managed: ManagedDep, service: ServiceDep):
-    return await _in_sandbox(service.list_changes, managed)
+async def get_changes(managed: ManagedDep, service: ServiceDep, scope: str = "all"):
+    return await _in_sandbox(service.list_changes, managed, scope)
 
 
 @router.get("/conversations/{cid}/changes/diff", response_model=FileDiff)
-async def get_file_diff(managed: ManagedDep, path: str, service: ServiceDep):
-    return await _in_sandbox(service.file_diff, managed, path)
+async def get_file_diff(
+    managed: ManagedDep, path: str, service: ServiceDep, scope: str = "all"
+):
+    return await _in_sandbox(service.file_diff, managed, path, scope)
+
+
+@router.get("/conversations/{cid}/turns", response_model=list[TurnInfo])
+async def get_turns(managed: ManagedDep, service: ServiceDep):
+    return await _in_sandbox(service.turns, managed)
 
 
 @router.get("/conversations/{cid}/files", response_model=list[str])
@@ -183,6 +197,23 @@ async def confirm(managed: ManagedDep, body: ConfirmRequest, service: ServiceDep
         raise HTTPException(status_code=409, detail="this action is no longer pending")
     await service.confirm(managed, body.tool_call_id, body.approve, body.reason)
     return service.info(managed)
+
+
+@router.post("/conversations/{cid}/rewind", response_model=RewindResult)
+async def rewind(managed: ManagedDep, body: RewindRequest, service: ServiceDep):
+    try:
+        message = await service.rewind(managed, body.message_id)
+    except CheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except SandboxError as exc:
+        raise HTTPException(status_code=503, detail="sandbox_unavailable") from exc
+    return RewindResult(
+        text=message.text,
+        attachments=[
+            AttachmentIn(path=a.path, name=a.name, mime=a.mime, size=a.size, kind=a.kind)
+            for a in message.attachments
+        ],
+    )
 
 
 @router.post("/conversations/{cid}/stop", response_model=ConversationInfo)

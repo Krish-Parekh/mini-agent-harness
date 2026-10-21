@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { use, useCallback, useRef, useState } from "react";
+import { use, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import Link from "next/link";
@@ -9,7 +9,7 @@ import Link from "next/link";
 import { api, type AttachmentRef } from "@/lib/api";
 import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
-import { queryKeys, useConversationContext } from "@/lib/queries";
+import { queryKeys, useConversationContext, useTurns } from "@/lib/queries";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
 import { ConversationTimeline } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
@@ -78,6 +78,8 @@ export default function ChatPage({
     stop: stopRun,
     prStep,
   } = useConversationStream(id);
+  const { data: turns } = useTurns(id, status);
+  const rewindable = useMemo(() => new Set(turns?.map((t) => t.id)), [turns]);
 
   const [input, setInput] = useState("");
   const attachments = useComposerAttachments();
@@ -160,7 +162,23 @@ export default function ChatPage({
         return false;
       }
     },
-    [id, model, status, setStatus],
+    [id, model, status, setStatus, setInput],
+  );
+
+  const restoreAttachments = attachments.restore;
+  const rewindTo = useCallback(
+    async (messageId: string) => {
+      try {
+        const result = await api.rewind(id, messageId);
+        setInput(result.text);
+        restoreAttachments(result.attachments);
+        refreshChanges();
+        void queryClient.invalidateQueries({ queryKey: queryKeys.turns(id) });
+      } catch (e) {
+        toast.error(messageFor(e));
+      }
+    },
+    [id, setInput, restoreAttachments, refreshChanges, queryClient],
   );
 
   const installSkill = useCallback(
@@ -277,6 +295,8 @@ export default function ChatPage({
                 onInstallSkill={installSkill}
                 onIncludeSkills={includeSkills}
                 onSkipSkills={skipSkills}
+                onRewind={rewindTo}
+                rewindable={rewindable}
               />
               <ConversationScrollAnchor turnKey={lastUserTurnId} />
             </ConversationContent>

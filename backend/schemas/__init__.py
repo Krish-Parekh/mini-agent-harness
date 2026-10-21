@@ -14,8 +14,11 @@ from backend.schemas.conversation import (
     FileContent,
     FileDiff,
     PrProgress,
+    RewindRequest,
+    RewindResult,
     SendMessageRequest,
     StatusUpdate,
+    TurnInfo,
 )
 from backend.schemas.github import ImportRepoRequest, RepoOut
 
@@ -38,8 +41,11 @@ __all__ = [
     "ImportRepoRequest",
     "PrProgress",
     "RepoOut",
+    "RewindRequest",
+    "RewindResult",
     "SendMessageRequest",
     "StatusUpdate",
     "SyncRequest",
+    "TurnInfo",
     "UserOut",
 ]
