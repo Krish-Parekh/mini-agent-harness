@@ -3,8 +3,10 @@
 import { Fragment, memo, useMemo, useState } from "react";
 import { CircleAlertIcon, ClipboardListIcon, HammerIcon } from "lucide-react";
 import type { AgentEvent, ConversationStatus, PlanStep, StepStatus } from "@/lib/api";
+import { failureMessage } from "@/lib/errors";
 import {
   type ActionEvent,
+  type ErrorEvent,
   type MessageEvent,
   eventKey,
   isAction,
@@ -500,7 +502,8 @@ function QuestionsSummary({ ev }: { ev: ActionEvent }) {
   );
 }
 
-function ErrorRow({ message }: { message?: string }) {
+function ErrorRow({ event }: { event: ErrorEvent }) {
+  const message = event.failure ? failureMessage(event.failure) : event.message;
   return (
     <div
       role="alert"
@@ -515,7 +518,7 @@ function ErrorRow({ message }: { message?: string }) {
 
 type Group =
   | { kind: "message"; event: MessageEvent }
-  | { kind: "error"; event: AgentEvent }
+  | { kind: "error"; event: ErrorEvent }
   | { kind: "plan"; event: ActionEvent }
   | { kind: "questions"; event: ActionEvent }
   | { kind: "skills"; event: ActionEvent }
@@ -811,7 +814,7 @@ export const ConversationTimeline = memo(function ConversationTimeline({
       );
     }
     if (group.kind === "error") {
-      return <ErrorRow key={group.event.id} message={group.event.message} />;
+      return <ErrorRow key={group.event.id} event={group.event} />;
     }
     const key = eventKey(group.event);
     return (

@@ -1,4 +1,25 @@
 import { ApiError } from "@/lib/api";
+import type { ProviderFailure } from "@/lib/events";
+
+const FAILURE_MESSAGES: Record<ProviderFailure["kind"], string> = {
+  usage_limit: "The model provider's rate limit was reached.",
+  permission_error: "The model provider rejected the API key. Check the provider key in your settings.",
+  transport_error: "Couldn't reach the model provider.",
+  validation_error: "The model provider rejected the request.",
+  provider_error: "The model provider had an error.",
+};
+
+export function failureMessage(failure: ProviderFailure): string {
+  const message = FAILURE_MESSAGES[failure.kind];
+  if (failure.reset_at) {
+    const at = new Date(failure.reset_at * 1000).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return `${message} Try again after ${at}.`;
+  }
+  return failure.retryable ? `${message} Send a message to try again.` : message;
+}
 
 const SANDBOX_MESSAGES: Record<string, string> = {
   sandbox_expired: "The sandbox for this conversation expired. The diff is no longer available.",

@@ -148,11 +148,9 @@ async def approve_plan(managed: ManagedDep, service: ServiceDep):
 
 @router.post("/conversations/{cid}/confirm", response_model=ConversationInfo)
 async def confirm(managed: ManagedDep, body: ConfirmRequest, service: ServiceDep):
-    if managed.conversation.status != Status.WAITING_FOR_CONFIRMATION:
-        raise HTTPException(
-            status_code=409, detail="conversation is not waiting for confirmation"
-        )
-    await service.confirm(managed, body.approve, body.reason)
+    if not managed.conversation.awaits(body.tool_call_id):
+        raise HTTPException(status_code=409, detail="this action is no longer pending")
+    await service.confirm(managed, body.tool_call_id, body.approve, body.reason)
     return service.info(managed)
 
 

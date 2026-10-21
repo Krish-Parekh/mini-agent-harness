@@ -13,6 +13,7 @@ from miniagent.events import (
     MessageEvent,
     ObservationEvent,
 )
+from miniagent.failures import classify, redact
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 from miniagent.stuck_detector import StuckDetectionThresholds, StuckDetector
 
@@ -261,23 +262,29 @@ class Conversation:
                 return index
         return None
 
-    def approve(self) -> None:
-        if self.status == Status.WAITING_FOR_CONFIRMATION:
+    def awaits(self, tool_call_id: str) -> bool:
+        pending = self.pending_action()
+        return (
+            self.status == Status.WAITING_FOR_CONFIRMATION
+            and pending is not None
+            and pending.tool_call_id == tool_call_id
+        )
+
+    def approve(self, tool_call_id: str) -> None:
+        if self.awaits(tool_call_id):
             self.run()
 
-    def reject(self, reason: str = "Action rejected by the user.") -> None:
-        if self.status != Status.WAITING_FOR_CONFIRMATION:
+    def reject(self, tool_call_id: str, reason: str = "Action rejected by the user.") -> None:
+        if not self.awaits(tool_call_id):
             return
-        pending = self.pending_action()
-        if pending is not None:
-            self.add_event(
-                ObservationEvent(
-                    tool_name=pending.tool_name,
-                    tool_call_id=pending.tool_call_id,
-                    content=reason,
-                    error=True,
-                )
+        self.add_event(
+            ObservationEvent(
+                tool_name=self.pending_action().tool_name,
+                tool_call_id=tool_call_id,
+                content=reason,
+                error=True,
             )
+        )
         self.run()
 
     def request_cancel(self) -> None:
@@ -313,7 +320,12 @@ class Conversation:
                 return
             except Exception as exc:
                 self.close_orphaned_actions("Not executed: the agent step failed.")
-                self.add_event(ErrorEvent(message=f"agent step failed: {exc}"))
+                self.add_event(
+                    ErrorEvent(
+                        message=f"agent step failed: {redact(str(exc))}",
+                        failure=classify(exc),
+                    )
+                )
                 self.status = Status.ERROR
                 return
             if self.status != Status.RUNNING:

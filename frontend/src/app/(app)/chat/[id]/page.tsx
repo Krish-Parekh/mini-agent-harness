@@ -123,14 +123,13 @@ export default function ChatPage({
     () => optimisticRun(() => api.approvePlan(id)),
     [optimisticRun, id],
   );
-  const approveAction = useCallback(
-    () => optimisticRun(() => api.confirm(id, true)),
-    [optimisticRun, id],
-  );
-  const rejectAction = useCallback(
-    () => optimisticRun(() => api.confirm(id, false)),
-    [optimisticRun, id],
-  );
+  const pendingCallId = lastUnresolvedAction?.tool_call_id;
+  const approveAction = useCallback(() => {
+    if (pendingCallId) optimisticRun(() => api.confirm(id, pendingCallId, true));
+  }, [optimisticRun, id, pendingCallId]);
+  const rejectAction = useCallback(() => {
+    if (pendingCallId) optimisticRun(() => api.confirm(id, pendingCallId, false));
+  }, [optimisticRun, id, pendingCallId]);
 
   const submit = useCallback(
     async (text: string, restoreInput: boolean) => {

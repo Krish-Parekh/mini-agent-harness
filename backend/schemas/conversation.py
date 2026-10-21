@@ -42,6 +42,7 @@ class SendMessageRequest(BaseModel):
 
 
 class ConfirmRequest(BaseModel):
+    tool_call_id: str
     approve: bool
     reason: str = "Action rejected by the user."
 

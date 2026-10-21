@@ -20,9 +20,21 @@ export type ObservationEvent = AgentEvent & {
   details?: Record<string, unknown> | null;
 };
 
+export type ProviderFailure = {
+  kind:
+    | "usage_limit"
+    | "provider_error"
+    | "transport_error"
+    | "permission_error"
+    | "validation_error";
+  retryable: boolean;
+  reset_at: number | null;
+};
+
 export type ErrorEvent = AgentEvent & {
   kind: "error";
   message?: string;
+  failure?: ProviderFailure | null;
 };
 
 export type FanoutWorkerEvent = AgentEvent & {

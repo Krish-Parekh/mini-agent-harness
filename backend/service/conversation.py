@@ -304,12 +304,12 @@ class ConversationService:
         self._spawn(self._run(managed, conv.run))
 
     async def confirm(
-        self, managed: ManagedConversation, approve: bool, reason: str
+        self, managed: ManagedConversation, tool_call_id: str, approve: bool, reason: str
     ) -> None:
         if approve:
-            trigger: Callable[[], None] = managed.conversation.approve
+            trigger: Callable[[], None] = partial(managed.conversation.approve, tool_call_id)
         else:
-            trigger = partial(managed.conversation.reject, reason)
+            trigger = partial(managed.conversation.reject, tool_call_id, reason)
         self._spawn(self._run(managed, trigger))
 
     async def stop(self, managed: ManagedConversation) -> bool:

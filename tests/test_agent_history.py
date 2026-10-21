@@ -110,5 +110,22 @@ def test_approval_still_runs_the_pending_call():
     conversation, sandbox = _conversation(llm, confirm="always")
     conversation.send_message("run tests")
     conversation.run()
-    conversation.approve()
+    conversation.approve("c1")
     assert sandbox.commands[-1] == "make test"
+
+
+def test_a_stale_approval_does_not_approve_the_next_pending_call():
+    llm = QueueLLM(
+        _bash("c1", "make test"), _bash("c2", "make deploy"), LLMResponse(text="done")
+    )
+    conversation, sandbox = _conversation(llm, confirm="always")
+    conversation.send_message("test then deploy")
+    conversation.run()
+    conversation.approve("c1")
+    assert conversation.awaits("c2")
+
+    conversation.approve("c1")
+    conversation.reject("c1")
+
+    assert "make deploy" not in sandbox.commands
+    assert conversation.awaits("c2")

@@ -327,8 +327,9 @@ export const api = {
   approvePlan: (id: string) =>
     post<ConversationInfo>(`/conversations/${id}/plan/approve`),
 
-  confirm: (id: string, approve: boolean, reason?: string) =>
+  confirm: (id: string, toolCallId: string, approve: boolean, reason?: string) =>
     post<ConversationInfo>(`/conversations/${id}/confirm`, {
+      tool_call_id: toolCallId,
       approve,
       ...(reason ? { reason } : {}),
     }),
