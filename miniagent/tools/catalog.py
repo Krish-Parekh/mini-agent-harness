@@ -12,6 +12,7 @@ from miniagent.tools.find_skills import FindSkillsTool, ProposeSkillsTool
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.plan import PresentPlanTool, UpdatePlanTool
+from miniagent.tools.search import GlobTool, GrepTool
 from miniagent.tools.skill import SkillTool
 from miniagent.tools.web_research import WebResearchTool
 from miniagent.tools.web_search import WebSearchTool
@@ -21,6 +22,8 @@ CATALOG_PATH = Path(__file__).with_name("CATALOG.md")
 TOOLS = (
     BashTool,
     FileEditTool,
+    GrepTool,
+    GlobTool,
     FinishTool,
     PresentPlanTool,
     UpdatePlanTool,

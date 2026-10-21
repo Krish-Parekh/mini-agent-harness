@@ -46,11 +46,12 @@ class BashTool(Tool):
     description = (
         "Run a shell command and return its stdout, stderr, and exit code. The "
         "command runs non-interactively with the workspace root as the working "
-        "directory. Use it to explore (`rg -n \"pattern\" src/`, `git log "
-        "--oneline -10`, `git diff`, `sed -n '40,90p' file.py`), to verify "
-        "(`python -m pytest tests/test_x.py -x -q`), and for any multi-file or "
-        "git work. Keep output small: prefer `| head -50` and narrow test "
-        "invocations over full suites. Never start interactive commands "
+        "directory. Use it for git work (`git log --oneline -10`, `git diff`), "
+        "skimming a slice (`sed -n '40,90p' file.py`), verification (`python -m "
+        "pytest tests/test_x.py -x -q`) and multi-file work. Search with the "
+        "`grep` and `glob` tools instead of `rg`, `grep` or `find`. Keep "
+        "output small: prefer `| head -50` and narrow test invocations over "
+        "full suites. Never start interactive commands "
         "(editors, REPLs, watch mode). The default `timeout` is 30 seconds; "
         "pass a larger value (120-600) for installs, builds, or test suites. "
         "Set `description` to a short summary of the command, and `workdir` "
@@ -65,7 +66,7 @@ class BashTool(Tool):
     def execute(self, action: BashAction, sandbox: Sandbox) -> BashObservation:
         command = action.command
         if action.workdir:
-            workdir = _inside_workspace(action.workdir, sandbox.workspace_dir)
+            workdir = inside_workspace(action.workdir, sandbox.workspace_dir)
             if workdir is None:
                 return _rejected(f"workdir {action.workdir} is outside the workspace.")
             command = f"cd -- {shlex.quote(workdir)} && {command}"
@@ -73,7 +74,7 @@ class BashTool(Tool):
         return _observation(result)
 
 
-def _inside_workspace(workdir: str, workspace: str) -> str | None:
+def inside_workspace(workdir: str, workspace: str) -> str | None:
     root = posixpath.normpath(workspace)
     target = posixpath.normpath(posixpath.join(root, workdir))
     if target != root and not target.startswith(root + "/"):

@@ -695,7 +695,7 @@ class Agent:
             return False
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") == "view"
-        if action_event.tool_name in ("web_search", "fetch_url"):
+        if action_event.tool_name in ("web_search", "fetch_url", "grep", "glob"):
             return True
         if action_event.tool_name == "bash":
             return self.policy.classify_bash(

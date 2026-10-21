@@ -18,6 +18,7 @@ from miniagent.tools.base import Tool, ToolRegistry
 from miniagent.tools.bash import BashAction, BashObservation, BashTool
 from miniagent.tools.file_edit import FileEditAction, FileEditObservation, FileEditTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.search import GlobTool, GrepTool
 from miniagent.tracing import bind_context
 
 if TYPE_CHECKING:
@@ -248,6 +249,8 @@ class FanoutTool(Tool):
         tools: list[Tool] = [
             ReadOnlyBashTool(self.policy),
             ReadOnlyFileEditTool(),
+            GrepTool(),
+            GlobTool(),
             FinishTool(),
         ]
         return ToolRegistry(tools)

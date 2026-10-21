@@ -26,6 +26,7 @@ from miniagent.tools.skill import SkillTool
 from miniagent.tools.bash import BashTool
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.file_edit import FileEditTool
+from miniagent.tools.search import GlobTool, GrepTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.ask import AskUserTool
 from miniagent.tools.fanout import FanoutTool
@@ -88,6 +89,8 @@ def _build_agent(
     tool_list: list = [
         BashTool(),
         FileEditTool(),
+        GrepTool(),
+        GlobTool(),
         FinishTool(),
         PresentPlanTool(),
         UpdatePlanTool(),

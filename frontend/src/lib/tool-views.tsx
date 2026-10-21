@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   CircleCheckIcon,
   FileIcon,
+  FileSearchIcon,
   FilePenIcon,
   FilePlusIcon,
   GlobeIcon,
@@ -167,6 +168,18 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
     icon: SearchIcon,
     verb: "Web research",
     target: String(a.description ?? a.prompt ?? "research"),
+  }),
+  grep: (a) => ({
+    icon: SearchIcon,
+    verb: "Grep",
+    target: `${a.pattern ?? ""}${a.path && a.path !== "." ? ` in ${a.path}` : ""}`,
+    mono: true,
+  }),
+  glob: (a) => ({
+    icon: FileSearchIcon,
+    verb: "Glob",
+    target: String(a.pattern ?? ""),
+    mono: true,
   }),
 };
 
