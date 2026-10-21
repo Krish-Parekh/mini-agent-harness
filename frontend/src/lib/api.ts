@@ -92,9 +92,12 @@ export type ConversationInfo = {
   pr_number: number | null;
   pr_url: string | null;
   sandbox_provider: string;
+  queued?: QueuedMessage[];
   created_at: string | null;
   updated_at: string | null;
 };
+
+export type QueuedMessage = { id: string; text: string };
 
 export type AgentEvent = {
   id: string;
@@ -331,13 +334,18 @@ export const api = {
     model?: string,
     clientEventId?: string,
     attachments: AttachmentRef[] = [],
+    mode: "steer" | "queue" = "steer",
   ) =>
     post<ConversationInfo>(`/conversations/${id}/messages`, {
       text,
       attachments,
+      mode,
       ...(model ? { model } : {}),
       ...(clientEventId ? { client_event_id: clientEventId } : {}),
     }),
+
+  unqueue: (id: string, queuedId: string) =>
+    request<ConversationInfo>(`/conversations/${id}/queue/${queuedId}`, { method: "DELETE" }),
 
   stop: (id: string) => post<ConversationInfo>(`/conversations/${id}/stop`),
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { use, useCallback, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, use, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import Link from "next/link";
@@ -44,7 +44,7 @@ import {
 } from "@/components/composer-attachments";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
 import { SkillSlashTextarea } from "@/components/skill-slash-menu";
-import { AlertTriangleIcon } from "lucide-react";
+import { AlertTriangleIcon, XIcon } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -79,6 +79,7 @@ export default function ChatPage({
     lastUserTurnId,
     stop: stopRun,
     prStep,
+    queued,
   } = useConversationStream(id);
   const { data: turns } = useTurns(id, status);
   const rewindable = useMemo(() => new Set(turns?.map((t) => t.id)), [turns]);
@@ -223,14 +224,37 @@ export default function ChatPage({
     stopRun();
   }
 
-  async function send(message: PromptBarMessage) {
+  async function send(message: PromptBarMessage, mode: "steer" | "queue" = "steer") {
     const text = message.text.trim();
-    if ((!text && attachments.items.length === 0) || busy || attachments.uploading) return;
+    if ((!text && attachments.items.length === 0) || waiting || attachments.uploading) return;
     const uploaded = await attachments.upload();
     if (!uploaded) return;
     if (text) recordPrompt(text);
     setInput("");
+    if (busy && mode === "queue") {
+      try {
+        await api.sendMessage(id, text, model ?? undefined, undefined, uploaded, "queue");
+        attachments.clear();
+      } catch (e) {
+        setInput(text);
+        toast.error(messageFor(e));
+      }
+      return;
+    }
     if (await submit(text, true, uploaded)) attachments.clear();
+  }
+
+  function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (busy && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      void send({ text: input }, "queue");
+      return;
+    }
+    recallPrompt(event);
+  }
+
+  function unqueue(queuedId: string) {
+    api.unqueue(id, queuedId).catch((e) => toast.error(messageFor(e)));
   }
 
   if (missing) {
@@ -351,25 +375,49 @@ export default function ChatPage({
             </div>
           )}
 
+          {queued.length > 0 && (
+            <div className="mt-3 flex flex-col gap-1">
+              {queued.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-2 rounded-control bg-field px-3 py-1.5 text-[13px] text-ink-2 shadow-hairline"
+                >
+                  <span className="shrink-0 text-[12px] text-ink-3">Queued</span>
+                  <span className="min-w-0 flex-1 truncate">{item.text || "Attachments"}</span>
+                  <button
+                    type="button"
+                    aria-label="Remove queued message"
+                    onClick={() => unqueue(item.id)}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-chip text-ink-3 hover:bg-hover hover:text-ink"
+                  >
+                    <XIcon className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <AttachmentDropZone attachments={attachments}>
             <PromptBar onSubmit={(message) => send(message)} className="mt-3">
               <AttachmentChips attachments={attachments} />
               <SkillSlashTextarea
                 value={input}
                 onValueChange={setInput}
-                onKeyDown={recallPrompt}
+                onKeyDown={onComposerKeyDown}
                 placeholder={
                   waiting
                     ? "Approve or reject the action above…"
+                    : busy
+                      ? "Steer the agent, or ⌘↵ to queue…"
                       : showQuestion || showSkills
                         ? "Or reply directly…"
                         : "Send a message, / for commands…"
                 }
-                disabled={busy}
+                disabled={waiting}
               />
               <PromptBarFooter>
                 <PromptBarTools>
-                  <AttachButton attachments={attachments} disabled={busy} />
+                  <AttachButton attachments={attachments} disabled={waiting} />
                   <ModelPicker
                     value={model ?? context?.model ?? DEFAULT_MODEL}
                     onChange={setModel}

@@ -15,6 +15,7 @@ from backend.runtime.manager import (
     AI_TITLE_AFTER_TURNS,
     ConversationManager,
     ManagedConversation,
+    QueuedMessage,
     publish_committed,
 )
 from backend.repository import (
@@ -48,6 +49,8 @@ from backend.schemas import (
     FileContent,
     FileDiff,
     PrProgress,
+    QueuedOut,
+    QueueUpdate,
     StatusUpdate,
     TurnInfo,
 )
@@ -341,17 +344,65 @@ class ConversationService:
         client_event_id: str | None = None,
         attachments: list[Attachment] | None = None,
         storage_token: str | None = None,
+        mode: str = "steer",
     ) -> None:
         if attachments:
             await self._copy_attachments(managed, attachments, storage_token)
         conv = managed.conversation
+        running = managed.lock.locked() or conv.status == Status.RUNNING
+        if running and mode == "queue":
+            managed.queue.append(
+                QueuedMessage(
+                    id=uuid.uuid4().hex[:8],
+                    text=text,
+                    attachments=attachments or [],
+                    model=model,
+                    client_event_id=client_event_id,
+                )
+            )
+            self._publish_queue(managed)
+            return
         if model:
             managed.set_model(model)
+        if running:
+            conv.steer(text, client_event_id=client_event_id, attachments=attachments)
+            return
         conv.send_message(
             text,
             plan_mode=plan_mode,
             client_event_id=client_event_id,
             attachments=attachments,
+        )
+        self._spawn(self._run(managed, conv.run))
+
+    def unqueue(self, managed: ManagedConversation, queued_id: str) -> bool:
+        before = len(managed.queue)
+        managed.queue = [q for q in managed.queue if q.id != queued_id]
+        self._publish_queue(managed)
+        return len(managed.queue) < before
+
+    def _publish_queue(self, managed: ManagedConversation) -> None:
+        managed.broker.publish(QueueUpdate(items=self._queued(managed)))
+
+    @staticmethod
+    def _queued(managed: ManagedConversation) -> list[QueuedOut]:
+        return [QueuedOut(id=q.id, text=q.text) for q in managed.queue]
+
+    def _continue(self, managed: ManagedConversation) -> None:
+        conv = managed.conversation
+        if conv.cancel_event.is_set():
+            return
+        if conv.has_steering():
+            self._spawn(self._run(managed, conv.run))
+            return
+        if not managed.queue or conv.status not in (Status.IDLE, Status.FINISHED):
+            return
+        queued = managed.queue.pop(0)
+        self._publish_queue(managed)
+        if queued.model:
+            managed.set_model(queued.model)
+        conv.send_message(
+            queued.text, client_event_id=queued.client_event_id, attachments=queued.attachments
         )
         self._spawn(self._run(managed, conv.run))
 
@@ -539,6 +590,7 @@ class ConversationService:
             pr_number=managed.pr_number,
             pr_url=managed.pr_url,
             sandbox_provider=managed.sandbox.provider,
+            queued=self._queued(managed),
         )
 
     async def create_pr(
@@ -716,6 +768,7 @@ class ConversationService:
         if managed.run_generation != generation:
             return
         await self._persist_status(managed)
+        self._continue(managed)
 
     async def _checkpoint(self, managed: ManagedConversation, message_id: str | None) -> None:
         if managed.repo is None or message_id is None:
@@ -874,3 +927,4 @@ class ConversationService:
                 with self._turn_span(managed):
                     await asyncio.to_thread(managed.conversation.run)
         await self._persist_status(managed)
+        self._continue(managed)

@@ -14,7 +14,7 @@ from miniagent.agent import Agent
 from miniagent.config import Settings
 from miniagent.confirm import ConfirmMode, ConfirmPolicy
 from miniagent.conversation import Conversation, Status
-from miniagent.events import ErrorEvent, Event, MessageEvent
+from miniagent.events import Attachment, ErrorEvent, Event, MessageEvent
 from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier
 from miniagent.sandbox.base import Sandbox, SandboxError
@@ -154,6 +154,15 @@ class StreamFrame:
     seq: int | None
 
 
+@dataclass(frozen=True)
+class QueuedMessage:
+    id: str
+    text: str
+    attachments: list[Attachment]
+    model: str | None
+    client_event_id: str | None
+
+
 class EventBroker:
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -209,6 +218,7 @@ class ManagedConversation:
         self.mcp_skipped: set[str] = set()
         self.mcp_instructions: dict[str, tuple[str, str]] = {}
         self.skills_skipped: set[str] = set()
+        self.queue: list[QueuedMessage] = []
 
     def on_event(self, event: Event) -> None:
         self._seq += 1

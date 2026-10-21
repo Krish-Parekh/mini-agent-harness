@@ -76,6 +76,16 @@ class SendMessageRequest(BaseModel):
     plan_mode: bool = False
     client_event_id: str | None = None
     attachments: list[AttachmentIn] = Field(default=[], max_length=MAX_ATTACHMENTS)
+    mode: Literal["steer", "queue"] = "steer"
+
+
+class QueuedOut(BaseModel):
+    id: str
+    text: str
+
+
+class QueueUpdate(BaseModel):
+    items: list[QueuedOut]
 
 
 class RewindRequest(BaseModel):
@@ -190,6 +200,7 @@ class ConversationInfo(BaseModel):
     pr_number: int | None = None
     pr_url: str | None = None
     sandbox_provider: str = "local"
+    queued: list[QueuedOut] = []
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

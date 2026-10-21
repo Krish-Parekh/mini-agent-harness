@@ -73,6 +73,8 @@ class Conversation:
         # Set from another thread to ask the run loop to stop cooperatively; the
         # loop checks it between iterations. Cleared at the start of each run().
         self.cancel_event = threading.Event()
+        self._steering: list[MessageEvent] = []
+        self._steering_lock = threading.Lock()
         # When set, the agent plans (read-only) and pauses via `present_plan`
         # instead of implementing. Sticky: it stays on across clarifying
         # `ask_user` rounds and plan refinements, and only clears when the
@@ -117,6 +119,32 @@ class Conversation:
                 attachments=attachments or [],
             )
         )
+
+    def steer(
+        self,
+        text: str,
+        client_event_id: str | None = None,
+        attachments: list[Attachment] | None = None,
+    ) -> None:
+        with self._steering_lock:
+            self._steering.append(
+                MessageEvent(
+                    role="user",
+                    text=text,
+                    client_event_id=client_event_id,
+                    attachments=attachments or [],
+                )
+            )
+
+    def has_steering(self) -> bool:
+        with self._steering_lock:
+            return bool(self._steering)
+
+    def _take_steering(self) -> None:
+        with self._steering_lock:
+            pending, self._steering = self._steering, []
+        for message in pending:
+            self.add_event(message)
 
     def add_event(self, event: Event) -> None:
         self.events.append(event)
@@ -329,6 +357,8 @@ class Conversation:
     def request_cancel(self) -> None:
         """Ask the in-flight run loop to stop after its current step."""
         self.cancel_event.set()
+        with self._steering_lock:
+            self._steering.clear()
 
     def run(self) -> None:
         self.cancel_event.clear()
@@ -343,6 +373,7 @@ class Conversation:
             if self.cancel_event.is_set():
                 self.status = Status.IDLE
                 return
+            self._take_steering()
             if self._stuck_detector is not None:
                 reason = self._stuck_detector.reason()
                 if reason is not None:

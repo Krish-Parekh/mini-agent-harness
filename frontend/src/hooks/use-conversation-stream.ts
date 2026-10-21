@@ -13,6 +13,7 @@ import {
   type ConversationStatus,
   type PlanStep,
   type PrStep,
+  type QueuedMessage,
   type StepStatus,
 } from "@/lib/api";
 import { eventsCollection } from "@/lib/collections";
@@ -35,6 +36,7 @@ export function useConversationStream(id: string) {
   }, [rows]);
   const [streamStatus, setStatus] = useState<ConversationStatus | null>(null);
   const [prStep, setPrStep] = useState<PrStep | null>(null);
+  const [streamQueue, setQueue] = useState<QueuedMessage[] | null>(null);
   const [changes, setChanges] = useState<ChangedFile[]>([]);
   const [streamGone, setStreamGone] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -69,6 +71,10 @@ export function useConversationStream(id: string) {
       }
       if (frame.event === "pr_progress") {
         setPrStep(JSON.parse(frame.data).step as PrStep);
+        return;
+      }
+      if (frame.event === "queue") {
+        setQueue(JSON.parse(frame.data).items as QueuedMessage[]);
         return;
       }
       collection.utils.writeUpsert(JSON.parse(frame.data) as AgentEvent);
@@ -117,6 +123,7 @@ export function useConversationStream(id: string) {
     streamStatus ?? conversation?.status ?? "idle";
   const busy = BUSY.has(status);
   const waiting = status === "waiting_for_confirmation";
+  const queued = streamQueue ?? conversation?.queued ?? [];
 
   const observationByCall = useMemo(() => {
     const map = new Map<string, AgentEvent>();
@@ -251,5 +258,6 @@ export function useConversationStream(id: string) {
     lastUserTurnId,
     stop,
     prStep,
+    queued,
   };
 }

@@ -42,6 +42,9 @@ class FakeConversationState:
     def live_events(self) -> list:
         return self.events
 
+    def has_steering(self) -> bool:
+        return False
+
 
 class FakeManagedConversation:
     def __init__(self, broker: EventBroker) -> None:

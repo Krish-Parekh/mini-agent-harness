@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import uuid
 from types import SimpleNamespace
 
@@ -213,6 +214,7 @@ class _Managed:
         self.title = None
         self.lock = asyncio.Lock()
         self.skills_skipped: set[str] = set()
+        self.queue: list = []
         self.applied_bodies: dict[str, str] = {}
         self.sandbox = SimpleNamespace(workspace_dir="/w", provider="local", sandbox_id=None)
         self.broker = SimpleNamespace(publish=lambda update: None)
@@ -222,6 +224,8 @@ class _Managed:
             status=Status.IDLE,
             events=[],
             live_events=lambda: [],
+            cancel_event=threading.Event(),
+            has_steering=lambda: False,
             plan=None,
             implementing_plan=False,
             agent=SimpleNamespace(llm=SimpleNamespace(model="default")),

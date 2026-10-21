@@ -185,6 +185,7 @@ async def send_message(
             body.client_event_id,
             attachments,
             caller_token,
+            body.mode,
         )
     except AttachmentError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
@@ -211,6 +212,13 @@ async def confirm(managed: ManagedDep, body: ConfirmRequest, service: ServiceDep
     if not managed.conversation.awaits(body.tool_call_id):
         raise HTTPException(status_code=409, detail="this action is no longer pending")
     await service.confirm(managed, body.tool_call_id, body.approve, body.reason)
+    return service.info(managed)
+
+
+@router.delete("/conversations/{cid}/queue/{queued_id}", response_model=ConversationInfo)
+async def unqueue(managed: ManagedDep, queued_id: str, service: ServiceDep):
+    if not service.unqueue(managed, queued_id):
+        raise HTTPException(status_code=404, detail="that message is no longer queued")
     return service.info(managed)
 
 
