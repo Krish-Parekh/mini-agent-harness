@@ -133,7 +133,7 @@ def _spill_oversized(call: ToolCall, result: ToolResult, sandbox: Sandbox) -> To
     path = f"{SPILL_DIR}/{call.id}.txt"
     try:
         with logfire.span("tool.spill", path=path, chars=len(content)):
-            _exclude_from_git(sandbox)
+            exclude_from_git(sandbox)
             sandbox.write_file(path, content)
     except Exception as exc:
         _log.warning("could not spill %s output: %s", call.name, exc)
@@ -151,7 +151,7 @@ def _spill_oversized(call: ToolCall, result: ToolResult, sandbox: Sandbox) -> To
     )
 
 
-def _exclude_from_git(sandbox: Sandbox) -> None:
+def exclude_from_git(sandbox: Sandbox) -> None:
     sandbox.run_command(
         'p="$(git rev-parse --git-path info/exclude 2>/dev/null)" && '
         'mkdir -p "$(dirname "$p")" && '

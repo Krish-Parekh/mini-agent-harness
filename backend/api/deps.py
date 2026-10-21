@@ -74,6 +74,19 @@ def verify_bearer(
 ClaimsDep = Annotated[Claims, Depends(verify_bearer)]
 
 
+def caller_token(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
+    ],
+) -> str:
+    if credentials is None:
+        raise _UNAUTHENTICATED
+    return credentials.credentials
+
+
+CallerToken = Annotated[str, Depends(caller_token)]
+
+
 async def require_user(claims: ClaimsDep, users: UsersDep) -> UserRow:
     user = await users.get(_as_uuid(claims.sub))
     if user is None:

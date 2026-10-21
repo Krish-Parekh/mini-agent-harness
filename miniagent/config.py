@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     workspace_dir: str = "./workspace"
 
     supabase_url: str = Field("", validation_alias=AliasChoices("SUPABASE_URL"))
+    supabase_publishable_key: str = Field(
+        "", validation_alias=AliasChoices("SUPABASE_PUBLISHABLE_KEY")
+    )
 
     frontend_url: str = Field(
         "http://localhost:3000",

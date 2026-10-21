@@ -224,7 +224,7 @@ class _Managed:
             plan=None,
             implementing_plan=False,
             agent=SimpleNamespace(llm=SimpleNamespace(model="default")),
-            send_message=lambda text: None,
+            send_message=lambda text, attachments=None: None,
             run=self.run,
             add_event=lambda event: None,
         )

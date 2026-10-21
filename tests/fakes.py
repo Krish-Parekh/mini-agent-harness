@@ -74,7 +74,12 @@ class FakeConversationService:
             if m.user_id == user_id
         ]
 
-    async def delete(self, cid: str, user_id: uuid.UUID) -> bool:
+    async def stage_attachments(self, user_id, token, attachments) -> list:
+        return []
+
+    async def delete(
+        self, cid: str, user_id: uuid.UUID, token: str | None = None
+    ) -> bool:
         managed = self.conversations.get(cid)
         if managed is None or managed.user_id != user_id:
             return False

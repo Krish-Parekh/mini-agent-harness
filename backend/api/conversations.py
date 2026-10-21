@@ -11,12 +11,14 @@ from backend.api.deps import (
     SettingsDep,
     SkillsDep,
     CallerGitHubToken,
+    CallerToken,
     CurrentUser,
     ManagedDep,
     RequiredGitHub,
     ServiceDep,
 )
 from backend.api.streaming import stream_conversation
+from backend.runtime.attachments import AttachmentError
 from backend.schemas import (
     ChangedFile,
     ConfirmRequest,
@@ -54,7 +56,14 @@ async def create_conversation(
     token: CallerGitHubToken,
     settings: SettingsDep,
     skills: SkillsDep,
+    caller_token: CallerToken,
 ):
+    try:
+        attachments = await service.stage_attachments(
+            user.id, caller_token, body.attachments
+        )
+    except AttachmentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     if body.sandbox_provider:
         problem = await asyncio.to_thread(provider_problem, settings, body.sandbox_provider)
         if problem:
@@ -74,6 +83,8 @@ async def create_conversation(
         model=body.model,
         sandbox_provider=provider,
         skill_ids=body.skill_ids,
+        attachments=attachments,
+        storage_token=caller_token,
     )
     return service.info(managed)
 
@@ -120,16 +131,36 @@ async def get_file_content(managed: ManagedDep, path: str, service: ServiceDep):
 
 @router.post("/conversations/{cid}/messages", response_model=ConversationInfo)
 async def send_message(
-    managed: ManagedDep, body: SendMessageRequest, service: ServiceDep
+    managed: ManagedDep,
+    body: SendMessageRequest,
+    service: ServiceDep,
+    caller_token: CallerToken,
 ):
     if managed.conversation.status == Status.WAITING_FOR_CONFIRMATION:
         raise HTTPException(
             status_code=409,
             detail="conversation is waiting for confirmation; use /confirm",
         )
-    await service.send_message(
-        managed, body.text, body.model, body.plan_mode, body.client_event_id
-    )
+    try:
+        attachments = await service.stage_attachments(
+            managed.user_id, caller_token, body.attachments
+        )
+    except AttachmentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    try:
+        await service.send_message(
+            managed,
+            body.text,
+            body.model,
+            body.plan_mode,
+            body.client_event_id,
+            attachments,
+            caller_token,
+        )
+    except AttachmentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    except SandboxError as exc:
+        raise HTTPException(status_code=503, detail="sandbox_unavailable") from exc
     return service.info(managed)
 
 
@@ -168,8 +199,10 @@ async def create_pr(managed: ManagedDep, service: ServiceDep, gh: RequiredGitHub
 
 
 @router.delete("/conversations/{cid}")
-async def delete_conversation(cid: str, service: ServiceDep, user: CurrentUser):
-    if not await service.delete(cid, user.id):
+async def delete_conversation(
+    cid: str, service: ServiceDep, user: CurrentUser, caller_token: CallerToken
+):
+    if not await service.delete(cid, user.id, caller_token):
         raise HTTPException(status_code=404, detail="conversation not found")
     return {"deleted": cid}
 

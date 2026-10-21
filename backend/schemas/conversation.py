@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
+from backend.runtime.attachments import (
+    IMAGE_MIMES,
+    MAX_ATTACHMENTS,
+    MAX_FILE_BYTES,
+    MAX_IMAGE_BYTES,
+)
 from miniagent.confirm import ConfirmMode
 from miniagent.tools.plan import Plan
 
@@ -19,6 +26,7 @@ class CreateConversationRequest(BaseModel):
     model: str | None = None
     sandbox_provider: str | None = None
     skill_ids: list[str] = []
+    attachments: list[AttachmentIn] = Field(default=[], max_length=MAX_ATTACHMENTS)
 
 
 class SandboxProviderOut(BaseModel):
@@ -34,11 +42,40 @@ class BranchOut(BaseModel):
     default: bool
 
 
+_UUID = r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}"
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+class AttachmentIn(BaseModel):
+    path: str = Field(pattern=rf"^{_UUID}/{_UUID}$")
+    name: str = Field(min_length=1, max_length=255)
+    mime: str = Field(max_length=127, pattern=r"^[\w.+-]+/[\w.+-]+$")
+    size: int = Field(gt=0, le=MAX_FILE_BYTES)
+    kind: Literal["image", "file"]
+
+    @field_validator("name")
+    @classmethod
+    def _leaf_name(cls, name: str) -> str:
+        leaf = _CONTROL_CHARS.sub("", re.split(r"[\\/]", name)[-1]).strip()
+        if leaf in ("", ".", ".."):
+            raise ValueError("invalid file name")
+        return leaf
+
+    @model_validator(mode="after")
+    def _image_limits(self) -> AttachmentIn:
+        if self.kind == "image" and (
+            self.mime not in IMAGE_MIMES or self.size > MAX_IMAGE_BYTES
+        ):
+            raise ValueError("images must be png, jpeg, webp or gif up to 5 MB")
+        return self
+
+
 class SendMessageRequest(BaseModel):
     text: str
     model: str | None = None
     plan_mode: bool = False
     client_event_id: str | None = None
+    attachments: list[AttachmentIn] = Field(default=[], max_length=MAX_ATTACHMENTS)
 
 
 class ConfirmRequest(BaseModel):

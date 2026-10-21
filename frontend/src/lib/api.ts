@@ -38,12 +38,21 @@ export type SandboxProvider = {
   reason: string | null;
 };
 
+export type AttachmentRef = {
+  path: string;
+  name: string;
+  mime: string;
+  size: number;
+  kind: "image" | "file";
+};
+
 export type CreateConversationBody = {
   repo: string;
   branch?: string | null;
   sandbox_provider?: string | null;
   model?: string | null;
   initial_message?: string | null;
+  attachments?: AttachmentRef[];
 };
 
 export type ConversationStatus =
@@ -95,6 +104,7 @@ export type AgentEvent = {
   client_event_id?: string | null;
   role?: "user" | "assistant" | "system";
   text?: string;
+  attachments?: AttachmentRef[];
   tool_name?: string;
   arguments?: Record<string, unknown>;
   tool_call_id?: string;
@@ -315,9 +325,11 @@ export const api = {
     text: string,
     model?: string,
     clientEventId?: string,
+    attachments: AttachmentRef[] = [],
   ) =>
     post<ConversationInfo>(`/conversations/${id}/messages`, {
       text,
+      attachments,
       ...(model ? { model } : {}),
       ...(clientEventId ? { client_event_id: clientEventId } : {}),
     }),

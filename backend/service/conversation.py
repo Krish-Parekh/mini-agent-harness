@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from functools import partial
 from typing import Any, Callable
@@ -24,8 +25,16 @@ from backend.repository import (
 from backend.service.extension import McpService, SkillService, render_skills
 from miniagent.tracing import trace_attributes
 from backend.runtime import changes, pulls
+from backend.runtime.attachments import (
+    ATTACHMENTS_DIR,
+    LINK_TTL_S,
+    AttachmentError,
+    Storage,
+    copy_into_sandbox,
+)
 from backend.runtime.workspaces import BRANCH_PREFIX
 from backend.schemas import (
+    AttachmentIn,
     ChangedFile,
     ContextChanges,
     ContextCounts,
@@ -40,8 +49,9 @@ from backend.schemas import (
     StatusUpdate,
 )
 from miniagent.conversation import Status
-from miniagent.sandbox.base import SandboxExpired
+from miniagent.sandbox.base import SandboxError, SandboxExpired
 from miniagent.events import (
+    Attachment,
     CondensationEvent,
     ErrorEvent,
     Event,
@@ -66,12 +76,14 @@ class ConversationService:
         connections: GitHubConnectionRepository,
         skills: SkillRepository | None = None,
         mcp: McpConnectionRepository | None = None,
+        storage: Storage | None = None,
     ) -> None:
         self._manager = manager
         self._repo = repository
         self._connections = connections
         self._skills = skills
         self._mcp = mcp
+        self._storage = storage
         self._persist_queue: asyncio.Queue[tuple[ManagedConversation, Event, int]] = (
             asyncio.Queue()
         )
@@ -239,6 +251,8 @@ class ConversationService:
         model: str | None = None,
         sandbox_provider: str | None = None,
         skill_ids: list[str] | None = None,
+        attachments: list[Attachment] | None = None,
+        storage_token: str | None = None,
     ) -> ManagedConversation:
         skills = list(skill_ids or [])
         with logfire.span(
@@ -259,8 +273,10 @@ class ConversationService:
             )
         if model:
             managed.set_model(model)
-        if repo or initial_message:
-            self._spawn(self._start(managed, initial_message, skills))
+        if repo or initial_message or attachments:
+            self._spawn(
+                self._start(managed, initial_message, skills, attachments or [], storage_token)
+            )
         else:
             self._spawn(self._persist_and_enable(managed, skills))
         return managed
@@ -286,13 +302,58 @@ class ConversationService:
         model: str | None = None,
         plan_mode: bool = False,
         client_event_id: str | None = None,
+        attachments: list[Attachment] | None = None,
+        storage_token: str | None = None,
     ) -> None:
+        if attachments:
+            await self._copy_attachments(managed, attachments, storage_token)
+        conv = managed.conversation
         if model:
             managed.set_model(model)
-        managed.conversation.send_message(
-            text, plan_mode=plan_mode, client_event_id=client_event_id
+        conv.send_message(
+            text,
+            plan_mode=plan_mode,
+            client_event_id=client_event_id,
+            attachments=attachments,
         )
-        self._spawn(self._run(managed, managed.conversation.run))
+        self._spawn(self._run(managed, conv.run))
+
+    async def _copy_attachments(
+        self,
+        managed: ManagedConversation,
+        attachments: list[Attachment],
+        storage_token: str | None,
+    ) -> None:
+        try:
+            await asyncio.to_thread(copy_into_sandbox, managed.sandbox, attachments)
+        except (AttachmentError, SandboxError):
+            if self._storage is not None and storage_token:
+                try:
+                    await self._storage.delete(storage_token, [a.path for a in attachments])
+                except AttachmentError as exc:
+                    _log.warning("could not discard uploads of %s: %s", managed.conversation.id, exc)
+            raise
+
+    async def stage_attachments(
+        self, user_id: uuid.UUID, token: str, attachments: list[AttachmentIn]
+    ) -> list[Attachment]:
+        if not attachments:
+            return []
+        if self._storage is None:
+            raise AttachmentError("attachments are not configured on this server")
+        if any(not a.path.startswith(f"{user_id}/") for a in attachments):
+            raise AttachmentError("attachment does not belong to you")
+        urls = await self._storage.sign(token, [a.path for a in attachments])
+        expires_at = time.time() + LINK_TTL_S
+        return [
+            Attachment(
+                **a.model_dump(),
+                workspace_path=f"{ATTACHMENTS_DIR}/{a.path.split('/')[1]}/{a.name}",
+                url=urls[a.path],
+                expires_at=expires_at,
+            )
+            for a in attachments
+        ]
 
     async def approve_plan(self, managed: ManagedConversation) -> None:
         conv = managed.conversation
@@ -383,11 +444,33 @@ class ConversationService:
             for row, count in summaries
         ]
 
-    async def delete(self, cid: str, user_id: uuid.UUID) -> bool:
+    async def delete(
+        self, cid: str, user_id: uuid.UUID, token: str | None = None
+    ) -> bool:
         row = await self._repo.get(cid, user_id)
         live = self._manager.get(cid)
         if row is None and (live is None or live.user_id != user_id):
             return False
+        if self._storage is not None and token:
+            events = (
+                live.conversation.events
+                if live is not None
+                else [
+                    _EVENT_ADAPTER.validate_python(r.payload)
+                    for r in await self._repo.list_events(cid)
+                ]
+            )
+            paths = [
+                a.path
+                for e in events
+                if isinstance(e, MessageEvent)
+                for a in e.attachments
+            ]
+            if paths:
+                try:
+                    await self._storage.delete(token, paths)
+                except AttachmentError as exc:
+                    _log.warning("could not delete attachments of %s: %s", cid, exc)
         managed = self._manager.remove(cid)
         if managed is not None:
             managed.conversation.set_finished()
@@ -652,6 +735,8 @@ class ConversationService:
         managed: ManagedConversation,
         initial_message: str | None,
         skill_ids: list[str] | None = None,
+        attachments: list[Attachment] | None = None,
+        storage_token: str | None = None,
     ) -> None:
         self._emit_status(managed, "running")
         await self._persist_status(managed)
@@ -659,12 +744,20 @@ class ConversationService:
         async with managed.lock:
             await asyncio.to_thread(managed.bootstrap)
             await self._load_extensions(managed)
+            if attachments and managed.conversation.status != Status.ERROR:
+                try:
+                    await self._copy_attachments(managed, attachments, storage_token)
+                except (AttachmentError, SandboxError) as exc:
+                    managed.conversation.add_event(ErrorEvent(message=str(exc)))
+                    managed.conversation.status = Status.ERROR
             if managed.conversation.status == Status.ERROR:
                 self._emit_status(managed)
                 await self._persist_status(managed)
                 return
-            if initial_message:
-                managed.conversation.send_message(initial_message)
+            if initial_message or attachments:
+                managed.conversation.send_message(
+                    initial_message or "", attachments=attachments
+                )
                 with self._turn_span(managed):
                     await asyncio.to_thread(managed.conversation.run)
         self._emit_status(managed)

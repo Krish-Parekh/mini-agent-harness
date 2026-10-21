@@ -26,6 +26,7 @@ from backend.repository import (
     UserRepository,
 )
 from backend.runtime import ConversationManager
+from backend.runtime.attachments import Storage
 from backend.service import AuthService, ConversationService
 from miniagent.config import Settings, export_provider_keys
 from miniagent.sandbox.factory import check_provider
@@ -54,8 +55,13 @@ async def lifespan(app: FastAPI):
     mcp_connections = McpConnectionRepository(sessionmaker)
     memories = MemoryRepository(sessionmaker)
     manager = ConversationManager(settings, memories=memories)
+    storage = (
+        Storage(settings.supabase_url, settings.supabase_publishable_key)
+        if settings.supabase_url and settings.supabase_publishable_key
+        else None
+    )
     service = ConversationService(
-        manager, repository, connections, skills, mcp_connections
+        manager, repository, connections, skills, mcp_connections, storage
     )
     service.start()
     await service.reconcile_sandboxes()

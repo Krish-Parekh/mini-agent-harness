@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 import Link from "next/link";
 
-import { api } from "@/lib/api";
+import { api, type AttachmentRef } from "@/lib/api";
 import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
 import { queryKeys, useConversationContext } from "@/lib/queries";
@@ -34,6 +34,12 @@ import {
   PromptBarTools,
   type PromptBarMessage,
 } from "@/components/bui/prompt-bar";
+import {
+  AttachButton,
+  AttachmentChips,
+  AttachmentDropZone,
+  useComposerAttachments,
+} from "@/components/composer-attachments";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
 import { SkillSlashTextarea } from "@/components/skill-slash-menu";
 import { AlertTriangleIcon } from "lucide-react";
@@ -74,6 +80,7 @@ export default function ChatPage({
   } = useConversationStream(id);
 
   const [input, setInput] = useState("");
+  const attachments = useComposerAttachments();
   const [model, setModel] = useState<string | null>(null);
   const { data: context } = useConversationContext(id, exists);
   const [modelFor, setModelFor] = useState(id);
@@ -133,7 +140,7 @@ export default function ChatPage({
   }, [optimisticRun, id, pendingCallId]);
 
   const submit = useCallback(
-    async (text: string, restoreInput: boolean) => {
+    async (text: string, restoreInput: boolean, attachments: AttachmentRef[] = []) => {
       lastSentText.current = text;
       const prev = status;
       setStatus("running");
@@ -143,11 +150,14 @@ export default function ChatPage({
           clientEventId: crypto.randomUUID(),
           text,
           model: model ?? undefined,
+          attachments,
         }).isPersisted.promise;
+        return true;
       } catch (e) {
         if (restoreInput) setInput(text);
         setStatus(prev);
         toast.error(messageFor(e));
+        return false;
       }
     },
     [id, model, status, setStatus],
@@ -189,9 +199,11 @@ export default function ChatPage({
 
   async function send(message: PromptBarMessage) {
     const text = message.text.trim();
-    if (!text || busy) return;
+    if ((!text && attachments.items.length === 0) || busy || attachments.uploading) return;
+    const uploaded = await attachments.upload();
+    if (!uploaded) return;
     setInput("");
-    await submit(text, true);
+    if (await submit(text, true, uploaded)) attachments.clear();
   }
 
   if (missing) {
@@ -310,33 +322,40 @@ export default function ChatPage({
             </div>
           )}
 
-          <PromptBar onSubmit={send} className="mt-3">
-            <SkillSlashTextarea
-              value={input}
-              onValueChange={setInput}
-              placeholder={
-                waiting
-                  ? "Approve or reject the action above…"
-                  : showQuestion || showSkills
-                    ? "Or reply directly…"
-                    : "Send a message, / for commands…"
-              }
-              disabled={busy}
-            />
-            <PromptBarFooter>
-              <PromptBarTools>
-                <ModelPicker
-                  value={model ?? context?.model ?? DEFAULT_MODEL}
-                  onChange={setModel}
-                />
-              </PromptBarTools>
-              <PromptBarSubmit
-                status={busy ? "streaming" : status === "error" ? "error" : undefined}
-                onStop={stop}
-                disabled={!busy && !input.trim()}
+          <AttachmentDropZone attachments={attachments}>
+            <PromptBar onSubmit={(message) => send(message)} className="mt-3">
+              <AttachmentChips attachments={attachments} />
+              <SkillSlashTextarea
+                value={input}
+                onValueChange={setInput}
+                placeholder={
+                  waiting
+                    ? "Approve or reject the action above…"
+                      : showQuestion || showSkills
+                        ? "Or reply directly…"
+                        : "Send a message, / for commands…"
+                }
+                disabled={busy}
               />
-            </PromptBarFooter>
-          </PromptBar>
+              <PromptBarFooter>
+                <PromptBarTools>
+                  <AttachButton attachments={attachments} disabled={busy} />
+                  <ModelPicker
+                    value={model ?? context?.model ?? DEFAULT_MODEL}
+                    onChange={setModel}
+                  />
+                </PromptBarTools>
+                <PromptBarSubmit
+                  status={busy ? "streaming" : status === "error" ? "error" : undefined}
+                  onStop={stop}
+                  disabled={
+                    attachments.uploading ||
+                    (!busy && !input.trim() && attachments.items.length === 0)
+                  }
+                />
+              </PromptBarFooter>
+            </PromptBar>
+          </AttachmentDropZone>
         </div>
       </div>
 

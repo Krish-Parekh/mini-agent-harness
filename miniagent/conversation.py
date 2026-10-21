@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Callable
 from miniagent.confirm import ConfirmPolicy
 from miniagent.events import (
     ActionEvent,
+    Attachment,
     ErrorEvent,
     Event,
     MessageEvent,
@@ -92,6 +93,7 @@ class Conversation:
         text: str,
         plan_mode: bool = False,
         client_event_id: str | None = None,
+        attachments: list[Attachment] | None = None,
     ) -> None:
         # Only ever turn it on here; plan approval clears it. A plain reply
         # (answering a question, refining the plan) keeps the existing mode.
@@ -103,7 +105,12 @@ class Conversation:
         if self.status == Status.WAITING_FOR_CONFIRMATION:
             self.status = Status.IDLE
         self.add_event(
-            MessageEvent(role="user", text=text, client_event_id=client_event_id)
+            MessageEvent(
+                role="user",
+                text=text,
+                client_event_id=client_event_id,
+                attachments=attachments or [],
+            )
         )
 
     def add_event(self, event: Event) -> None:

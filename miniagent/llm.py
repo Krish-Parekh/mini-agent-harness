@@ -183,6 +183,7 @@ class LLM:
                 model=self.model,
                 messages=messages,
                 tools=[to_openai_schema(t) for t in tools] if tools else None,
+                use_default_image_token_count=True,
             )
         except Exception:
             return 0

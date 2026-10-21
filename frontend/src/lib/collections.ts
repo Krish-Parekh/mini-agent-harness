@@ -3,6 +3,7 @@ import { queryCollectionOptions } from "@tanstack/query-db-collection";
 
 import {
   api,
+  type AttachmentRef,
   type ConversationInfo,
   type CreateConversationBody,
 } from "@/lib/api";
@@ -67,10 +68,11 @@ export type SendMessageVars = {
   clientEventId: string;
   text: string;
   model?: string;
+  attachments: AttachmentRef[];
 };
 
 export const sendMessage = createOptimisticAction<SendMessageVars>({
-  onMutate: ({ conversationId, clientEventId, text }) => {
+  onMutate: ({ conversationId, clientEventId, text, attachments }) => {
     eventsCollection(conversationId).insert({
       id: clientEventId,
       client_event_id: clientEventId,
@@ -79,14 +81,15 @@ export const sendMessage = createOptimisticAction<SendMessageVars>({
       kind: "message",
       role: "user",
       text,
+      attachments,
     });
   },
-  mutationFn: async ({ conversationId, clientEventId, text, model }) => {
+  mutationFn: async ({ conversationId, clientEventId, text, model, attachments }) => {
     const events = eventsCollection(conversationId);
     const row = events.isReady() ? events.get(clientEventId) : undefined;
     if (row) events.utils.writeUpsert(row);
     try {
-      await api.sendMessage(conversationId, text, model, clientEventId);
+      await api.sendMessage(conversationId, text, model, clientEventId, attachments);
     } catch (e) {
       if (row) events.utils.writeDelete(clientEventId);
       throw e;

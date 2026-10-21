@@ -36,6 +36,7 @@ import {
   uniqueSources,
 } from "@/components/bui/chat-message";
 import { LoadingState } from "@/components/bui/loading-state";
+import { MessageAttachments } from "@/components/message-attachments";
 import {
   type ProposedSkill,
   SkillProposalCard,
@@ -618,7 +619,13 @@ function MessageRow({
 
   if (ev.role === "user") {
     return (
-      <UserBubble {...(isLatestUserTurn ? { "data-user-turn": "" } : {})}>{ev.text}</UserBubble>
+        <UserBubble
+          className="w-full"
+          {...(isLatestUserTurn ? { "data-user-turn": "" } : {})}
+        >
+          {!!ev.attachments?.length && <MessageAttachments attachments={ev.attachments} />}
+          {ev.text}
+        </UserBubble>
     );
   }
 

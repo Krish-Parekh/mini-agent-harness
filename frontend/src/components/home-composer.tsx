@@ -8,6 +8,12 @@ import { useAuth } from "@/app/providers";
 import { BranchPicker } from "@/components/branch-picker";
 import { Pill } from "@/components/bui/button";
 import {
+  AttachButton,
+  AttachmentChips,
+  AttachmentDropZone,
+  useComposerAttachments,
+} from "@/components/composer-attachments";
+import {
   PromptBar,
   PromptBarFooter,
   PromptBarSubmit,
@@ -36,6 +42,7 @@ export function HomeComposer() {
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const [text, setText] = useState("");
+  const attachments = useComposerAttachments();
   const [pickedModel, setModel] = useState<string | null>(null);
   const model = pickedModel ?? selection.model ?? DEFAULT_MODEL;
 
@@ -54,17 +61,30 @@ export function HomeComposer() {
     wrapperRef.current?.querySelector("textarea")?.focus();
   }, [focusTick]);
 
-  const canSend = !!repo && !!text.trim() && !startChat.isPending;
+  const pending = startChat.isPending || attachments.uploading;
+  const canSend =
+    !!repo && (!!text.trim() || attachments.items.length > 0) && !pending;
 
-  function send() {
+  async function send() {
     if (!canSend) return;
-    startChat.mutate({
-      repo,
-      branch,
-      sandbox_provider: environment,
-      model,
-      initial_message: text.trim(),
-    });
+    const uploaded = await attachments.upload();
+    if (!uploaded) return;
+    startChat.mutate(
+      {
+        repo,
+        branch,
+        sandbox_provider: environment,
+        model,
+        initial_message: text.trim(),
+        attachments: uploaded,
+      },
+      {
+        onSuccess: () => {
+          attachments.clear();
+          setText("");
+        },
+      },
+    );
   }
 
   return (
@@ -93,24 +113,28 @@ export function HomeComposer() {
       </div>
 
       <div ref={wrapperRef}>
-        <PromptBar size="hero" onSubmit={send}>
-          <SkillSlashTextarea
-            autoFocus
-            value={text}
-            onValueChange={setText}
-            placeholder="Plan, build, / for commands"
-            disabled={startChat.isPending}
-          />
-          <PromptBarFooter>
-            <PromptBarTools>
-              <ModelPicker value={model} onChange={setModel} />
-            </PromptBarTools>
-            <PromptBarSubmit
-              status={startChat.isPending ? "submitted" : undefined}
-              disabled={!canSend}
+        <AttachmentDropZone attachments={attachments}>
+          <PromptBar size="hero" onSubmit={send}>
+            <AttachmentChips attachments={attachments} />
+            <SkillSlashTextarea
+              autoFocus
+              value={text}
+              onValueChange={setText}
+              placeholder="Plan, build, / for commands"
+              disabled={pending}
             />
-          </PromptBarFooter>
-        </PromptBar>
+            <PromptBarFooter>
+              <PromptBarTools>
+                <AttachButton attachments={attachments} disabled={pending} />
+                <ModelPicker value={model} onChange={setModel} />
+              </PromptBarTools>
+              <PromptBarSubmit
+                status={pending ? "submitted" : undefined}
+                disabled={!canSend}
+              />
+            </PromptBarFooter>
+          </PromptBar>
+        </AttachmentDropZone>
       </div>
 
       {!connected && (

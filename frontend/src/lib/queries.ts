@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import {
   api,
   ApiError,
+  type AttachmentRef,
   type Branch,
   type ConversationContext,
   type ConversationInfo,
@@ -21,6 +22,7 @@ import {
   type SandboxProvider,
   type Skill,
 } from "@/lib/api";
+import { signedAttachmentUrl } from "@/lib/attachments";
 import { conversationsCollection, createConversation } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
 
@@ -67,6 +69,14 @@ export function useSkills(enabled = true) {
     queryKey: queryKeys.skills,
     queryFn: api.skills,
     enabled,
+  });
+}
+
+export function useAttachmentUrl(attachment: AttachmentRef) {
+  return useQuery<string>({
+    queryKey: ["attachment-url", attachment.path],
+    queryFn: () => signedAttachmentUrl(attachment),
+    staleTime: 50 * 60_000,
   });
 }
 
