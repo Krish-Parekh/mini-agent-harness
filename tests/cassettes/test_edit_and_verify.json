@@ -1,0 +1,326 @@
+{
+  "interactions": [
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-2c5c616e-d061-44bd-b2e0-53c71cb37238",
+        "created": 1792550659,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"view\", \"path\": \"greet.py\"}",
+                    "name": "file_edit"
+                  },
+                  "id": "toolu_01YNjg6mnaMB2hBoeWPV2Fw2",
+                  "type": "function"
+                },
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"view\", \"path\": \"test_greet.py\"}",
+                    "name": "file_edit"
+                  },
+                  "id": "toolu_015tD4CC1s7yFfvXyk7Hg1Qh",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": null
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 143,
+          "prompt_tokens": 5258,
+          "total_tokens": 5401,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 143
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 5258,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "assistant",
+        "tool",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-9eb09720-149a-48a7-b12e-d87271a5d975",
+        "created": 1792550661,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": "The test expects `'Hi, Ada'` but `greet` returns `'Hello, Ada'`. I'll change the greeting in `greet.py` to match.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 2,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"str_replace\", \"path\": \"greet.py\", \"old_str\": \"    return f'Hello, {name}'\", \"new_str\": \"    return f'Hi, {name}'\"}",
+                    "name": "file_edit"
+                  },
+                  "id": "toolu_019NnNZXr8y9Tj14jocXDWdx",
+                  "type": "function"
+                },
+                {
+                  "index": 3,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"python -m pytest -q test_greet.py\", \"description\": \"Run the greet test\"}",
+                    "name": "bash"
+                  },
+                  "id": "toolu_014iinECA57MmDNBhtevyTUw",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQS5AYKEAgTGAI4AUIIdGhpbmtpbmcSDJs97/xXjugbjWcE6BoM5I+lik69lrRc+9ooIjC87RypJ8oOHyso9RcWX+03y1W6Bcsb03Cd/uKoahhlDb3DodclGRQTl3OlG6wxNiEqgQZGrl1Lzh+8bN6F7MTdz3ari0mMw+C26h7Gdy8IXl8aVYiT8nfA8zoU9L+GcFCQwDspHKjbG7r18KZVwAvvsH4c2Orfjok57cYqRYHIByp3P4DqsipolG/4NLMe6DHn2jrr+gKOdzSWYCLZVwtnOsj4blF1LQ2+1qYIbZd7RpivIfy2gDM27rKthIxG2WLa7AAgXQs40SrnMN+YDp0C7VCb3Jcha3V71b0NEbnXthyM7YalR6GLHIY62tj/9a5piMsvE4nvZFPxbYH+bWYuIM2vFatmhDV0XJJot165H80G5KU6QcmOtYDElePRs1HXWMYiMdnts30im9gldYgY6LfP5Iv8kCYwlz9/uiWLVpyRrj7CWyDbI6YHToiAV54O4AEkWyI37tTqUEMGFFkD64kZWRB3SWt8wOmGAs7lPz7hvy7ZKZDYVw2mgk6VAN4n24sWq0yDP/byXFxilX1+nnY7Jm3IBY8c4v00mdEbZPv7PfEX/pEv8ol5QXgX0wzNdN62TWz27EAuW/gmjXbLHnTUh4Kr85oISMr5NtgBes8JfRguBSasnBzdx6mucHJT3FS9XhV1iaAOxOKYx8zo/mJ8YRje7hqevYgwQWlDHMW1nxC4f4w2nErqde7Ha2eT4+wAIUCwNYrpEIlDDSkVCFwikPk1sHV077fvYPQfrB3Xs6PMA1cOPJIfh865m9dqV+WnFCsQUJJlD0O807FgL2ZRvf95qoCrOUboTyYkrGzFpS++m8P5LSqQkAaeU0T7HzcIv+Pw3wmz4ol0HM4o0epgWE85OlG/3oKqMWg9MRHWahyxZBFR2gm28mRR49O7u2bPHDFAr+tLQKMT7JubVRq8GtzFrrVY6lERcS3oVr2KdYgjREULYQAhVhNNRypwmZs0TIDg+MJ4G+42TiQGtT0qayWJrqPSFlcvJWDRcoUb+TMZUNpMT1+2M7zX79okcLktKOsM1TDrS4/lZhvNt8qqF9xZ7Namf85V4QHTbyqArwEYfLAmLWTFSWzd9qX1nDeQGAE="
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQS5AYKEAgTGAI4AUIIdGhpbmtpbmcSDJs97/xXjugbjWcE6BoM5I+lik69lrRc+9ooIjC87RypJ8oOHyso9RcWX+03y1W6Bcsb03Cd/uKoahhlDb3DodclGRQTl3OlG6wxNiEqgQZGrl1Lzh+8bN6F7MTdz3ari0mMw+C26h7Gdy8IXl8aVYiT8nfA8zoU9L+GcFCQwDspHKjbG7r18KZVwAvvsH4c2Orfjok57cYqRYHIByp3P4DqsipolG/4NLMe6DHn2jrr+gKOdzSWYCLZVwtnOsj4blF1LQ2+1qYIbZd7RpivIfy2gDM27rKthIxG2WLa7AAgXQs40SrnMN+YDp0C7VCb3Jcha3V71b0NEbnXthyM7YalR6GLHIY62tj/9a5piMsvE4nvZFPxbYH+bWYuIM2vFatmhDV0XJJot165H80G5KU6QcmOtYDElePRs1HXWMYiMdnts30im9gldYgY6LfP5Iv8kCYwlz9/uiWLVpyRrj7CWyDbI6YHToiAV54O4AEkWyI37tTqUEMGFFkD64kZWRB3SWt8wOmGAs7lPz7hvy7ZKZDYVw2mgk6VAN4n24sWq0yDP/byXFxilX1+nnY7Jm3IBY8c4v00mdEbZPv7PfEX/pEv8ol5QXgX0wzNdN62TWz27EAuW/gmjXbLHnTUh4Kr85oISMr5NtgBes8JfRguBSasnBzdx6mucHJT3FS9XhV1iaAOxOKYx8zo/mJ8YRje7hqevYgwQWlDHMW1nxC4f4w2nErqde7Ha2eT4+wAIUCwNYrpEIlDDSkVCFwikPk1sHV077fvYPQfrB3Xs6PMA1cOPJIfh865m9dqV+WnFCsQUJJlD0O807FgL2ZRvf95qoCrOUboTyYkrGzFpS++m8P5LSqQkAaeU0T7HzcIv+Pw3wmz4ol0HM4o0epgWE85OlG/3oKqMWg9MRHWahyxZBFR2gm28mRR49O7u2bPHDFAr+tLQKMT7JubVRq8GtzFrrVY6lERcS3oVr2KdYgjREULYQAhVhNNRypwmZs0TIDg+MJ4G+42TiQGtT0qayWJrqPSFlcvJWDRcoUb+TMZUNpMT1+2M7zX79okcLktKOsM1TDrS4/lZhvNt8qqF9xZ7Namf85V4QHTbyqArwEYfLAmLWTFSWzd9qX1nDeQGAE="
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 379,
+          "prompt_tokens": 5519,
+          "total_tokens": 5898,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 379
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 5519,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-d58e39d5-fdf7-456f-85b3-2711812e741b",
+        "created": 1792550663,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "{\"is_verification\": true, \"read_only\": false, \"reason\": \"Running the pytest focused test file is a verification step. It runs test code, which may write cache files (.pytest_cache, __pycache__), so it is not strictly read-only.\", \"risk\": \"mutating\", \"verification_unavailable\": false}",
+              "role": "assistant",
+              "tool_calls": null,
+              "function_call": null
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 184,
+          "prompt_tokens": 1117,
+          "total_tokens": 1301,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 184
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 1117,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "assistant",
+        "tool",
+        "tool",
+        "assistant",
+        "tool",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-0b8f69a9-12e9-4808-9cf4-9e97b99c0929",
+        "created": 1792550666,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"message\": \"Fixed the failing test in `test_greet.py`. The test expects `greet('Ada')` to return `'Hi, Ada'`, but `greet.py` returned `'Hello, Ada'`. I changed the greeting in `greet.py` to `f'Hi, {name}'`.\\n\\nVerification: `python -m pytest -q test_greet.py` passes (1 passed).\\n\\nI did not touch `config.py` or `build/out.txt`, and I did not check whether anything else in the project depends on the old `'Hello, '` wording.\"}",
+                    "name": "finish"
+                  },
+                  "id": "toolu_01Wo18iuwBt9dAyy2yy822oA",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQSiAYKEAgTGAI4AUIIdGhpbmtpbmcSDPGHLd4W9CO/Sjiw2BoMB4wg6BOa8g7UDFMHIjDZgS0bZpYvNcRx4o5PEhgckUKL0cnklC5jsIEujz/yD8YKMWSLghA63/ljQSO7VNcqpQUiw9MZKAatOZ5A2gVnm4n1hZYpFe8vJwKUx+fNORN7wuYjIZkxhRZ9GsZHmLZv6ha7VWjiSYatJrfH4qW9RDKFGehUCV4slSz+dejudCXFPHiBIhCWBQHRYIp4mfi7cc2BzBL6l8ZyudXraYggBs5x/8ZyI+WETKNFloCZSMhnCeHtCBnuFxyaIWlB7ZodzGw3qDCbUPyDfPT9eL0xpF1qXbtM8/jCsyLRsGnj4RDZ/jm2zGvE4ZnKm9j7eCA+GCM5PnFvwIlq8OgNULGf9Y4o2oQXk0Uile+drSh/P4PPJjBRX3njJLSIQCVY5XFYJrd1sWbilJHLbtXI3qqatmI5QSPWFg03u4wIoY8mrpj1MisvBVBI9/OP+4Vy4ACPXaUgsHJZXA0en9niUZ5CThvNxG4nzd0bp4XWE49v2+mZks9RAkS9CswBv8Zk4dHelbT150O9b3anu+L1/M6EsaKBfsNl5AGchr52eK5kLsatFD44Mpm+Eq2JWqr5pV+QbUMoHVLvL6Q6g93bKgvEysqVVngm39hUHBqjMU9Z0fOrSWF5QFGorjwMLad0NBcz6ZWQnS5vq5R9OOac+k5hunQxnZ0R2Q1SlSXDq8kQ2lVInKD/TREXBk8ozfk4fKWVY6Rb5HnIawd9DNB4q/TM1FD+OLBl4l60CCpKva0K2Q4p7rxFvQNLmI3GC5jct6sCX0ytXj46GaFVj+vkjvdiIFCuxilwzsFsCJFGan9aV73aXNTgm9raJoTJVfS6IwqbQiwym6Jy8oDNuKLtRwJUseKkxyaDk4kUk68ZbeYVpRocxMyFaeA7yY1CbEPOwhyF6fH/FQFp/oep8BfPqo1oyfFTrFBowdzIJLDZglDjbUx87sQPIpDCEttD3iTIe6GknFis7/7AsxgB"
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQSiAYKEAgTGAI4AUIIdGhpbmtpbmcSDPGHLd4W9CO/Sjiw2BoMB4wg6BOa8g7UDFMHIjDZgS0bZpYvNcRx4o5PEhgckUKL0cnklC5jsIEujz/yD8YKMWSLghA63/ljQSO7VNcqpQUiw9MZKAatOZ5A2gVnm4n1hZYpFe8vJwKUx+fNORN7wuYjIZkxhRZ9GsZHmLZv6ha7VWjiSYatJrfH4qW9RDKFGehUCV4slSz+dejudCXFPHiBIhCWBQHRYIp4mfi7cc2BzBL6l8ZyudXraYggBs5x/8ZyI+WETKNFloCZSMhnCeHtCBnuFxyaIWlB7ZodzGw3qDCbUPyDfPT9eL0xpF1qXbtM8/jCsyLRsGnj4RDZ/jm2zGvE4ZnKm9j7eCA+GCM5PnFvwIlq8OgNULGf9Y4o2oQXk0Uile+drSh/P4PPJjBRX3njJLSIQCVY5XFYJrd1sWbilJHLbtXI3qqatmI5QSPWFg03u4wIoY8mrpj1MisvBVBI9/OP+4Vy4ACPXaUgsHJZXA0en9niUZ5CThvNxG4nzd0bp4XWE49v2+mZks9RAkS9CswBv8Zk4dHelbT150O9b3anu+L1/M6EsaKBfsNl5AGchr52eK5kLsatFD44Mpm+Eq2JWqr5pV+QbUMoHVLvL6Q6g93bKgvEysqVVngm39hUHBqjMU9Z0fOrSWF5QFGorjwMLad0NBcz6ZWQnS5vq5R9OOac+k5hunQxnZ0R2Q1SlSXDq8kQ2lVInKD/TREXBk8ozfk4fKWVY6Rb5HnIawd9DNB4q/TM1FD+OLBl4l60CCpKva0K2Q4p7rxFvQNLmI3GC5jct6sCX0ytXj46GaFVj+vkjvdiIFCuxilwzsFsCJFGan9aV73aXNTgm9raJoTJVfS6IwqbQiwym6Jy8oDNuKLtRwJUseKkxyaDk4kUk68ZbeYVpRocxMyFaeA7yY1CbEPOwhyF6fH/FQFp/oep8BfPqo1oyfFTrFBowdzIJLDZglDjbUx87sQPIpDCEttD3iTIe6GknFis7/7AsxgB"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 268,
+          "prompt_tokens": 5911,
+          "total_tokens": 6179,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 268
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 5911,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    }
+  ]
+}

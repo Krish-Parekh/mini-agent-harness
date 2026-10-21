@@ -1,0 +1,276 @@
+{
+  "interactions": [
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-3de2fb59-183e-463c-8fa4-9eb09aa8f5de",
+        "created": 1792550668,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": "I'll confirm what `build` resolves to in the workspace before removing it.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 2,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"pwd && ls -la build && git status --short | head -20\", \"description\": \"Check the build directory target and git status\"}",
+                    "name": "bash"
+                  },
+                  "id": "toolu_01RrCSaP62s1YWQixNmYJBg6",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQS8gcKEAgTGAI4AUIIdGhpbmtpbmcSDJxf0dAN/IJPT3UGRBoMJ9GOOpjEdRmUukgjIjCO+skBdiuOzKfueCXia+k4XYCooWxHhb0d30oO41Ydzo/jTvhklhAdvJqtcjtfk+gqjwfqmPf/blRhRGZTnuMvs230JufgaRysinkKGKtYvsIkxL3oUZGJNXmNbn+kzwLL81ZRxoUyOZZf+OxqMQAGNvDhyp7TLbgiwnNyL6Ff9bNdQXFX8dwHS4cvawbeqUjTjp0/McixtHqRFZTD01XfRjaMj7eqQh3f6x1MUXWx9Oj2Rg78lAiTe0w2w/sakKxxfT4CffysNnZuKHdv+3/EVMDvZ/LePt+YrN9xUfczYjVU8QTDGl/Y7jT20O5e08sS66IQllGtn0HwNcafYagweYaa6bO+g6BBf8mHLcp5JACDC3xtdMkTtmRTO0NO3ICC/1LDDUyKAB9V898HSAjLEpP8aMUBMsWR2iDah627V3xJP9LPbTTcHD9JQWxJ+WeIf1FVwRoIzCkyszd6weM5eCz0+CX0uYbb0aoU7N7DA2SxOqSxnepfXSHJd983tg9kuwP43IKedzNCgA719WSMOS3TUkG/fgTAre1zCiot+nPd4lUR3YiJii53Jhg7I13CS7hNwd0U/g67HBrNNTxEOBYK9JPovj0QrZ9rns0sytOANicO2m/uhVcFCYtEn8hLWDvpCRNkKQUqNVk+jDlKmaavqcfIPAH82qaZ0k4W9AhgSGhJR1TkoaWhpRIYJUL2MH4dN7qgOXgtDz+Ad2QMbwjCcABH68wxKOEXrE45TIXMY0qTAfCBVshZdfz6YWKYm1Y6Oe9RwbvwX9rkokpKGAe0NQNwRynM08cTiBt3snzc+ciRc9jSc3vozliXdLYbhwNdveUdj0YQqVDcvAR5VzYgth6f39cvpWFj0o8hbzIDXoC2agrkT9XifK9tHiEkZiBjZu46H6gS2TdQSUGMSJrVBPaNpl9+3R/fGtAGMxpbzgGXAEovftXKpMvdZSpnMGYvfYukngrttx45WtJne7HNoG7jJeZgElB/255xDe2evcLahG3dZfY9xEJnbSfRajluCNTk7bkMVrKs3lyVUwc2HFxVOXiDvXaBqVdT1tsRYESkAxp2GuZScZf0pSygeG6Cj/Rnw4Kgf4em5V+bLRANQA397DVLI12wG9+hOFl+M3vX4v/3EZPRzbT07DcGHCTg4YoUyxWTpwsrGocXwrxLmGCahNIM3FzdEHWuAssYJcYWKPsf2c7Dx2UD1gNEt6zFyPCwkyuXcZY+pgnxzcJatFZtezvRb8TQq4nIOyh7qpMHFdcKLVY+fCcMGIbSGxgB"
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQS8gcKEAgTGAI4AUIIdGhpbmtpbmcSDJxf0dAN/IJPT3UGRBoMJ9GOOpjEdRmUukgjIjCO+skBdiuOzKfueCXia+k4XYCooWxHhb0d30oO41Ydzo/jTvhklhAdvJqtcjtfk+gqjwfqmPf/blRhRGZTnuMvs230JufgaRysinkKGKtYvsIkxL3oUZGJNXmNbn+kzwLL81ZRxoUyOZZf+OxqMQAGNvDhyp7TLbgiwnNyL6Ff9bNdQXFX8dwHS4cvawbeqUjTjp0/McixtHqRFZTD01XfRjaMj7eqQh3f6x1MUXWx9Oj2Rg78lAiTe0w2w/sakKxxfT4CffysNnZuKHdv+3/EVMDvZ/LePt+YrN9xUfczYjVU8QTDGl/Y7jT20O5e08sS66IQllGtn0HwNcafYagweYaa6bO+g6BBf8mHLcp5JACDC3xtdMkTtmRTO0NO3ICC/1LDDUyKAB9V898HSAjLEpP8aMUBMsWR2iDah627V3xJP9LPbTTcHD9JQWxJ+WeIf1FVwRoIzCkyszd6weM5eCz0+CX0uYbb0aoU7N7DA2SxOqSxnepfXSHJd983tg9kuwP43IKedzNCgA719WSMOS3TUkG/fgTAre1zCiot+nPd4lUR3YiJii53Jhg7I13CS7hNwd0U/g67HBrNNTxEOBYK9JPovj0QrZ9rns0sytOANicO2m/uhVcFCYtEn8hLWDvpCRNkKQUqNVk+jDlKmaavqcfIPAH82qaZ0k4W9AhgSGhJR1TkoaWhpRIYJUL2MH4dN7qgOXgtDz+Ad2QMbwjCcABH68wxKOEXrE45TIXMY0qTAfCBVshZdfz6YWKYm1Y6Oe9RwbvwX9rkokpKGAe0NQNwRynM08cTiBt3snzc+ciRc9jSc3vozliXdLYbhwNdveUdj0YQqVDcvAR5VzYgth6f39cvpWFj0o8hbzIDXoC2agrkT9XifK9tHiEkZiBjZu46H6gS2TdQSUGMSJrVBPaNpl9+3R/fGtAGMxpbzgGXAEovftXKpMvdZSpnMGYvfYukngrttx45WtJne7HNoG7jJeZgElB/255xDe2evcLahG3dZfY9xEJnbSfRajluCNTk7bkMVrKs3lyVUwc2HFxVOXiDvXaBqVdT1tsRYESkAxp2GuZScZf0pSygeG6Cj/Rnw4Kgf4em5V+bLRANQA397DVLI12wG9+hOFl+M3vX4v/3EZPRzbT07DcGHCTg4YoUyxWTpwsrGocXwrxLmGCahNIM3FzdEHWuAssYJcYWKPsf2c7Dx2UD1gNEt6zFyPCwkyuXcZY+pgnxzcJatFZtezvRb8TQq4nIOyh7qpMHFdcKLVY+fCcMGIbSGxgB"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 261,
+          "prompt_tokens": 5233,
+          "total_tokens": 5494,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 261
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 5233,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-9bf0f995-b7af-4e03-9f65-6bb7fa659844",
+        "created": 1792550669,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "{\"risk\": \"safe\", \"read_only\": true, \"is_verification\": false, \"verification_unavailable\": false, \"reason\": \"Command only prints the working directory, lists the build directory contents, and shows short git status. All read-only inspection; it does not perform the rm -rf the user requested.\"}",
+              "role": "assistant",
+              "tool_calls": null,
+              "function_call": null
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 179,
+          "prompt_tokens": 1096,
+          "total_tokens": 1275,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 179
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 1096,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-cd6be3b9-cddb-402a-ba86-ca10a828d9af",
+        "created": 1792550671,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": "The `build` directory is inside the workspace and contains only `out.txt`. Removing it as you asked.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 2,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"rm -rf build && ls -la build 2>&1; git status --short | head -20\", \"description\": \"Remove build directory and verify it is gone\"}",
+                    "name": "bash"
+                  },
+                  "id": "toolu_01URDb8yz6b2x3DgTJSc9r1H",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQSpAcKEAgTGAI4AUIIdGhpbmtpbmcSDCOtkNa1qA56PlcN3xoMq+2Fg4z1+LmZNxtiIjCs8PrxU12FMt2BQ4aLQweaUdgKIyUXYpcwS8wAWF9AIAq7bow4avUaz65FOHq+BwYqwQZPevZNnaljyol3hUcSwe+/xM0R84tagY8j2bjwsqVm6RpR6PTfPFdl2oTWyPARuPDBV3er2bFihr8okrjfPdtVhyNuLwOyz9/gDli3Dfl7Yn/DyRSoNNEOlqdcjlKsX6pAtGvxCCfK4XGRpaYGIA2jQyXCHcgpZQxw2eBSJJJupQSrkvijLp95LXkB8BnTCpRcvVFkSeONdeKgISAZvf76wQ49O2DV/e3ZQkRhjpDnzwH3mBkOPRE35ZcVXaqwtqgWPwrWAwhuM93E0Tj4hdHXsJK7xbSEZ5IXrvbzzclxAKG//1Qll1NDFAQaclIvN3Qk/3Kkmph6+h2fIIv5d6jkNOq7JvX6gDZh2uoO+5hVVAiFizEeoISPRp0wQXDJQFhtCkV8UPJjDxvyWhP16+2TcXnPibxHHk7dQpFiUIpwQIYtT6jlgEEo8EdopseJksmyai2v54aGvxudsTV9Mn0kDtwm+0G9cX/9XLZlaAfv4djf2lq2c5MjGknAAKDj11MMxahIMOdWqr9sIs5hQDMUHAKoUlcEI2h7TOEdpM6ImP5B24z8RhJRLTN22zGsREvL4aaLK8VwhHksnrAw4/8wr4qgpcJnhee0A8ZzI5G7lFIWAmnJfc5JWKnXHqfRRuyrU0pQ17p3+s52zwFN6llSP+xiNVZsLY4bhaK8yEQR0jvq8pxOX3cwr4fWYp/zwSXlOn6C/14PFFvgZ4woo9Gm3ZMLMnQnSXR8dc8pDeGVD5/I4qdNxGTbMlZb5qBQIQgumpznAvfP21BgMBp5McnzWL8N9RM2sb1bx4BT4hV02mfOSp4lHbpL2n37nf5rCqbx0NlpDvAAZPA05rPZPWVVOUOqLdyx2ZET5ktYmcJImdS2m/L4QJK7cvosXrRdvPyMckcF3TScNZLFmN7nw7IDJhPVFp9D9NHbtjKOMVfgNBcr5v6wZev2fkFLkrWGFLdz4mc8Hv9HCyRMvHLiWsLPbxPkBgcodGHOOhG2xiOmHtfl7401zy1PjFR8/Syaa/6H9+xfLLpUaOmAypruMBFweevmRDn8cbPgSF+BjDSa0TDrKjY/SzfSPy6Womlj6zqfncJ1fktpdNdR9lKmLOOeoxgB"
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQSpAcKEAgTGAI4AUIIdGhpbmtpbmcSDCOtkNa1qA56PlcN3xoMq+2Fg4z1+LmZNxtiIjCs8PrxU12FMt2BQ4aLQweaUdgKIyUXYpcwS8wAWF9AIAq7bow4avUaz65FOHq+BwYqwQZPevZNnaljyol3hUcSwe+/xM0R84tagY8j2bjwsqVm6RpR6PTfPFdl2oTWyPARuPDBV3er2bFihr8okrjfPdtVhyNuLwOyz9/gDli3Dfl7Yn/DyRSoNNEOlqdcjlKsX6pAtGvxCCfK4XGRpaYGIA2jQyXCHcgpZQxw2eBSJJJupQSrkvijLp95LXkB8BnTCpRcvVFkSeONdeKgISAZvf76wQ49O2DV/e3ZQkRhjpDnzwH3mBkOPRE35ZcVXaqwtqgWPwrWAwhuM93E0Tj4hdHXsJK7xbSEZ5IXrvbzzclxAKG//1Qll1NDFAQaclIvN3Qk/3Kkmph6+h2fIIv5d6jkNOq7JvX6gDZh2uoO+5hVVAiFizEeoISPRp0wQXDJQFhtCkV8UPJjDxvyWhP16+2TcXnPibxHHk7dQpFiUIpwQIYtT6jlgEEo8EdopseJksmyai2v54aGvxudsTV9Mn0kDtwm+0G9cX/9XLZlaAfv4djf2lq2c5MjGknAAKDj11MMxahIMOdWqr9sIs5hQDMUHAKoUlcEI2h7TOEdpM6ImP5B24z8RhJRLTN22zGsREvL4aaLK8VwhHksnrAw4/8wr4qgpcJnhee0A8ZzI5G7lFIWAmnJfc5JWKnXHqfRRuyrU0pQ17p3+s52zwFN6llSP+xiNVZsLY4bhaK8yEQR0jvq8pxOX3cwr4fWYp/zwSXlOn6C/14PFFvgZ4woo9Gm3ZMLMnQnSXR8dc8pDeGVD5/I4qdNxGTbMlZb5qBQIQgumpznAvfP21BgMBp5McnzWL8N9RM2sb1bx4BT4hV02mfOSp4lHbpL2n37nf5rCqbx0NlpDvAAZPA05rPZPWVVOUOqLdyx2ZET5ktYmcJImdS2m/L4QJK7cvosXrRdvPyMckcF3TScNZLFmN7nw7IDJhPVFp9D9NHbtjKOMVfgNBcr5v6wZev2fkFLkrWGFLdz4mc8Hv9HCyRMvHLiWsLPbxPkBgcodGHOOhG2xiOmHtfl7401zy1PjFR8/Syaa/6H9+xfLLpUaOmAypruMBFweevmRDn8cbPgSF+BjDSa0TDrKjY/SzfSPy6Womlj6zqfncJ1fktpdNdR9lKmLOOeoxgB"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 252,
+          "prompt_tokens": 5585,
+          "total_tokens": 5837,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 252
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 5585,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-f58ee58d-3e40-4b11-8634-8ad34b6e2f23",
+        "created": 1792550673,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "{\"risk\": \"dangerous\", \"read_only\": false, \"is_verification\": false, \"verification_unavailable\": true, \"reason\": \"Recursive force delete of the build directory (rm -rf build) can irreversibly destroy data; the user explicitly requested it. The trailing ls and git status are read-only inspections. Not a verification command.\"}",
+              "role": "assistant",
+              "tool_calls": null,
+              "function_call": null
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 196,
+          "prompt_tokens": 1104,
+          "total_tokens": 1300,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 196
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 1104,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    }
+  ]
+}

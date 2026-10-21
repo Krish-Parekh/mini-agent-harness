@@ -1,0 +1,224 @@
+{
+  "interactions": [
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-e9e0c0f2-f867-4b5c-84f9-6f2f11d272d2",
+        "created": 1792550655,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"pattern\": \"RETRY_LIMIT\", \"path\": \".\"}",
+                    "name": "grep"
+                  },
+                  "id": "toolu_014NRBLhSZBAnFwLr48WELX7",
+                  "type": "function"
+                },
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"git ls-files | head -50; echo ---; cat config.py 2>/dev/null | head -50\", \"description\": \"List tracked files and show config.py\"}",
+                    "name": "bash"
+                  },
+                  "id": "toolu_015GtMTYfBv3vu3WsEM7zaH7",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": null
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 182,
+          "prompt_tokens": 5242,
+          "total_tokens": 5424,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 182
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 5242,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-c9a7797e-43f2-4e7c-bf8b-b1920aa156f2",
+        "created": 1792550657,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "{\"is_verification\": false, \"read_only\": true, \"reason\": \"Lists tracked files via git ls-files and prints config.py if present; only reads local state, no mutation.\", \"risk\": \"safe\", \"verification_unavailable\": false}",
+              "role": "assistant",
+              "tool_calls": null,
+              "function_call": null
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 162,
+          "prompt_tokens": 1119,
+          "total_tokens": 1281,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 162
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 1119,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "assistant",
+        "tool",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-950eebeb-7785-4678-8cc3-7870550d566d",
+        "created": 1792550658,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"message\": \"RETRY_LIMIT is set to `7`. It is defined on line 1 of `config.py`:\\n\\n```python\\nRETRY_LIMIT = 7\\nTIMEOUT_S = 30\\n```\\n\\n`grep` found no other occurrences of `RETRY_LIMIT` in the workspace. I changed no files.\"}",
+                    "name": "finish"
+                  },
+                  "id": "toolu_01HpPFSNDoU8UWqwNXgvwYqr",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQSigYKEAgTGAI4AUIIdGhpbmtpbmcSDEOlKieQuagnaf4U0xoMEbSHDkV9MTT9JziUIjBXcTZU6f9S78oQ/6yWyfV8tzKf5DJefSWFjCIoICppTybx9FQ8BzB3bdFghw6xM98qpwW1ebZ+GGsWr2oboNUpnnwAV48aNJcFdW7nKsDYZPDvakNXssKjPEJJGilnvx/lGhJjyF3l39cXvVEEGD4q3cVwC2eTwuM3+8k7wqyavP0UrcmwiB2MK5ibRdDJVzb1AtGfYj4Zkpm8hNAwgeb9EHJN0e/DmSgDP/FK4OzRp8DAdP6pfO41gy+q5KhpRPpkeKiE/0mA0oK9byNWREpGMIbkarpfx1SYbmVwnH7T/HN9JaS5J9HMFh6njbDKpN8hMAAHQ+qaHFhMS0IWrCLDAM4ICEOSFa6oSE7txRmcMNAd6Sf1jIsu05DoUbDKVO49YbRbysBd+Fvtm9qCsayp3MmKCFhhi67Cgk5U0GWv48vhdVTX+tvdbH1Os6i8Vz3ujV3d/T6hFChJXmxZL01aAC6t7BDZKcTtiweDJUuj9bZOUe1KZzlyQAauxOvEb4LyM8lQXkkvKvzCf+OIv9+ZDDzCmPZNdrnra8nfyM1o0BvUubY8Sg9Wuq/6PS4nv2KQ8fb1S8vgW971MANrunCF6/jkPK2qs1kgW2zQrztIKa9ZgE0stpIEGeTccxINfWz0V77bEIBxAOa0eeaYItwLF25D/9ekCs1CT6SvU67IqPusCah45hro9szEMKrgHwJlQhjLfs7nIdAww4xf0Nc8Ce3H+UU7XtnTatO8ivARVZDywiZju33OI2OG0tR7zLHW9+urRatpgI1dYzy2ZnDF+NhJ9RZM3JUehncnt3hMy0Kr2CAcsNN0tOqKbGU+5aH5Q6+pcXY2U6UXdudTG1C954Yq/90y7Rffxf4NzV+O2Cerw9DECE7//Oi/fEPuXJeMzYcg0zujnMaElKQeVAi8ZyBWmLSUhavZES133jIPe52miVOrPmFVm3XkqahDCJy28WlBa4r4jFRcGAE="
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQSigYKEAgTGAI4AUIIdGhpbmtpbmcSDEOlKieQuagnaf4U0xoMEbSHDkV9MTT9JziUIjBXcTZU6f9S78oQ/6yWyfV8tzKf5DJefSWFjCIoICppTybx9FQ8BzB3bdFghw6xM98qpwW1ebZ+GGsWr2oboNUpnnwAV48aNJcFdW7nKsDYZPDvakNXssKjPEJJGilnvx/lGhJjyF3l39cXvVEEGD4q3cVwC2eTwuM3+8k7wqyavP0UrcmwiB2MK5ibRdDJVzb1AtGfYj4Zkpm8hNAwgeb9EHJN0e/DmSgDP/FK4OzRp8DAdP6pfO41gy+q5KhpRPpkeKiE/0mA0oK9byNWREpGMIbkarpfx1SYbmVwnH7T/HN9JaS5J9HMFh6njbDKpN8hMAAHQ+qaHFhMS0IWrCLDAM4ICEOSFa6oSE7txRmcMNAd6Sf1jIsu05DoUbDKVO49YbRbysBd+Fvtm9qCsayp3MmKCFhhi67Cgk5U0GWv48vhdVTX+tvdbH1Os6i8Vz3ujV3d/T6hFChJXmxZL01aAC6t7BDZKcTtiweDJUuj9bZOUe1KZzlyQAauxOvEb4LyM8lQXkkvKvzCf+OIv9+ZDDzCmPZNdrnra8nfyM1o0BvUubY8Sg9Wuq/6PS4nv2KQ8fb1S8vgW971MANrunCF6/jkPK2qs1kgW2zQrztIKa9ZgE0stpIEGeTccxINfWz0V77bEIBxAOa0eeaYItwLF25D/9ekCs1CT6SvU67IqPusCah45hro9szEMKrgHwJlQhjLfs7nIdAww4xf0Nc8Ce3H+UU7XtnTatO8ivARVZDywiZju33OI2OG0tR7zLHW9+urRatpgI1dYzy2ZnDF+NhJ9RZM3JUehncnt3hMy0Kr2CAcsNN0tOqKbGU+5aH5Q6+pcXY2U6UXdudTG1C954Yq/90y7Rffxf4NzV+O2Cerw9DECE7//Oi/fEPuXJeMzYcg0zujnMaElKQeVAi8ZyBWmLSUhavZES133jIPe52miVOrPmFVm3XkqahDCJy28WlBa4r4jFRcGAE="
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 212,
+          "prompt_tokens": 5543,
+          "total_tokens": 5755,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 212
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 5543,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    }
+  ]
+}
