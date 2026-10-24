@@ -35,6 +35,7 @@ class RoutedLLM:
 
     def __init__(self, parent: list[LLMResponse], workers: dict[str, list[LLMResponse]]) -> None:
         self.scripts = {"": parent, **workers}
+        self.seen: dict[str, list[list[dict]]] = {key: [] for key in self.scripts}
         self._lock = threading.Lock()
 
     def context_window(self) -> int:
@@ -51,6 +52,7 @@ class RoutedLLM:
         )
         key = next((k for k in self.scripts if k and k in said), "")
         with self._lock:
+            self.seen[key].append(messages)
             return self.scripts[key].pop(0)
 
 
@@ -195,6 +197,13 @@ def test_forks_see_uncommitted_work_and_both_merge_back(tmp_path, sandbox):
         e for e in conversation.events if isinstance(e, ObservationEvent) and e.tool_name == "task"
     ]
     assert [w["merged"] for w in observation.details["workers"]] == [True, True]
+
+    first_call = llm.seen["FORK-A"][0]
+    brief = next(
+        m["content"] for m in reversed(first_call) if m["content"] == "FORK-A: write alpha.txt"
+    )
+    assert "<worker-fork>" not in brief
+    assert "<worker-fork>" in first_call[-1]["content"]
 
 
 def test_a_fork_that_conflicts_keeps_its_branch_and_leaves_the_workspace_clean(tmp_path, sandbox):

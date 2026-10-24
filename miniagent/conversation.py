@@ -63,10 +63,12 @@ class Conversation:
         stuck_detection_thresholds: StuckDetectionThresholds | None = None,
         parent: Conversation | None = None,
         read_only: bool = False,
+        directive: str | None = None,
     ) -> None:
         self.id = id or _new_id()
         self.parent = parent
         self.read_only = read_only
+        self.directive = directive
         self.agent = agent
         self.sandbox = sandbox
         self.on_event = on_event or (lambda event: None)

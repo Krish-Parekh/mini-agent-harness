@@ -27,6 +27,7 @@ class Worker:
         *,
         max_iterations: int,
         read_only: bool = False,
+        directive: str | None = None,
         history: Sequence[Event] = (),
     ) -> None:
         self._context = context
@@ -40,6 +41,7 @@ class Worker:
             id=f"{context.conversation.id}-w-{state.worker_id}",
             parent=context.conversation,
             read_only=read_only,
+            directive=directive,
         )
         self.conversation.events = list(history)
 

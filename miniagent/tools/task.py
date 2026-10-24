@@ -247,6 +247,7 @@ class TaskTool(Tool):
             self._agent(parent, parent.agent.system_prompt),
             WorkdirView(sandbox, forks.path(state.worker_id)),
             max_iterations=self.fork_iterations,
+            directive=FORK_WORKER_PROMPT,
             history=parent.events[: _step_start(parent.events, context.tool_call_id)],
         )
         worker.publish()
@@ -254,10 +255,9 @@ class TaskTool(Tool):
 
     @staticmethod
     def _run(worker: Worker, spec: TaskSpec, forks: Forks | None) -> None:
+        status, report = worker.run(spec.prompt)
         if spec.kind == "explore":
-            status, report = worker.run(spec.prompt)
             worker.publish(status=status, report=report)
             return
-        status, report = worker.run(f"{FORK_WORKER_PROMPT}{spec.prompt}")
         files = forks.commit(worker.state.worker_id, spec.title)
         worker.publish(status=status, report=report, files=files)

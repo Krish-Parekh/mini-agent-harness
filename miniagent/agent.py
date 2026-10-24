@@ -612,6 +612,8 @@ class Agent:
             sections.append(IMPLEMENT_PLAN_DIRECTIVE.strip())
         if conversation.confirm_policy.mode == "full":
             sections.append(FULL_ACCESS_NOTE.strip())
+        if conversation.directive:
+            sections.append(conversation.directive.strip())
         return sections
 
     def _skills_section(self) -> str:

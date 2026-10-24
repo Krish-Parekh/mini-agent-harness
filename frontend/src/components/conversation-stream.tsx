@@ -16,8 +16,6 @@ import {
   isObservation,
   isWorkerEvent,
   isWorkerStatus,
-  type WorkerKind,
-  type WorkerStatus,
 } from "@/lib/events";
 import { type WorkerView, buildWorkers } from "@/lib/workers";
 import {
@@ -50,16 +48,10 @@ import {
   skillReplyOutcome,
 } from "@/components/bui/skill-proposal-card";
 import { Markdown } from "@/components/bui/markdown";
-import { TaskBadge, TaskList, TaskRow, type TaskStatus } from "@/components/bui/task-rows";
+import { TaskList, TaskRow, type TaskStatus } from "@/components/bui/task-rows";
 import { DiffChips, type DiffStat, ToolRow, ToolRun } from "@/components/bui/tool-chips";
 import { ValuePill } from "@/components/bui/value-pill";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { WorkerCards } from "@/components/workers";
 
 type SelectFile = (path: string, scope?: string) => void;
 
@@ -156,179 +148,6 @@ function stepTiming(
   return undefined;
 }
 
-const WORKER_STATUS: Record<WorkerStatus, TaskStatus> = {
-  running: "running",
-  done: "done",
-  failed: "failed",
-  cancelled: "failed",
-};
-
-const WORKER_TONE: Record<WorkerKind, "brand" | "orange" | "neutral"> = {
-  fork: "brand",
-  explore: "neutral",
-  research: "orange",
-};
-
-const noop = () => {};
-
-function workerSteps(worker: WorkerView) {
-  const observations = new Map<string, AgentEvent>();
-  const actions: ActionEvent[] = [];
-  for (const event of worker.events) {
-    if (isObservation(event) && event.tool_call_id) observations.set(event.tool_call_id, event);
-    else if (isAction(event)) actions.push(event);
-  }
-  return { actions, observations };
-}
-
-function workerOutcome(worker: WorkerView): string | null {
-  if (worker.merged) return "Merged into the workspace";
-  if (worker.conflict) return `Conflicted with the workspace, kept on ${worker.branch}`;
-  if (worker.files.length > 0) return `Not merged, kept on ${worker.branch}`;
-  return null;
-}
-
-function WorkerSteps({ worker, onSelectFile }: { worker: WorkerView; onSelectFile?: SelectFile }) {
-  const { actions, observations } = workerSteps(worker);
-  if (actions.length === 0) return <p className="text-[12px] text-ink-3">No steps yet.</p>;
-  return (
-    <div className="flex flex-col gap-1">
-      {actions.map((action) => (
-        <ChainStep
-          key={action.id}
-          action={action}
-          obs={action.tool_call_id ? observations.get(action.tool_call_id) : undefined}
-          isPending={false}
-          live={worker.status === "running"}
-          onApprove={noop}
-          onReject={noop}
-          onSelectFile={onSelectFile}
-        />
-      ))}
-    </div>
-  );
-}
-
-function WorkerResult({ worker, onSelectFile }: { worker: WorkerView; onSelectFile?: SelectFile }) {
-  const outcome = workerOutcome(worker);
-  return (
-    <>
-      {worker.report && (
-        <div className="text-[13px] leading-relaxed text-ink">
-          <Markdown>{worker.report}</Markdown>
-        </div>
-      )}
-      {outcome && <p className="text-[12px] text-ink-2">{outcome}</p>}
-      {worker.conflict && (
-        <ScrollablePreview>
-          <pre className="whitespace-pre-wrap break-words rounded-control bg-red-tint px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-red">
-            {worker.conflict}
-          </pre>
-        </ScrollablePreview>
-      )}
-      {worker.files.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {worker.files.map((path) => (
-            <button
-              key={path}
-              type="button"
-              title={path}
-              aria-label={`Open ${path}`}
-              onClick={() => onSelectFile?.(path)}
-              className="inline-flex h-5.5 max-w-full items-center truncate rounded-chip bg-field px-1.5 font-mono text-[11px] text-ink-2 shadow-hairline transition-colors duration-100 hover:bg-hover-2 hover:text-ink"
-            >
-              {path}
-            </button>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
-function WorkerCard({ worker, onSelectFile }: { worker: WorkerView; onSelectFile?: SelectFile }) {
-  const [open, setOpen] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const running = worker.status === "running";
-  const elapsed = useElapsed(running ? worker.startedAt * 1000 : null, running);
-  const duration = running
-    ? formatElapsed(elapsed)
-    : formatDuration(((worker.endedAt ?? worker.startedAt) - worker.startedAt) * 1000);
-  const latest = workerSteps(worker).actions.at(-1);
-  const latestView = latest ? viewFor(latest) : undefined;
-  const openFile: SelectFile | undefined =
-    worker.branch && onSelectFile ? (path) => onSelectFile(path, worker.worker_id) : onSelectFile;
-  const kind = `${worker.worker_kind} worker`;
-
-  return (
-    <li className="min-w-0 rounded-control bg-surface shadow-hairline">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="flex w-full min-w-0 flex-col gap-0.5 rounded-control px-2.5 py-2 text-left transition-colors duration-100 hover:bg-hover-2"
-      >
-        <span className="flex w-full min-w-0 items-center gap-2">
-          <TaskBadge compact status={WORKER_STATUS[worker.status]} />
-          <span className="min-w-0 truncate text-[12.5px] font-medium text-ink">{worker.title}</span>
-          <ValuePill tone={WORKER_TONE[worker.worker_kind]} className="shrink-0">
-            {worker.worker_kind}
-          </ValuePill>
-          <span className="ml-auto shrink-0 text-[11.5px] text-ink-3 tabular-nums">{duration}</span>
-        </span>
-        {latestView && (
-          <span className="truncate pl-6 text-[12px] text-ink-3">
-            {latestView.verb}
-            {latestView.target ? ` ${latestView.target}` : ""}
-          </span>
-        )}
-      </button>
-      {open && (
-        <div className="flex min-w-0 flex-col gap-2 border-t border-line px-2.5 py-2">
-          <ScrollablePreview>
-            <WorkerSteps worker={worker} onSelectFile={openFile} />
-          </ScrollablePreview>
-          <WorkerResult worker={worker} onSelectFile={openFile} />
-          <div>
-            <Pill variant="ghost" size="sm" onClick={() => setSheetOpen(true)}>
-              Open full timeline
-            </Pill>
-          </div>
-        </div>
-      )}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="sm:max-w-xl">
-          <SheetHeader>
-            <SheetTitle className="text-balance">{worker.title}</SheetTitle>
-            <SheetDescription className="tabular-nums">
-              {kind} · {worker.status} · {duration}
-            </SheetDescription>
-          </SheetHeader>
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4">
-            <WorkerSteps worker={worker} onSelectFile={openFile} />
-            <WorkerResult worker={worker} onSelectFile={openFile} />
-          </div>
-        </SheetContent>
-      </Sheet>
-    </li>
-  );
-}
-
-function WorkerCards({ workers, onSelectFile }: { workers: WorkerView[]; onSelectFile?: SelectFile }) {
-  const ended = workers.filter((w) => w.status !== "running").length;
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <p className="text-[12px] font-medium text-ink-2 tabular-nums">
-        {ended}/{workers.length} worker{workers.length === 1 ? "" : "s"} finished
-      </p>
-      <ul className="flex min-w-0 flex-col gap-1.5">
-        {workers.map((worker) => (
-          <WorkerCard key={worker.worker_id} worker={worker} onSelectFile={onSelectFile} />
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 function tailText(text: string, max = 8000): string {
   return text.length > max ? `…${text.slice(-max)}` : text;
@@ -425,7 +244,7 @@ const ChainStep = memo(function ChainStep({
             </ScrollablePreview>
           )}
           {observationDetail}
-          {hasWorkers && workers && <WorkerCards workers={workers} onSelectFile={onSelectFile} />}
+          {hasWorkers && workers && <WorkerCards workers={workers} />}
         </>
       ) : null}
     </ToolRow>
