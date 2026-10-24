@@ -13,10 +13,12 @@ import {
   ApiError,
   type AttachmentRef,
   type Branch,
+  type ContextWindow,
   type ConversationContext,
   type ConversationInfo,
   type CreateConversationBody,
   type McpConnection,
+  type Modes,
   type Repo,
   type Memory,
   type SandboxProvider,
@@ -37,6 +39,7 @@ export const queryKeys = {
   conversations: ["conversations"] as const,
   conversation: (id: string) => ["conversation", id] as const,
   context: (id: string) => ["context", id] as const,
+  contextWindow: (id: string) => ["context-window", id] as const,
   events: (id: string) => ["events", id] as const,
   files: (id: string) => ["files", id] as const,
   turns: (id: string) => ["turns", id] as const,
@@ -152,6 +155,24 @@ export function useConversation(id: string) {
   });
 }
 
+export function useUpdateModes(id: string) {
+  const key = queryKeys.conversation(id);
+  return useMutation({
+    mutationFn: (modes: Modes) => api.updateModes(id, modes),
+    onMutate: async (modes, { client }) => {
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<ConversationInfo>(key);
+      client.setQueryData<ConversationInfo>(key, (c) => c && { ...c, ...modes });
+      return { previous };
+    },
+    onError: (e, _modes, result, { client }) => {
+      client.setQueryData(key, result?.previous);
+      toast.error(messageFor(e));
+    },
+    onSuccess: (info, _modes, _result, { client }) => client.setQueryData(key, info),
+  });
+}
+
 export function useDeleteConversation() {
   const router = useRouter();
   const pathname = usePathname();
@@ -180,6 +201,14 @@ export function useConversationContext(id: string, enabled = true) {
   return useQuery<ConversationContext>({
     queryKey: queryKeys.context(id),
     queryFn: () => api.context(id),
+    enabled,
+  });
+}
+
+export function useContextWindow(id: string, enabled = true) {
+  return useQuery<ContextWindow>({
+    queryKey: queryKeys.contextWindow(id),
+    queryFn: () => api.contextWindow(id),
     enabled,
   });
 }

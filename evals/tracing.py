@@ -12,12 +12,12 @@ from deepeval.dataset import Golden
 from deepeval.test_case import ToolCall
 from deepeval.tracing import observe, update_current_span, update_current_trace, update_llm_span
 
-from backend.runtime.manager import _build_agent
 from evals import SETTINGS
 from miniagent.agent import Agent
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation
 from miniagent.events import ActionEvent, CondensationEvent, ErrorEvent, Event, LLMUsageEvent, MessageEvent
+from miniagent.factory import build_agent
 from miniagent.llm import LLM
 from miniagent.sandbox.local import LocalSandbox
 from miniagent.text import clip
@@ -113,11 +113,12 @@ def run_agent(golden: Golden) -> Outcome:
         capture_output=True,
     )
     try:
-        agent = _build_agent(SETTINGS, f"Krish-Parekh/{meta['repo']}", None)
+        agent = build_agent(SETTINGS, preset="interactive", repo=f"Krish-Parekh/{meta['repo']}")
         conversation = Conversation(
             agent=agent,
             sandbox=LocalSandbox(str(workspace)),
-            confirm_policy=ConfirmPolicy("never"),
+            max_iterations=SETTINGS.max_iterations,
+            confirm_policy=ConfirmPolicy("full"),
         )
         started = time.monotonic()
         conversation.send_message(golden.input)

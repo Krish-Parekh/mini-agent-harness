@@ -13,7 +13,7 @@ from backend.runtime.attachments import (
     MAX_FILE_BYTES,
     MAX_IMAGE_BYTES,
 )
-from miniagent.confirm import ConfirmMode
+from miniagent.confirm import PermissionMode
 from miniagent.tools.plan import Plan
 
 
@@ -22,7 +22,8 @@ class CreateConversationRequest(BaseModel):
     branch: str | None = None
     workspace_dir: str | None = None
     initial_message: str | None = None
-    confirm_mode: ConfirmMode = "risky"
+    permission_mode: PermissionMode = "auto"
+    plan_mode: bool = False
     model: str | None = None
     sandbox_provider: str | None = None
     skill_ids: list[str] = []
@@ -34,6 +35,7 @@ class SandboxProviderOut(BaseModel):
     label: str
     available: bool
     default: bool
+    full_access: bool
     reason: str | None = None
 
 
@@ -74,9 +76,15 @@ class SendMessageRequest(BaseModel):
     text: str
     model: str | None = None
     plan_mode: bool = False
+    permission_mode: PermissionMode | None = None
     client_event_id: str | None = None
     attachments: list[AttachmentIn] = Field(default=[], max_length=MAX_ATTACHMENTS)
     mode: Literal["steer", "queue"] = "steer"
+
+
+class UpdateConversationRequest(BaseModel):
+    permission_mode: PermissionMode | None = None
+    plan_mode: bool | None = None
 
 
 class QueuedOut(BaseModel):
@@ -122,6 +130,9 @@ class ChangedFile(BaseModel):
     additions: int
     deletions: int
     status: Literal["added", "modified", "deleted"]
+
+
+ChangeSide = Literal["before", "after"]
 
 
 class FileDiff(BaseModel):
@@ -197,6 +208,8 @@ class ConversationInfo(BaseModel):
     title: str | None = None
     plan: Plan | None = None
     implementing_plan: bool = False
+    plan_mode: bool = False
+    permission_mode: PermissionMode = "auto"
     pr_number: int | None = None
     pr_url: str | None = None
     sandbox_provider: str = "local"

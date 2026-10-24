@@ -154,6 +154,10 @@ export function useConversationStream(id: string) {
     queryClient.invalidateQueries({ queryKey: queryKeys.context(id) });
   }, [queryClient, id, status]);
 
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.contextWindow(id) });
+  }, [queryClient, id, status, observationByCall.size]);
+
   const lastUnresolvedAction = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
       const e = events[i];

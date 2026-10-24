@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 
 class Question(BaseModel):
@@ -52,5 +52,5 @@ class AskUserTool(Tool):
     action_type = AskUserAction
     observation_type = AskUserObservation
 
-    def execute(self, action: AskUserAction, sandbox: Sandbox) -> AskUserObservation:
+    def execute(self, action: AskUserAction, sandbox: Sandbox, _context: ToolContext) -> AskUserObservation:
         return AskUserObservation(questions=action.questions)

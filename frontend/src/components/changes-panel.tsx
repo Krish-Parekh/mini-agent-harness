@@ -26,12 +26,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { langForPath } from "@/lib/lang";
+import { previewKindForPath } from "@/lib/preview";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { DiffViewer } from "@/components/bui/diff-viewer";
 import { CodeBlock } from "@/components/bui/code-block";
 import { FileTree } from "@/components/bui/file-tree";
+import { MediaChange, MediaPreview } from "@/components/media-preview";
 import { GlideMenu } from "@/components/bui/glide-menu";
 import { LoadingState } from "@/components/bui/loading-state";
 import { Pill } from "@/components/bui/button";
@@ -196,18 +198,24 @@ function FileDiffView({
   );
 }
 
+export type WorkerScope = { id: string; title: string };
+
 function ScopeSelect({
   scope,
   turns,
+  workers,
   onChange,
 }: {
   scope: string;
   turns: TurnInfo[];
+  workers: WorkerScope[];
   onChange: (scope: string) => void;
 }) {
   const label = (value: string) => {
     if (value === "all") return "All changes";
     if (value === "branch") return "Branch vs base";
+    const worker = workers.find((w) => w.id === value);
+    if (worker) return `Worker · ${worker.title}`;
     const index = turns.findIndex((t) => t.id === value);
     return `Turn ${index + 1}`;
   };
@@ -226,6 +234,11 @@ function ScopeSelect({
                 <span className="truncate">
                   Turn {i + 1} · {turn.text || "attachment"}
                 </span>
+              </SelectItem>
+            ))}
+            {workers.map((worker) => (
+              <SelectItem key={worker.id} value={worker.id}>
+                <span className="truncate">Worker · {worker.title}</span>
               </SelectItem>
             ))}
           </SelectGroup>
@@ -277,7 +290,8 @@ function FileDetail({
   onBack: () => void;
 }) {
   const [view, setView] = useState<View>("diff");
-  const canToggle = changed !== undefined && changed.status !== "deleted";
+  const kind = previewKindForPath(path);
+  const canToggle = !kind && changed !== undefined && changed.status !== "deleted";
   const mode: View = !changed ? "code" : canToggle ? view : "diff";
 
   return (
@@ -295,7 +309,25 @@ function FileDetail({
         )}
       </DetailHeader>
       <ScrollArea className="min-h-0 flex-1">
-        {mode === "diff" ? (
+        {kind && changed ? (
+          <MediaChange
+            kind={kind}
+            conversationId={conversationId}
+            path={path}
+            status={changed.status}
+            scope={scope}
+            revision={revision}
+          />
+        ) : kind ? (
+          <div className="flex flex-col items-start p-3">
+            <MediaPreview
+              kind={kind}
+              conversationId={conversationId}
+              path={path}
+              revision={revision}
+            />
+          </div>
+        ) : mode === "diff" ? (
           <FileDiffView
             conversationId={conversationId}
             path={path}
@@ -423,6 +455,9 @@ export const ChangesPanel = memo(function ChangesPanel({
   running,
   selectedPath,
   onSelectPath,
+  scope: pickedScope,
+  onScopeChange: setScope,
+  workers,
   onClose,
   onSynced,
   revision,
@@ -435,13 +470,15 @@ export const ChangesPanel = memo(function ChangesPanel({
   running: boolean;
   selectedPath: string | null;
   onSelectPath: (path: string | null) => void;
+  scope: string;
+  onScopeChange: (scope: string) => void;
+  workers: WorkerScope[];
   onClose: () => void;
   onSynced?: () => void;
   revision: number;
   prStep: PrStep | null;
 }) {
   const [tab, setTab] = useState<Tab>("changes");
-  const [pickedScope, setScope] = useState("all");
   const [turns, setTurns] = useState<TurnInfo[]>([]);
   const [scoped, setScoped] = useState<{ scope: string; files: ChangedFile[] } | null>(null);
   const [allFiles, setAllFiles] = useState<string[] | null>(null);
@@ -520,7 +557,10 @@ export const ChangesPanel = memo(function ChangesPanel({
   }, [tab, conversationId, revision]);
 
   const scope =
-    pickedScope === "all" || pickedScope === "branch" || turns.some((t) => t.id === pickedScope)
+    pickedScope === "all" ||
+    pickedScope === "branch" ||
+    turns.some((t) => t.id === pickedScope) ||
+    workers.some((w) => w.id === pickedScope)
       ? pickedScope
       : "all";
 
@@ -591,7 +631,7 @@ export const ChangesPanel = memo(function ChangesPanel({
       </div>
 
       {tab === "changes" && !selectedPath && (
-        <ScopeSelect scope={scope} turns={turns} onChange={setScope} />
+        <ScopeSelect scope={scope} turns={turns} workers={workers} onChange={setScope} />
       )}
 
       {selectedPath ? (

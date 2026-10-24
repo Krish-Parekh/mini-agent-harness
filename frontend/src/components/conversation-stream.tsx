@@ -12,11 +12,12 @@ import {
   eventKey,
   isAction,
   isErrorEvent,
-  isFanoutWorker,
   isMessage,
   isObservation,
+  isWorkerEvent,
+  isWorkerStatus,
 } from "@/lib/events";
-import { type FanoutWorkerState, buildFanoutWorkerMap } from "@/lib/fanout-workers";
+import { type WorkerView, buildWorkers } from "@/lib/workers";
 import {
   ScrollablePreview,
   type ToolView,
@@ -47,9 +48,12 @@ import {
   skillReplyOutcome,
 } from "@/components/bui/skill-proposal-card";
 import { Markdown } from "@/components/bui/markdown";
-import { TaskBadge, TaskList, TaskRow, type TaskStatus } from "@/components/bui/task-rows";
+import { TaskList, TaskRow, type TaskStatus } from "@/components/bui/task-rows";
 import { DiffChips, type DiffStat, ToolRow, ToolRun } from "@/components/bui/tool-chips";
 import { ValuePill } from "@/components/bui/value-pill";
+import { WorkerCards } from "@/components/workers";
+
+type SelectFile = (path: string, scope?: string) => void;
 
 const viewCache = new WeakMap<ActionEvent, ToolView>();
 const statCache = new WeakMap<ActionEvent, DiffStat | null>();
@@ -130,7 +134,7 @@ function stepTiming(
   elapsedMs: number,
 ): string | undefined {
   if (
-    action.tool_name === "bash" ||
+    action.tool_name === "terminal" ||
     action.tool_name === "web_search" ||
     action.tool_name === "fetch_url" ||
     action.tool_name === "find_skills"
@@ -144,51 +148,13 @@ function stepTiming(
   return undefined;
 }
 
-const WORKER_STATUS: Record<FanoutWorkerState["status"], TaskStatus> = {
-  pending: "pending",
-  running: "running",
-  done: "done",
-  error: "failed",
-};
-
-function FanoutWorkersPanel({ workers, live }: { workers: FanoutWorkerState[]; live: boolean }) {
-  if (workers.length === 0) return null;
-  const done = workers.filter((w) => w.status === "done").length;
-  const header = live
-    ? `Spawning ${workers.length} read-only agent${workers.length === 1 ? "" : "s"}…`
-    : `${done}/${workers.length} agent${workers.length === 1 ? "" : "s"} completed`;
-  return (
-    <div className="flex flex-col gap-1.5">
-      <p className="text-[12px] font-medium text-ink-2 tabular-nums">{header}</p>
-      <ul className="flex flex-col gap-1.5">
-        {workers.map((worker) => (
-          <li key={worker.index} className="flex items-start gap-2">
-            <span className="mt-px flex size-4 shrink-0 items-center justify-center">
-              <TaskBadge compact status={WORKER_STATUS[worker.status]} />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[12.5px] leading-snug font-medium text-ink">{worker.title}</p>
-              {worker.activity && (
-                <p className="text-[12px] leading-relaxed text-ink-3">{worker.activity}</p>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function tailText(text: string, max = 8000): string {
-  return text.length > max ? `…${text.slice(-max)}` : text;
-}
 
 const ChainStep = memo(function ChainStep({
   action,
   obs,
   isPending,
   live,
-  fanoutWorkers,
+  workers,
   onApprove,
   onReject,
   onSelectFile,
@@ -197,10 +163,10 @@ const ChainStep = memo(function ChainStep({
   obs?: AgentEvent;
   isPending: boolean;
   live: boolean;
-  fanoutWorkers?: FanoutWorkerState[];
+  workers?: WorkerView[];
   onApprove: () => void;
   onReject: () => void;
-  onSelectFile?: (path: string) => void;
+  onSelectFile?: SelectFile;
 }) {
   const view = viewFor(action);
   const stat = statFor(action);
@@ -212,11 +178,7 @@ const ChainStep = memo(function ChainStep({
   const isError = !!obs?.error || orphaned;
   const observationDetail =
     obs && isObservation(obs) ? toolObservationDetail(action.tool_name, obs) : undefined;
-  const output =
-    action.tool_name === "bash" && obs && !obs.error && obs.content?.trim()
-      ? tailText(obs.content.trim())
-      : undefined;
-  const hasWorkers = action.tool_name === "fanout" && !!fanoutWorkers && fanoutWorkers.length > 0;
+  const hasWorkers = !!workers && workers.length > 0;
   const workersLive = running || (live && !obs);
 
   const hasDetail =
@@ -225,7 +187,6 @@ const ChainStep = memo(function ChainStep({
     !!observationDetail ||
     !!view.fileChange ||
     !!view.preview ||
-    !!output ||
     hasWorkers;
   const autoOpen = !!obs?.error || (running && !!view.preview) || (hasWorkers && workersLive);
   const [manual, setManual] = useState<boolean | null>(null);
@@ -259,13 +220,6 @@ const ChainStep = memo(function ChainStep({
               {!view.fileChange && view.preview}
             </>
           )}
-          {output && (
-            <ScrollablePreview>
-              <pre className="whitespace-pre-wrap break-words rounded-control bg-inset px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-ink-2 shadow-hairline">
-                {output}
-              </pre>
-            </ScrollablePreview>
-          )}
           {obs?.error && (
             <ScrollablePreview>
               <pre className="whitespace-pre-wrap break-words rounded-control bg-red-tint px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-red">
@@ -274,9 +228,7 @@ const ChainStep = memo(function ChainStep({
             </ScrollablePreview>
           )}
           {observationDetail}
-          {hasWorkers && fanoutWorkers && (
-            <FanoutWorkersPanel workers={fanoutWorkers} live={workersLive} />
-          )}
+          {hasWorkers && workers && <WorkerCards workers={workers} />}
         </>
       ) : null}
     </ToolRow>
@@ -286,7 +238,7 @@ const ChainStep = memo(function ChainStep({
 function ActionChain({
   actions,
   observationByCall,
-  fanoutWorkersByCall,
+  workersByCall,
   pendingId,
   live,
   onApprove,
@@ -295,12 +247,12 @@ function ActionChain({
 }: {
   actions: ActionEvent[];
   observationByCall: Map<string, AgentEvent>;
-  fanoutWorkersByCall: Map<string, FanoutWorkerState[]>;
+  workersByCall: Map<string, WorkerView[]>;
   pendingId?: string;
   live: boolean;
   onApprove: () => void;
   onReject: () => void;
-  onSelectFile?: (path: string) => void;
+  onSelectFile?: SelectFile;
 }) {
   const obsFor = (a: ActionEvent) =>
     a.tool_call_id ? observationByCall.get(a.tool_call_id) : undefined;
@@ -345,11 +297,7 @@ function ActionChain({
           obs={obsFor(a)}
           isPending={pendingId != null && a.id === pendingId}
           live={live}
-          fanoutWorkers={
-            a.tool_name === "fanout" && a.tool_call_id
-              ? fanoutWorkersByCall.get(a.tool_call_id)
-              : undefined
-          }
+          workers={a.tool_call_id ? workersByCall.get(a.tool_call_id) : undefined}
           onApprove={onApprove}
           onReject={onReject}
           onSelectFile={onSelectFile}
@@ -556,12 +504,6 @@ function synthesizeToolResponse(
       if (text) return text;
     }
   }
-  for (let i = actions.length - 1; i >= 0; i--) {
-    const action = actions[i];
-    if (action.tool_name !== "fanout") continue;
-    const obs = action.tool_call_id ? observationByCall.get(action.tool_call_id) : undefined;
-    if (obs?.content?.trim() && !obs.error) return obs.content.trim();
-  }
   return null;
 }
 
@@ -681,7 +623,7 @@ function groupEvents(events: AgentEvent[]): Group[] {
   let chain: ActionEvent[] | null = null;
   for (const ev of events) {
     if (isObservation(ev)) continue;
-    if (isFanoutWorker(ev)) continue;
+    if (isWorkerEvent(ev) || isWorkerStatus(ev)) continue;
     if (!isAction(ev) && !isErrorEvent(ev) && (ev as MessageEvent).role === "system") continue;
     if (isAction(ev) && ev.tool_name === "present_plan") {
       chain = null;
@@ -722,7 +664,7 @@ export type ConversationTimelineProps = {
   onApprove: () => void;
   onReject: () => void;
   onBuild?: () => void;
-  onSelectFile?: (path: string) => void;
+  onSelectFile?: SelectFile;
   onInstallSkill?: (skill: ProposedSkill) => Promise<{ name: string }>;
   onIncludeSkills?: (names: string[]) => void;
   onSkipSkills?: () => void;
@@ -751,7 +693,7 @@ export const ConversationTimeline = memo(function ConversationTimeline({
   rewindable,
 }: ConversationTimelineProps) {
   const groups = useMemo(() => groupEvents(events), [events]);
-  const fanoutWorkersByCall = useMemo(() => buildFanoutWorkerMap(events), [events]);
+  const workersByCall = useMemo(() => buildWorkers(events), [events]);
   const replySources = useMemo(
     () => collectReplySources(groups, observationByCall),
     [groups, observationByCall],
@@ -787,7 +729,7 @@ export const ConversationTimeline = memo(function ConversationTimeline({
           <ActionChain
             actions={group.actions}
             observationByCall={observationByCall}
-            fanoutWorkersByCall={fanoutWorkersByCall}
+            workersByCall={workersByCall}
             pendingId={pendingId}
             live={live}
             onApprove={onApprove}

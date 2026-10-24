@@ -8,6 +8,7 @@ import {
   FilePenIcon,
   FilePlusIcon,
   GlobeIcon,
+  KeyboardIcon,
   ListChecksIcon,
   LibraryIcon,
   NetworkIcon,
@@ -81,15 +82,23 @@ function CodePreview({ children }: { children: string }) {
 }
 
 const TOOL_VIEWS: Record<string, ToolRenderer> = {
-  bash: (a) => {
+  terminal: (a) => {
     const command = String(a.command ?? "");
     const description = String(a.description ?? "").trim();
+    if (a.is_input) {
+      return {
+        icon: KeyboardIcon,
+        verb: command ? "Send input" : "Read output",
+        target: command || undefined,
+        mono: true,
+      };
+    }
     return {
       icon: TerminalIcon,
-      verb: "Bash",
-      target: description || command,
+      verb: a.reset ? "Reset terminal" : "Terminal",
+      target: description || command || undefined,
       mono: !description,
-      preview: <CodePreview>{command}</CodePreview>,
+      preview: command ? <CodePreview>{command}</CodePreview> : undefined,
     };
   },
   file_edit: (a) => {
@@ -127,15 +136,12 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
     };
   },
   finish: () => ({ icon: CircleCheckIcon, verb: "Finished" }),
-  fanout: (a) => {
-    const tasks = (a.tasks as { title?: string }[] | undefined) ?? [];
+  task: (a) => {
+    const tasks = (a.tasks as unknown[] | undefined) ?? [];
     return {
       icon: NetworkIcon,
-      verb: "Fan-out",
-      target:
-        tasks.length > 0
-          ? `${tasks.length} agent${tasks.length === 1 ? "" : "s"}`
-          : "agents",
+      verb: "Delegate",
+      target: `${tasks.length} worker${tasks.length === 1 ? "" : "s"}`,
     };
   },
   update_plan: (a) => ({
@@ -262,12 +268,57 @@ function SkillHitList({ content }: { content: string }) {
   );
 }
 
+type TerminalDetails = {
+  output?: string;
+  exit_code?: number;
+  working_dir?: string | null;
+};
+
+function tailText(text: string, max = 8000): string {
+  return text.length > max ? `…${text.slice(-max)}` : text;
+}
+
+function TerminalResult({ details }: { details: TerminalDetails }) {
+  const output = details.output?.trim() ?? "";
+  const exitCode = details.exit_code ?? -1;
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      {output && (
+        <ScrollablePreview>
+          <pre className="whitespace-pre-wrap break-words rounded-control bg-inset px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-ink-2 shadow-hairline">
+            {tailText(output)}
+          </pre>
+        </ScrollablePreview>
+      )}
+      <p className="flex min-w-0 items-center gap-2 text-[12px] text-ink-3">
+        {exitCode === -1 ? (
+          <ValuePill tone="orange" className="shrink-0">
+            Still running
+          </ValuePill>
+        ) : (
+          <ValuePill tone={exitCode === 0 ? "green" : "red"} className="shrink-0">
+            exit {exitCode}
+          </ValuePill>
+        )}
+        {details.working_dir && (
+          <span className="truncate font-mono">{details.working_dir}</span>
+        )}
+      </p>
+    </div>
+  );
+}
+
 export function toolObservationDetail(
   toolName: string,
   obs: ObservationEvent,
 ): ReactNode | undefined {
   if (toolName === "find_skills") {
     return obs.error ? undefined : <SkillHitList content={obs.content ?? ""} />;
+  }
+  if (toolName === "terminal") {
+    return obs.error || !obs.details ? undefined : (
+      <TerminalResult details={obs.details as TerminalDetails} />
+    );
   }
   const sources = observationSources(toolName, obs);
   if (sources.length === 0) return undefined;

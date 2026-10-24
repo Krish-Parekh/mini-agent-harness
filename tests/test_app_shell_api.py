@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -217,6 +218,7 @@ class _Managed:
         self.queue: list = []
         self.applied_bodies: dict[str, str] = {}
         self.sandbox = SimpleNamespace(workspace_dir="/w", provider="local", sandbox_id=None)
+        self.host_workspace = Path(self.sandbox.workspace_dir)
         self.broker = SimpleNamespace(publish=lambda update: None)
         self.run = _Run(self)
         self.conversation = SimpleNamespace(
@@ -228,8 +230,10 @@ class _Managed:
             has_steering=lambda: False,
             plan=None,
             implementing_plan=False,
+            plan_mode=False,
+            confirm_policy=SimpleNamespace(mode="auto"),
             agent=SimpleNamespace(llm=SimpleNamespace(model="default")),
-            send_message=lambda text, attachments=None: None,
+            send_message=lambda text, plan_mode=False, attachments=None: None,
             run=self.run,
             add_event=lambda event: None,
         )
@@ -272,7 +276,8 @@ async def test_the_first_run_sees_the_chosen_model_and_skills():
         repo="o/r",
         branch="main",
         workspace_dir=None,
-        confirm_mode="risky",
+        permission_mode="auto",
+        plan_mode=False,
         token=None,
         initial_message="go",
         model="anthropic/claude-opus-5-5",

@@ -6,7 +6,7 @@ from typing import Literal, Protocol
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 ROOT = "/memories"
 USER_DIR = f"{ROOT}/user"
@@ -71,7 +71,7 @@ class MemoryTool(Tool):
     def __init__(self, store: MemoryStore) -> None:
         self.store = store
 
-    def execute(self, action: MemoryAction, sandbox: Sandbox) -> MemoryObservation:
+    def execute(self, action: MemoryAction, sandbox: Sandbox, _context: ToolContext) -> MemoryObservation:
         try:
             output = getattr(self, f"_{action.command}")(action, self.store.load())
         except _Refused as exc:

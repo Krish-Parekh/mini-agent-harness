@@ -5,8 +5,6 @@ from pathlib import Path
 
 from miniagent.tools.ask import AskUserTool
 from miniagent.tools.base import to_openai_schema
-from miniagent.tools.bash import BashTool
-from miniagent.tools.fanout import FanoutTool
 from miniagent.tools.fetch_url import FetchUrlTool
 from miniagent.tools.find_skills import FindSkillsTool, ProposeSkillsTool
 from miniagent.tools.file_edit import FileEditTool
@@ -15,13 +13,15 @@ from miniagent.tools.memory import MemoryTool
 from miniagent.tools.plan import PresentPlanTool, UpdatePlanTool
 from miniagent.tools.search import GlobTool, GrepTool
 from miniagent.tools.skill import SkillTool
+from miniagent.tools.task import TaskTool
+from miniagent.tools.terminal import TerminalTool
 from miniagent.tools.web_research import WebResearchTool
 from miniagent.tools.web_search import WebSearchTool
 
 CATALOG_PATH = Path(__file__).with_name("CATALOG.md")
 
 TOOLS = (
-    BashTool,
+    TerminalTool,
     FileEditTool,
     GrepTool,
     GlobTool,
@@ -29,7 +29,7 @@ TOOLS = (
     PresentPlanTool,
     UpdatePlanTool,
     AskUserTool,
-    FanoutTool,
+    TaskTool,
     SkillTool,
     FindSkillsTool,
     ProposeSkillsTool,

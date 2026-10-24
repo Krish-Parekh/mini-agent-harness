@@ -2,7 +2,7 @@
 name = "mini-agent"
 version = "0.1.0"
 description = "A minimal OpenHands-style coding agent: event log, action/observation loop, pluggable tools and sandboxes."
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
@@ -16,6 +16,9 @@ dependencies = [
     "pyjwt[crypto]>=2.10",
     "logfire[fastapi]>=4.39.0",
     "mcp>=2.0.0",
+    "fastmcp-slim[client]>=4.1.3",
+    "tree-sitter>=0.24",
+    "tree-sitter-bash>=0.23",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +27,7 @@ e2b = ["e2b>=2.21,<3"]
 daytona = ["daytona>=0.220"]
 modal = ["modal>=1.6.1"]
 vercel = ["vercel-sandbox>=0.7"]
+harbor = ["harbor==0.24.0"]
 
 [project.scripts]
 mini-agent = "miniagent.cli:main"

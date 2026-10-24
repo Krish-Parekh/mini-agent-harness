@@ -107,7 +107,7 @@ class ObservationEvent(Event):
     tool_call_id: str
     content: str
     error: bool = False
-    # Wall-clock the tool took to run, when the tool measures it (e.g. bash).
+    # Wall-clock the tool took to run, when the tool measures it (e.g. terminal).
     # Surfaced structurally so the UI can show timing without parsing `content`.
     duration_ms: int | None = None
     # Structured payload for the UI (endpoints, result URLs, etc.).
@@ -192,14 +192,37 @@ class LLMUsageEvent(Event):
     cost_usd: float = 0.0
 
 
-class FanoutWorkerEvent(Event):
-    kind: Literal["fanout_worker"] = "fanout_worker"
+WorkerKind: TypeAlias = Literal["explore", "fork", "research"]
+WorkerStatus: TypeAlias = Literal["running", "done", "failed", "cancelled"]
+
+
+class WorkerState(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    worker_id: str = Field(default_factory=_new_id)
+    worker_kind: WorkerKind
+    title: str
+    status: WorkerStatus = "running"
+    report: str | None = None
+    base: str | None = None
+    branch: str | None = None
+    files: list[str] = Field(default_factory=list)
+    merged: bool = False
+    conflict: str | None = None
+
+
+class WorkerStatusEvent(Event, WorkerState):
+    kind: Literal["worker_status"] = "worker_status"
     source: Source = "agent"
     parent_tool_call_id: str
-    worker_index: int
-    title: str
-    status: Literal["running", "done", "error"]
-    activity: str | None = None
+
+
+class WorkerEvent(Event):
+    kind: Literal["worker"] = "worker"
+    source: Source = "agent"
+    parent_tool_call_id: str
+    worker_id: str
+    event: Events
 
 
 class ErrorEvent(Event):
@@ -226,8 +249,12 @@ Events: TypeAlias = Annotated[
         RepoInstructionsEvent,
         MemoryIndexEvent,
         LLMUsageEvent,
-        FanoutWorkerEvent,
+        WorkerStatusEvent,
+        WorkerEvent,
         ErrorEvent,
     ],
     Field(discriminator="kind"),
 ]
+
+
+WorkerEvent.model_rebuild()

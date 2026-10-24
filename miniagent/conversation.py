@@ -21,6 +21,7 @@ from miniagent.events import (
 from miniagent.failures import classify, redact
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 from miniagent.stuck_detector import StuckDetectionThresholds, StuckDetector
+from miniagent.tools.terminal import shell_command
 
 if TYPE_CHECKING:
     from miniagent.agent import Agent
@@ -61,25 +62,28 @@ class Conversation:
         id: str | None = None,
         stuck_detection: bool = True,
         stuck_detection_thresholds: StuckDetectionThresholds | None = None,
+        parent: Conversation | None = None,
+        read_only: bool = False,
+        directive: str | None = None,
     ) -> None:
         self.id = id or _new_id()
+        self.parent = parent
+        self.read_only = read_only
+        self.directive = directive
         self.agent = agent
         self.sandbox = sandbox
         self.on_event = on_event or (lambda event: None)
+        self.on_status: Callable[[Status], None] = lambda status: None
         self.max_iterations = max_iterations
         self.confirm_policy = confirm_policy or ConfirmPolicy()
         self.events: list[Event] = []
-        self.status = Status.IDLE
+        self._events_lock = threading.Lock()
+        self._status = Status.IDLE
         # Set from another thread to ask the run loop to stop cooperatively; the
         # loop checks it between iterations. Cleared at the start of each run().
         self.cancel_event = threading.Event()
         self._steering: list[MessageEvent] = []
         self._steering_lock = threading.Lock()
-        # When set, the agent plans (read-only) and pauses via `present_plan`
-        # instead of implementing. Sticky: it stays on across clarifying
-        # `ask_user` rounds and plan refinements, and only clears when the
-        # user approves the plan, so the whole planning conversation,
-        # including feedback after a presented plan, runs in plan mode.
         self.plan_mode = False
         self.plan: Plan | None = None
         self.implementing_plan = False
@@ -102,10 +106,7 @@ class Conversation:
         client_event_id: str | None = None,
         attachments: list[Attachment] | None = None,
     ) -> None:
-        # Only ever turn it on here; plan approval clears it. A plain reply
-        # (answering a question, refining the plan) keeps the existing mode.
-        if plan_mode:
-            self.plan_mode = True
+        self.plan_mode = plan_mode
         self.close_orphaned_actions(
             "Not executed: the user sent a new message instead of approving this call."
         )
@@ -146,9 +147,21 @@ class Conversation:
         for message in pending:
             self.add_event(message)
 
+    @property
+    def status(self) -> Status:
+        return self._status
+
+    @status.setter
+    def status(self, status: Status) -> None:
+        changed = status != self._status
+        self._status = status
+        if changed:
+            self.on_status(status)
+
     def add_event(self, event: Event) -> None:
-        self.events.append(event)
-        self.on_event(event)
+        with self._events_lock:
+            self.events.append(event)
+            self.on_event(event)
 
     def set_finished(self) -> None:
         self.status = Status.FINISHED
@@ -287,10 +300,10 @@ class Conversation:
     def has_unverified_changes(self, policy: PolicyProvider | None = None) -> bool:
         dirty = False
         for action, observation in self._observed_actions():
-            if action.tool_name == "bash":
-                if policy is None:
+            if action.tool_name == "terminal":
+                command = shell_command(action.arguments)
+                if policy is None or command is None:
                     continue
-                command = action.arguments.get("command", "")
                 command_policy = policy.classify_bash(command)
                 if command_policy.is_verification:
                     dirty = False
@@ -355,10 +368,17 @@ class Conversation:
         self.run()
 
     def request_cancel(self) -> None:
-        """Ask the in-flight run loop to stop after its current step."""
+        """Ask the in-flight run loop, and every child conversation it spawned,
+        to stop after its current step."""
         self.cancel_event.set()
         with self._steering_lock:
             self._steering.clear()
+
+    @property
+    def cancelled(self) -> bool:
+        return self.cancel_event.is_set() or (
+            self.parent is not None and self.parent.cancelled
+        )
 
     def run(self) -> None:
         self.cancel_event.clear()
@@ -370,7 +390,7 @@ class Conversation:
         for _ in range(self.max_iterations):
             # Cooperative stop: a step runs to completion (the current LLM call
             # or tool can't be interrupted), then we bail before the next one.
-            if self.cancel_event.is_set():
+            if self.cancelled:
                 self.status = Status.IDLE
                 return
             self._take_steering()

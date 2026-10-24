@@ -7,8 +7,7 @@ from pydantic import Field
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
-from miniagent.tools.bash import inside_workspace
+from miniagent.tools.base import Tool, ToolContext
 
 MAX_FILES = 100
 MAX_LINES = 250
@@ -25,7 +24,9 @@ class SearchObservation(Observation):
 
 class GrepAction(Action):
     pattern: str = Field(description="Regular expression to search for (ripgrep syntax).")
-    path: str = Field(".", description="File or directory to search, relative to the workspace.")
+    path: str = Field(
+        ".", description="File or directory to search. Relative paths resolve against the workspace."
+    )
     include: str | None = Field(
         None, description="Only search files matching this glob, e.g. '*.py' or '*.{ts,tsx}'."
     )
@@ -36,7 +37,9 @@ class GlobAction(Action):
         description="Glob matched against workspace-relative paths, e.g. '*.py' "
         "(any depth) or 'src/**/*.test.ts'."
     )
-    path: str = Field(".", description="Directory to search, relative to the workspace.")
+    path: str = Field(
+        ".", description="Directory to search. Relative paths resolve against the workspace."
+    )
 
 
 class GrepTool(Tool):
@@ -44,43 +47,60 @@ class GrepTool(Tool):
     description = (
         "Search file contents with a ripgrep regular expression. Returns matching "
         "lines with line numbers, grouped by file. Use this instead of `grep` or "
-        "`rg` in bash. Narrow with `path` and `include`. Gitignored files are "
-        f"skipped. Output stops at {MAX_LINES} lines."
+        "`rg` in the terminal. Narrow with `path` and `include`. Hidden files are "
+        f"searched; gitignored files are skipped. Output stops at {MAX_LINES} lines."
     )
     action_type = GrepAction
     observation_type = SearchObservation
 
-    def execute(self, action: GrepAction, sandbox: Sandbox) -> SearchObservation:
+    def __init__(self, confined: bool = True) -> None:
+        self.confined = confined
+
+    def execute(self, action: GrepAction, sandbox: Sandbox, _context: ToolContext) -> SearchObservation:
         args = ["--heading", "--line-number", "--max-columns=300", "--max-columns-preview"]
         if action.include:
             args.append(f"--glob={action.include}")
         args.append(f"--regexp={action.pattern}")
-        return _ripgrep(args, action.path, sandbox, MAX_LINES)
+        return _ripgrep(args, action.path, sandbox, MAX_LINES, self.confined)
 
 
 class GlobTool(Tool):
     name = "glob"
     description = (
-        "Find files whose paths match a glob pattern, most recently modified "
-        "first. Use this instead of `find` or `ls -R` in bash. Gitignored files "
-        f"are skipped. Output stops at {MAX_FILES} files."
+        "Find files whose paths match a glob pattern. Use this instead of `find` "
+        "or `ls -R` in the terminal. Hidden files are listed; gitignored files are "
+        f"skipped. Output stops at {MAX_FILES} files."
     )
     action_type = GlobAction
     observation_type = SearchObservation
 
-    def execute(self, action: GlobAction, sandbox: Sandbox) -> SearchObservation:
-        args = ["--files", f"--glob={action.pattern}", "--sortr=modified"]
-        return _ripgrep(args, action.path, sandbox, MAX_FILES)
+    def __init__(self, confined: bool = True) -> None:
+        self.confined = confined
+
+    def execute(self, action: GlobAction, sandbox: Sandbox, _context: ToolContext) -> SearchObservation:
+        args = ["--files", f"--glob={action.pattern}"]
+        return _ripgrep(args, action.path, sandbox, MAX_FILES, self.confined)
 
 
-def _ripgrep(args: list[str], path: str, sandbox: Sandbox, limit: int) -> SearchObservation:
-    target = inside_workspace(path, sandbox.workspace_dir)
-    if target is None:
+def _inside_workspace(workdir: str, workspace: str) -> str | None:
+    root = posixpath.normpath(workspace)
+    target = posixpath.normpath(posixpath.join(root, workdir))
+    if target != root and not target.startswith(root + "/"):
+        return None
+    return target
+
+
+def _ripgrep(
+    args: list[str], path: str, sandbox: Sandbox, limit: int, confined: bool
+) -> SearchObservation:
+    root = posixpath.normpath(sandbox.workspace_dir)
+    target = posixpath.normpath(posixpath.join(root, path))
+    inside = _inside_workspace(path, root) is not None
+    if confined and not inside:
         return SearchObservation(text=f"{path} is outside the workspace.", error=True)
-    relative = posixpath.relpath(target, posixpath.normpath(sandbox.workspace_dir))
-    if relative != ".":
-        args = [*args, "--", relative]
-    command = shlex.join(["rg", "--color=never", *args])
+    if target != root:
+        args = [*args, "--", posixpath.relpath(target, root) if inside else target]
+    command = shlex.join(["rg", "--color=never", "--hidden", "--glob=!.git", *args])
     result = sandbox.run_command(command, timeout=SEARCH_TIMEOUT)
     if result.exit_code == 1:
         return SearchObservation(text="No matches.")

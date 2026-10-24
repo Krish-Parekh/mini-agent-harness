@@ -5,7 +5,17 @@ import shlex
 from miniagent.sandbox.base import Sandbox
 
 GIT_TOKEN_ENV = "MINIAGENT_GIT_TOKEN"
+BRANCH_PREFIX = "miniagent"
 COMMITTER = "-c user.name=miniagent -c user.email=miniagent@users.noreply.github.com"
+SNAPSHOT = (
+    'tmp="$(mktemp)" && trap \'rm -f "$tmp"\' EXIT && '
+    '{ cp -p "$(git rev-parse --git-path index)" "$tmp" 2>/dev/null || true; } && '
+    'GIT_INDEX_FILE="$tmp" git add -A && '
+    'tree="$(GIT_INDEX_FILE="$tmp" git write-tree)" && '
+    'if git rev-parse -q --verify HEAD >/dev/null; '
+    f'then git {COMMITTER} commit-tree "$tree" -p HEAD -m checkpoint; '
+    f'else git {COMMITTER} commit-tree "$tree" -m checkpoint; fi'
+)
 # The empty helper first clears any helper from git config (osxkeychain, a
 # store file), so the token only ever comes from this one command's env.
 _CREDENTIAL_HELPER = (

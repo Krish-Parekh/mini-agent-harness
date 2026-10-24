@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 StepStatus = Literal["pending", "in_progress", "done"]
 
@@ -65,7 +65,7 @@ class PresentPlanTool(Tool):
     observation_type = PresentPlanObservation
 
     def execute(
-        self, action: PresentPlanAction, sandbox: Sandbox
+        self, action: PresentPlanAction, sandbox: Sandbox, _context: ToolContext
     ) -> PresentPlanObservation:
         return PresentPlanObservation(title=action.title)
 
@@ -78,8 +78,11 @@ class UpdatePlanAction(Action):
 class UpdatePlanObservation(Observation):
     step: int
     status: str
+    error: bool = False
 
     def to_llm_text(self) -> str:
+        if self.error:
+            return f"Invalid step: the approved plan has no step {self.step}."
         return f"Step {self.step} marked {self.status}."
 
 
@@ -94,8 +97,10 @@ class UpdatePlanTool(Tool):
     observation_type = UpdatePlanObservation
 
     def execute(
-        self, action: UpdatePlanAction, sandbox: Sandbox
+        self, action: UpdatePlanAction, sandbox: Sandbox, context: ToolContext
     ) -> UpdatePlanObservation:
-        # The plan itself lives on the conversation; the agent applies the
-        # mutation when handling this tool, keeping tools conversation-agnostic.
+        plan = context.conversation.plan
+        if plan is None or not (1 <= action.step <= len(plan.steps)):
+            return UpdatePlanObservation(step=action.step, status=action.status, error=True)
+        plan.steps[action.step - 1].status = action.status
         return UpdatePlanObservation(step=action.step, status=action.status)

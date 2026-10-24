@@ -6,7 +6,7 @@ from fastapi import APIRouter
 
 from backend.api.deps import CurrentUser, SettingsDep
 from backend.schemas.conversation import SandboxProviderOut
-from miniagent.sandbox.factory import PROVIDER_LABELS, provider_problem
+from miniagent.sandbox.factory import PROVIDER_LABELS, allows_full_access, provider_problem
 
 router = APIRouter()
 
@@ -23,6 +23,7 @@ async def sandbox_providers(user: CurrentUser, settings: SettingsDep):
             label=label,
             available=problems[provider] is None,
             default=provider == default,
+            full_access=allows_full_access(provider),
             reason=problems[provider],
         )
         for provider, label in PROVIDER_LABELS.items()

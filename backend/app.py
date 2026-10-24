@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import logfire
 from dotenv import load_dotenv
@@ -27,6 +28,7 @@ from backend.repository import (
 )
 from backend.runtime import ConversationManager
 from backend.runtime.attachments import Storage
+from backend.runtime.mcp import load_config
 from backend.service import AuthService, ConversationService
 from miniagent.config import Settings, export_provider_keys
 from miniagent.sandbox.factory import check_provider
@@ -61,7 +63,13 @@ async def lifespan(app: FastAPI):
         else None
     )
     service = ConversationService(
-        manager, repository, connections, skills, mcp_connections, storage
+        manager,
+        repository,
+        connections,
+        skills,
+        mcp_connections,
+        storage,
+        load_config(Path(settings.mcp_config)),
     )
     service.start()
     await service.settle_interrupted_runs()

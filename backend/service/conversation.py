@@ -25,8 +25,10 @@ from backend.repository import (
     SkillRepository,
 )
 from backend.service.extension import McpService, SkillService, render_skills
+from miniagent.agent import ContextWindow
 from miniagent.tracing import trace_attributes
 from backend.runtime import changes, checkpoints, pulls
+from fastmcp.mcp_config import MCPConfig
 from backend.runtime.checkpoints import CheckpointError
 from backend.runtime.attachments import (
     ATTACHMENTS_DIR,
@@ -39,6 +41,7 @@ from backend.runtime.workspaces import BRANCH_PREFIX
 from backend.schemas import (
     AttachmentIn,
     ChangedFile,
+    ChangeSide,
     ContextChanges,
     ContextCounts,
     ContextError,
@@ -54,6 +57,7 @@ from backend.schemas import (
     StatusUpdate,
     TurnInfo,
 )
+from miniagent.confirm import PermissionMode
 from miniagent.conversation import Status
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 from miniagent.events import (
@@ -65,10 +69,21 @@ from miniagent.events import (
     LLMUsageEvent,
     MessageEvent,
     RepoInstructionsEvent,
+    WorkerEvent,
+    WorkerStatusEvent,
     WorkspaceSketchEvent,
 )
 
 _EVENT_ADAPTER: TypeAdapter[Event] = TypeAdapter(Events)
+
+
+def _add_usage(usage: ContextUsage, event: LLMUsageEvent) -> None:
+    usage.prompt_tokens += event.prompt_tokens
+    usage.completion_tokens += event.completion_tokens
+    usage.total_tokens += event.total_tokens
+    usage.cached_prompt_tokens += event.cached_prompt_tokens
+    usage.cost_usd += event.cost_usd
+
 _PERSIST_ATTEMPTS = 3
 _log = logging.getLogger(__name__)
 
@@ -83,6 +98,7 @@ class ConversationService:
         skills: SkillRepository | None = None,
         mcp: McpConnectionRepository | None = None,
         storage: Storage | None = None,
+        mcp_config: MCPConfig | None = None,
     ) -> None:
         self._manager = manager
         self._repo = repository
@@ -90,6 +106,7 @@ class ConversationService:
         self._skills = skills
         self._mcp = mcp
         self._storage = storage
+        self._mcp_config = mcp_config
         self._persist_queue: asyncio.Queue[tuple[ManagedConversation, Event, int]] = (
             asyncio.Queue()
         )
@@ -112,6 +129,7 @@ class ConversationService:
     def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._manager.set_persist_hook(self._enqueue_persist)
+        self._manager.set_status_hook(self._on_status)
         self._persist_task = asyncio.create_task(self._persistence_worker())
         self._spawn(self._idle_sweeper())
 
@@ -125,7 +143,8 @@ class ConversationService:
         for managed in self._manager.live():
             if managed.lock.locked() or managed.conversation.status == Status.RUNNING:
                 continue
-            await asyncio.to_thread(managed.sandbox.stop_if_idle, idle_s)
+            if await asyncio.to_thread(managed.sandbox.stop_if_idle, idle_s):
+                await asyncio.to_thread(managed.close_mcp)
 
     async def settle_interrupted_runs(self) -> None:
         for cid, last_seq in await self._repo.with_status(Status.RUNNING.value):
@@ -175,11 +194,13 @@ class ConversationService:
         }
 
     @staticmethod
-    def _plan_state(managed: ManagedConversation) -> dict[str, Any]:
+    def _agent_state(managed: ManagedConversation) -> dict[str, Any]:
         conv = managed.conversation
         return {
             "plan": conv.plan.model_dump() if conv.plan else None,
             "implementing_plan": conv.implementing_plan,
+            "plan_mode": conv.plan_mode,
+            "permission_mode": conv.confirm_policy.mode,
         }
 
     async def _persistence_worker(self) -> None:
@@ -221,7 +242,7 @@ class ConversationService:
                     status=managed.conversation.status.value,
                     title=managed.title,
                     workspace_dir=managed.sandbox.workspace_dir,
-                    **self._plan_state(managed),
+                    **self._agent_state(managed),
                     **self._sandbox_state(managed),
                     event_id=event.id,
                     seq=seq,
@@ -254,6 +275,9 @@ class ConversationService:
         )
         self._emit_status(managed, Status.ERROR.value)
 
+    def _on_status(self, managed: ManagedConversation, status: Status) -> None:
+        self._emit_status(managed, status.value)
+
     def _emit_status(self, managed: ManagedConversation, status: str | None = None) -> None:
         managed.broker.publish(
             StatusUpdate(status=status or managed.conversation.status.value)
@@ -271,7 +295,7 @@ class ConversationService:
             status=status,
             title=managed.title,
             workspace_dir=managed.sandbox.workspace_dir,
-            **self._plan_state(managed),
+            **self._agent_state(managed),
             **self._sandbox_state(managed),
         )
         self._emit_status(managed, status)
@@ -285,7 +309,8 @@ class ConversationService:
         repo: str | None,
         branch: str | None,
         workspace_dir: str | None,
-        confirm_mode,
+        permission_mode: PermissionMode,
+        plan_mode: bool,
         token: str | None,
         initial_message: str | None,
         model: str | None = None,
@@ -307,7 +332,8 @@ class ConversationService:
                 repo=repo,
                 branch=branch,
                 workspace_dir=workspace_dir,
-                confirm_mode=confirm_mode,
+                permission_mode=permission_mode,
+                plan_mode=plan_mode,
                 token=token,
                 provider=sandbox_provider,
             )
@@ -341,6 +367,7 @@ class ConversationService:
         text: str,
         model: str | None = None,
         plan_mode: bool = False,
+        permission_mode: PermissionMode | None = None,
         client_event_id: str | None = None,
         attachments: list[Attachment] | None = None,
         storage_token: str | None = None,
@@ -358,13 +385,18 @@ class ConversationService:
                     attachments=attachments or [],
                     model=model,
                     client_event_id=client_event_id,
+                    plan_mode=plan_mode,
+                    permission_mode=permission_mode,
                 )
             )
             self._publish_queue(managed)
             return
         if model:
             managed.set_model(model)
+        if permission_mode is not None:
+            conv.confirm_policy.mode = permission_mode
         if running:
+            conv.plan_mode = plan_mode
             conv.steer(text, client_event_id=client_event_id, attachments=attachments)
             return
         conv.send_message(
@@ -401,8 +433,13 @@ class ConversationService:
         self._publish_queue(managed)
         if queued.model:
             managed.set_model(queued.model)
+        if queued.permission_mode is not None:
+            conv.confirm_policy.mode = queued.permission_mode
         conv.send_message(
-            queued.text, client_event_id=queued.client_event_id, attachments=queued.attachments
+            queued.text,
+            plan_mode=queued.plan_mode,
+            client_event_id=queued.client_event_id,
+            attachments=queued.attachments,
         )
         self._spawn(self._run(managed, conv.run))
 
@@ -443,9 +480,21 @@ class ConversationService:
             for a in attachments
         ]
 
+    async def update_modes(
+        self,
+        managed: ManagedConversation,
+        permission_mode: PermissionMode | None,
+        plan_mode: bool | None,
+    ) -> None:
+        conv = managed.conversation
+        if permission_mode is not None:
+            conv.confirm_policy.mode = permission_mode
+        if plan_mode is not None:
+            conv.plan_mode = plan_mode
+        await self._persist_status(managed)
+
     async def approve_plan(self, managed: ManagedConversation) -> None:
         conv = managed.conversation
-        conv.plan_mode = False
         conv.implementing_plan = True
         plan_text = (
             conv.plan.render() if conv.plan is not None else "(no plan recorded)"
@@ -503,6 +552,8 @@ class ConversationService:
             events=events,
             plan=row.plan,
             implementing_plan=row.implementing_plan,
+            plan_mode=row.plan_mode,
+            permission_mode=row.permission_mode,
             pr_number=row.pr_number,
             pr_url=row.pr_url,
             sandbox_provider=row.sandbox_provider,
@@ -522,6 +573,8 @@ class ConversationService:
                 title=row.title,
                 plan=row.plan,
                 implementing_plan=row.implementing_plan,
+                plan_mode=row.plan_mode,
+                permission_mode=row.permission_mode,
                 pr_number=row.pr_number,
                 pr_url=row.pr_url,
                 sandbox_provider=row.sandbox_provider,
@@ -561,6 +614,8 @@ class ConversationService:
         managed = self._manager.remove(cid)
         if managed is not None:
             managed.conversation.set_finished()
+            await asyncio.to_thread(managed.close_mcp)
+            await asyncio.to_thread(managed.conversation.agent.close)
             await asyncio.to_thread(managed.sandbox.close)
         elif row is not None:
             await asyncio.to_thread(
@@ -587,6 +642,8 @@ class ConversationService:
             title=managed.title,
             plan=conv.plan,
             implementing_plan=conv.implementing_plan,
+            plan_mode=conv.plan_mode,
+            permission_mode=conv.confirm_policy.mode,
             pr_number=managed.pr_number,
             pr_url=managed.pr_url,
             sandbox_provider=managed.sandbox.provider,
@@ -643,11 +700,9 @@ class ConversationService:
 
         for event in events:
             if isinstance(event, LLMUsageEvent):
-                usage.prompt_tokens += event.prompt_tokens
-                usage.completion_tokens += event.completion_tokens
-                usage.total_tokens += event.total_tokens
-                usage.cached_prompt_tokens += event.cached_prompt_tokens
-                usage.cost_usd += event.cost_usd
+                _add_usage(usage, event)
+            elif isinstance(event, WorkerEvent) and isinstance(event.event, LLMUsageEvent):
+                _add_usage(usage, event.event)
             elif isinstance(event, RepoInstructionsEvent):
                 repo_instructions = event.paths
             elif isinstance(event, WorkspaceSketchEvent):
@@ -689,6 +744,11 @@ class ConversationService:
             counts=ContextCounts(events=len(events), user_turns=user_turns),
         )
 
+    def context_window(self, managed: ManagedConversation) -> ContextWindow:
+        return managed.conversation.agent.context_window(
+            managed.conversation, managed.sandbox
+        )
+
     def list_changes(self, managed: ManagedConversation, scope: str = "all") -> list[ChangedFile]:
         if managed.repo is None:
             return []
@@ -715,6 +775,13 @@ class ConversationService:
         if scope == "branch":
             base = f"origin/{managed.branch}" if managed.branch else "origin/HEAD"
             return changes.merge_base(managed.sandbox, base)
+        forks = {
+            e.worker_id: e
+            for e in managed.conversation.events
+            if isinstance(e, WorkerStatusEvent) and e.branch
+        }
+        if scope in forks:
+            return f"{forks[scope].base} {forks[scope].branch}"
         users = [e.id for e in self._user_messages(managed)]
         if scope not in users or not checkpoints.exists(managed.sandbox, scope):
             raise CheckpointError("no checkpoint was recorded for that turn")
@@ -742,6 +809,15 @@ class ConversationService:
     def file_content(self, managed: ManagedConversation, path: str) -> FileContent:
         return changes.file_content(managed.sandbox, path)
 
+    def file_bytes(self, managed: ManagedConversation, path: str) -> bytes:
+        return changes.file_bytes(managed.sandbox, path)
+
+    def change_bytes(
+        self, managed: ManagedConversation, path: str, scope: str, side: ChangeSide
+    ) -> bytes:
+        base, *head = self._revs(managed, scope).split()
+        rev = base if side == "before" else (head[0] if head else None)
+        return changes.file_bytes(managed.sandbox, path, rev)
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)
@@ -886,8 +962,9 @@ class ConversationService:
                 )
             )
         managed.skills_skipped = skipped_ids
-        rows = await McpService(self._mcp).enabled(cid)
-        targets = {row.id: McpService.target(row) for row in rows}
+        targets = await McpService(self._mcp, self._mcp_config).targets(
+            cid, managed.host_workspace
+        )
         await asyncio.to_thread(
             managed.apply_extensions,
             render_skills(included),
@@ -919,7 +996,9 @@ class ConversationService:
                 return
             if initial_message or attachments:
                 managed.conversation.send_message(
-                    initial_message or "", attachments=attachments
+                    initial_message or "",
+                    plan_mode=managed.conversation.plan_mode,
+                    attachments=attachments,
                 )
                 await self._checkpoint(
                     managed, self._last_user_id(managed.conversation.live_events())

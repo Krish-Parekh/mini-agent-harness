@@ -8,7 +8,7 @@ from miniagent import skills_registry
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
 from miniagent.skills_registry import SkillHit
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 
 class FindSkillsAction(Action):
@@ -49,7 +49,7 @@ class FindSkillsTool(Tool):
     action_type = FindSkillsAction
     observation_type = FindSkillsObservation
 
-    def execute(self, action: FindSkillsAction, sandbox: Sandbox) -> FindSkillsObservation:
+    def execute(self, action: FindSkillsAction, sandbox: Sandbox, _context: ToolContext) -> FindSkillsObservation:
         try:
             hits = skills_registry.search(action.query)
         except skills_registry.RegistryError as exc:
@@ -91,6 +91,6 @@ class ProposeSkillsTool(Tool):
     observation_type = ProposeSkillsObservation
 
     def execute(
-        self, action: ProposeSkillsAction, sandbox: Sandbox
+        self, action: ProposeSkillsAction, sandbox: Sandbox, _context: ToolContext
     ) -> ProposeSkillsObservation:
         return ProposeSkillsObservation()

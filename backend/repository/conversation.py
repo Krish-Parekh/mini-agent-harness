@@ -27,6 +27,8 @@ class ConversationRepository:
         workspace_dir: str | None,
         plan: dict[str, Any] | None,
         implementing_plan: bool,
+        plan_mode: bool,
+        permission_mode: str,
         event_id: str,
         seq: int,
         source: str,
@@ -48,6 +50,8 @@ class ConversationRepository:
                 workspace_dir=workspace_dir,
                 plan=plan,
                 implementing_plan=implementing_plan,
+                plan_mode=plan_mode,
+                permission_mode=permission_mode,
                 sandbox_provider=sandbox_provider,
                 sandbox_id=sandbox_id,
             )
@@ -78,6 +82,8 @@ class ConversationRepository:
         workspace_dir: str | None,
         plan: dict[str, Any] | None,
         implementing_plan: bool,
+        plan_mode: bool,
+        permission_mode: str,
         sandbox_provider: str = "local",
         sandbox_id: str | None = None,
     ) -> None:
@@ -93,6 +99,8 @@ class ConversationRepository:
                 workspace_dir=workspace_dir,
                 plan=plan,
                 implementing_plan=implementing_plan,
+                plan_mode=plan_mode,
+                permission_mode=permission_mode,
                 sandbox_provider=sandbox_provider,
                 sandbox_id=sandbox_id,
             )
@@ -111,6 +119,8 @@ class ConversationRepository:
         workspace_dir: str | None,
         plan: dict[str, Any] | None,
         implementing_plan: bool,
+        plan_mode: bool,
+        permission_mode: str,
         sandbox_provider: str = "local",
         sandbox_id: str | None = None,
     ) -> None:
@@ -125,6 +135,8 @@ class ConversationRepository:
             workspace_dir=workspace_dir,
             plan=plan,
             implementing_plan=implementing_plan,
+            plan_mode=plan_mode,
+            permission_mode=permission_mode,
             sandbox_provider=sandbox_provider,
             sandbox_id=sandbox_id,
         )
@@ -135,6 +147,8 @@ class ConversationRepository:
             title=title,
             plan=plan,
             implementing_plan=implementing_plan,
+            plan_mode=plan_mode,
+            permission_mode=permission_mode,
             sandbox_id=func.coalesce(insert.excluded.sandbox_id, ConversationRow.sandbox_id),
             workspace_dir=func.coalesce(
                 func.nullif(insert.excluded.workspace_dir, ""), ConversationRow.workspace_dir

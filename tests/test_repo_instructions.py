@@ -22,7 +22,7 @@ def _run(workspace) -> tuple[Conversation, QueueLLM]:
     conversation = Conversation(
         agent=agent,
         sandbox=LocalSandbox(str(workspace)),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
     conversation.send_message("hi")

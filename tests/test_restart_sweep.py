@@ -15,6 +15,8 @@ async def _conversation(conversations, cid: str, owner, status: str) -> None:
         workspace_dir="/tmp/ws",
         plan=None,
         implementing_plan=False,
+        plan_mode=False,
+        permission_mode="auto",
         event_id=f"{cid}-e1",
         seq=1,
         source="user",
