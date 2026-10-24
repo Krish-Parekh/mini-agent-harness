@@ -68,3 +68,29 @@ def test_glob_stops_at_the_file_cap(tmp_path):
 def test_paths_outside_the_workspace_are_rejected(sandbox, path):
     result = _grep(sandbox, pattern="x", path=path)
     assert result.to_llm_text() == f"ERROR: {path} is outside the workspace."
+
+
+def test_search_covers_hidden_files_but_not_git_internals(sandbox, tmp_path):
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "deploy.yml").write_text("run: create_user\n")
+
+    assert _grep(sandbox, pattern="create_user", include="*.yml").text == (
+        ".github/deploy.yml\n1:run: create_user"
+    )
+    assert _glob(sandbox, pattern="*.yml").text == ".github/deploy.yml"
+    assert _glob(sandbox, pattern="HEAD").text == "No matches."
+
+
+def test_unconfined_search_reaches_absolute_paths_outside_the_workspace(tmp_path):
+    workspace = tmp_path / "app"
+    workspace.mkdir()
+    outside = tmp_path / "srv"
+    (outside / ".config").mkdir(parents=True)
+    (outside / ".config" / "site.conf").write_text("listen 8080\n")
+    sandbox = LocalSandbox(str(workspace))
+
+    grep = GrepTool(confined=False).execute(GrepAction(pattern="listen", path=str(outside)), sandbox)
+    glob = GlobTool(confined=False).execute(GlobAction(pattern="*.conf", path=str(outside)), sandbox)
+
+    assert grep.text == f"{outside}/.config/site.conf\n1:listen 8080"
+    assert glob.text == f"{outside}/.config/site.conf"
