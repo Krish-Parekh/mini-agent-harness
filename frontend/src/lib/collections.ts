@@ -6,6 +6,7 @@ import {
   type AttachmentRef,
   type ConversationInfo,
   type CreateConversationBody,
+  type Modes,
 } from "@/lib/api";
 import { eventKey } from "@/lib/events";
 import { queryClient } from "@/lib/query-client";
@@ -67,6 +68,7 @@ export type SendMessageVars = {
   clientEventId: string;
   text: string;
   model?: string;
+  modes: Modes;
   attachments: AttachmentRef[];
 };
 
@@ -83,12 +85,12 @@ export const sendMessage = createOptimisticAction<SendMessageVars>({
       attachments,
     });
   },
-  mutationFn: async ({ conversationId, clientEventId, text, model, attachments }) => {
+  mutationFn: async ({ conversationId, clientEventId, text, model, modes, attachments }) => {
     const events = eventsCollection(conversationId);
     const row = events.isReady() ? events.get(clientEventId) : undefined;
     if (row) events.utils.writeUpsert(row);
     try {
-      await api.sendMessage(conversationId, text, model, clientEventId, attachments);
+      await api.sendMessage(conversationId, text, modes, model, clientEventId, attachments);
     } catch (e) {
       if (row) events.utils.writeDelete(clientEventId);
       throw e;

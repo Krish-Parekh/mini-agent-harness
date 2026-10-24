@@ -18,6 +18,7 @@ import {
   type ConversationInfo,
   type CreateConversationBody,
   type McpConnection,
+  type Modes,
   type Repo,
   type Memory,
   type SandboxProvider,
@@ -151,6 +152,24 @@ export function useConversation(id: string) {
     queryFn: () => api.conversation(id),
     retry: (count, err) =>
       !(err instanceof ApiError && err.status === 404) && count < 3,
+  });
+}
+
+export function useUpdateModes(id: string) {
+  const key = queryKeys.conversation(id);
+  return useMutation({
+    mutationFn: (modes: Modes) => api.updateModes(id, modes),
+    onMutate: async (modes, { client }) => {
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<ConversationInfo>(key);
+      client.setQueryData<ConversationInfo>(key, (c) => c && { ...c, ...modes });
+      return { previous };
+    },
+    onError: (e, _modes, result, { client }) => {
+      client.setQueryData(key, result?.previous);
+      toast.error(messageFor(e));
+    },
+    onSuccess: (info, _modes, _result, { client }) => client.setQueryData(key, info),
   });
 }
 

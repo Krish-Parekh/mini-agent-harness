@@ -6,14 +6,16 @@ import { toast } from "sonner";
 
 import Link from "next/link";
 
-import { api, type AttachmentRef } from "@/lib/api";
+import { api, type AttachmentRef, type Modes } from "@/lib/api";
 import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
 import {
   queryKeys,
   useContextWindow,
   useConversationContext,
+  useSandboxProviders,
   useTurns,
+  useUpdateModes,
 } from "@/lib/queries";
 import { useComposerText } from "@/hooks/use-composer-text";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
@@ -49,6 +51,7 @@ import {
 } from "@/components/composer-attachments";
 import { ContextWindowMeter } from "@/components/context-window-meter";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
+import { cycleOnShiftTab, DEFAULT_MODES, ModePicker } from "@/components/mode-picker";
 import { SkillSlashTextarea } from "@/components/skill-slash-menu";
 import { AlertTriangleIcon, XIcon } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -107,6 +110,17 @@ export default function ChatPage({
     setModel(null);
   }
   const queryClient = useQueryClient();
+  const { data: providers } = useSandboxProviders();
+  const fullAccess = !!providers?.find((p) => p.id === conversation?.sandbox_provider)
+    ?.full_access;
+  const modes = useMemo<Modes>(
+    () =>
+      conversation
+        ? { plan_mode: conversation.plan_mode, permission_mode: conversation.permission_mode }
+        : DEFAULT_MODES,
+    [conversation],
+  );
+  const updateModes = useUpdateModes(id);
   const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
     null,
   );
@@ -146,8 +160,13 @@ export default function ChatPage({
     [status, setStatus],
   );
   const approvePlan = useCallback(
-    () => optimisticRun(() => api.approvePlan(id)),
-    [optimisticRun, id],
+    () =>
+      optimisticRun(() =>
+        api
+          .approvePlan(id)
+          .then((info) => queryClient.setQueryData(queryKeys.conversation(id), info)),
+      ),
+    [optimisticRun, id, queryClient],
   );
   const pendingCallId = lastUnresolvedAction?.tool_call_id;
   const approveAction = useCallback(() => {
@@ -168,6 +187,7 @@ export default function ChatPage({
           clientEventId: crypto.randomUUID(),
           text,
           model: model ?? undefined,
+          modes,
           attachments,
         }).isPersisted.promise;
         return true;
@@ -178,7 +198,7 @@ export default function ChatPage({
         return false;
       }
     },
-    [id, model, status, setStatus, setInput],
+    [id, model, modes, status, setStatus, setInput],
   );
 
   const restoreAttachments = attachments.restore;
@@ -240,7 +260,7 @@ export default function ChatPage({
     setInput("");
     if (busy && mode === "queue") {
       try {
-        await api.sendMessage(id, text, model ?? undefined, undefined, uploaded, "queue");
+        await api.sendMessage(id, text, modes, model ?? undefined, undefined, uploaded, "queue");
         attachments.clear();
       } catch (e) {
         setInput(text);
@@ -252,6 +272,7 @@ export default function ChatPage({
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (cycleOnShiftTab(event, modes, fullAccess, updateModes.mutate)) return;
     if (busy && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       void send({ text: input }, "queue");
@@ -428,6 +449,11 @@ export default function ChatPage({
                   <ModelPicker
                     value={model ?? context?.model ?? DEFAULT_MODEL}
                     onChange={setModel}
+                  />
+                  <ModePicker
+                    value={modes}
+                    fullAccess={fullAccess}
+                    onChange={updateModes.mutate}
                   />
                 </PromptBarTools>
                 <div className="flex items-center gap-1">

@@ -35,8 +35,13 @@ export type SandboxProvider = {
   label: string;
   available: boolean;
   default: boolean;
+  full_access: boolean;
   reason: string | null;
 };
+
+export type PermissionMode = "ask" | "auto" | "full";
+
+export type Modes = { plan_mode: boolean; permission_mode: PermissionMode };
 
 export type AttachmentRef = {
   path: string;
@@ -53,7 +58,7 @@ export type CreateConversationBody = {
   model?: string | null;
   initial_message?: string | null;
   attachments?: AttachmentRef[];
-};
+} & Modes;
 
 export type ConversationStatus =
   | "idle"
@@ -89,6 +94,8 @@ export type ConversationInfo = {
   title: string | null;
   plan: PlanData | null;
   implementing_plan: boolean;
+  plan_mode: boolean;
+  permission_mode: PermissionMode;
   pr_number: number | null;
   pr_url: string | null;
   sandbox_provider: string;
@@ -356,9 +363,17 @@ export const api = {
 
   events: (id: string) => request<AgentEvent[]>(`/conversations/${id}/events`),
 
+  updateModes: (id: string, modes: Modes) =>
+    request<ConversationInfo>(`/conversations/${id}`, {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify(modes),
+    }),
+
   sendMessage: (
     id: string,
     text: string,
+    modes: Modes,
     model?: string,
     clientEventId?: string,
     attachments: AttachmentRef[] = [],
@@ -368,6 +383,7 @@ export const api = {
       text,
       attachments,
       mode,
+      ...modes,
       ...(model ? { model } : {}),
       ...(clientEventId ? { client_event_id: clientEventId } : {}),
     }),
