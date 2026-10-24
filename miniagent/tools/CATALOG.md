@@ -165,7 +165,7 @@ View, create, or edit a file in the workspace. command='view' returns the file's
 
 ## `grep`
 
-Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Use this instead of `grep` or `rg` in the terminal. Narrow with `path` and `include`. Gitignored files are skipped. Output stops at 250 lines.
+Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Use this instead of `grep` or `rg` in the terminal. Narrow with `path` and `include`. Hidden files are searched; gitignored files are skipped. Output stops at 250 lines.
 
 ```json
 {
@@ -185,7 +185,7 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
     },
     "path": {
       "default": ".",
-      "description": "File or directory to search, relative to the workspace.",
+      "description": "File or directory to search. Relative paths resolve against the workspace.",
       "title": "Path",
       "type": "string"
     },
@@ -205,14 +205,14 @@ Search file contents with a ripgrep regular expression. Returns matching lines w
 
 ## `glob`
 
-Find files whose paths match a glob pattern, most recently modified first. Use this instead of `find` or `ls -R` in the terminal. Gitignored files are skipped. Output stops at 100 files.
+Find files whose paths match a glob pattern. Use this instead of `find` or `ls -R` in the terminal. Hidden files are listed; gitignored files are skipped. Output stops at 100 files.
 
 ```json
 {
   "properties": {
     "path": {
       "default": ".",
-      "description": "Directory to search, relative to the workspace.",
+      "description": "Directory to search. Relative paths resolve against the workspace.",
       "title": "Path",
       "type": "string"
     },

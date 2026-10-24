@@ -8,6 +8,8 @@ def _load(name: str) -> str:
 
 
 DEFAULT_SYSTEM_PROMPT = _load("system.md")
+HEADLESS_SYSTEM_PROMPT = _load("headless.md")
+FINISH_CHECKLIST_PROMPT = _load("finish_checklist.md")
 PLAN_MODE_DIRECTIVE = _load("plan_mode.md")
 IMPLEMENT_PLAN_DIRECTIVE = _load("implement_plan.md")
 FULL_ACCESS_NOTE = _load("full_access.md")

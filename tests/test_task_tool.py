@@ -19,7 +19,7 @@ from miniagent.events import (
     WorkerEvent,
     WorkerStatusEvent,
 )
-from miniagent.factory import headless_tools
+from miniagent.factory import core_tools
 from miniagent.llm import LLMResponse, TokenUsage, ToolCall
 from miniagent.policy import CommandPolicy
 from miniagent.sandbox.base import Sandbox
@@ -108,7 +108,7 @@ def repo(path) -> None:
 def parent(sandbox: Sandbox, llm: RoutedLLM) -> Conversation:
     agent = Agent(
         llm=llm,
-        tools=ToolRegistry([*headless_tools(), TaskTool(headless_tools)]),
+        tools=ToolRegistry([*core_tools(), TaskTool(core_tools)]),
         policy=WritePolicy(),
     )
     return Conversation(

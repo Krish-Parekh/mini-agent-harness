@@ -1,0 +1,886 @@
+{
+  "interactions": [
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-e12722b7-9531-4d0b-b578-01c38336924c",
+        "created": 1792809524,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"echo 'hello from harbor' > /app/greeting.txt && cat /app/greeting.txt\", \"description\": \"Write greeting line to file and verify\"}",
+                    "name": "terminal"
+                  },
+                  "id": "toolu_01Qox1z8gNGHkbT8NwjKYePC",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": null
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 110,
+          "prompt_tokens": 4255,
+          "total_tokens": 4365,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 110
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 125,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 4130,
+            "cache_creation_tokens": 4130,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 4130,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 4130,
+          "cache_read_input_tokens": 0,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-6d539b94-9669-4526-bfac-4ecb5580218c",
+        "created": 1792809527,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"message\": \"Wrote `hello from harbor` to /app/greeting.txt using echo, and read the file back to confirm it contains that line.\"}",
+                    "name": "finish"
+                  },
+                  "id": "toolu_01VjBkLcUARG3gv9hqBe3tLA",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQSwwYKEAgTGAI4AUIIdGhpbmtpbmcSDNGD8L0jA1XWwE7JjhoMpWMbM3rQlY8nRa24IjB1U7kuNIYtbXIZ4N6B4lGTMOP57cGUUficfiqe8y53t/li3nLtAwKfREf75z+tTHQq4AUn1TX3ceqnvV/VEZpakfTRv1Zpl1/9cH0GbItEWnIoUoQKFkrV49JYuCxAZycXYRYa6FZb//1dcEni5Agxp5BjbIbFD4LJF7u8jxdEgmE4hozFBJdCwBSvsa1JFqnUq2mwYNAQNotrjCLWWW1FbmmZXXG70MeBMMvVh0yCbpG/H69bDCNu7Tst0wVjQdjctOpy+5C5JK226O4iVYC3QpTCAM1ao0oZtPRmi2gWip89EyrW/Ye67DvVsOaFh2K2T5PEx7dHgNTIylvUMaHWY7999EAxgRmHiK32hzB1I09BplJ3JPm9myxi4oNFN22NEKmGEwKVTgJ9AEor+HHQHbUuwOvo09Nc9fqn3cF1ihfgmfXYd747wZMT7iRSpPY5TDeNnJwo1ZxkftuPfpvClctJU4kOtXudPWp3je8SRSuSgmpBT3W4CLxLWJlPu2wg74tzAfFfpghn39XppeVi8iRZeyZPOiSUoONb6iCXaXZ3/GLnykgCeCnG2r79M9WTa2hK8wWJwyOzSOSUk8j7yGcWGWlLU8Hx20IHr/2zrRL/EDQnCauZAJwHzbIBg6mfb29x83nY0PBKPuzTOc8qPXdq1v8PYF1Vf0ZNuOre9Mtmz0CxjOa7L29YXH0bQ7uNDc2ExXwuupiV3OcbB/pL647fAQWtKwjjKxRxPYSME3cuI7otrEbQ7GZXAJOWIkKvsmf5jqSy6/n89ayoV+IHD2MnXgcQakJztMJEaiLaJi79hwzQVO383HwUVGaCGFiC/g9/PniN+T5z7Nr8zMKNkTw74aexU93LnUnq+QkNq6Ogprv9lOPtI4SmSW6lyoMgjlQf7ocz8m2yXvYIJ9ILis6IIEirF7cG21j7+E3j2Xdckpk3UAIyIlP1raBJXOQBLp1lkGQqu6R/fBEMdWHEfDwqKo5JK61gA9XjBQW88Uj033ipia+9ZLHBe3KcR6xzsIHR/8R9ofgOGVxxmA9u7HeFGAE="
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQSwwYKEAgTGAI4AUIIdGhpbmtpbmcSDNGD8L0jA1XWwE7JjhoMpWMbM3rQlY8nRa24IjB1U7kuNIYtbXIZ4N6B4lGTMOP57cGUUficfiqe8y53t/li3nLtAwKfREf75z+tTHQq4AUn1TX3ceqnvV/VEZpakfTRv1Zpl1/9cH0GbItEWnIoUoQKFkrV49JYuCxAZycXYRYa6FZb//1dcEni5Agxp5BjbIbFD4LJF7u8jxdEgmE4hozFBJdCwBSvsa1JFqnUq2mwYNAQNotrjCLWWW1FbmmZXXG70MeBMMvVh0yCbpG/H69bDCNu7Tst0wVjQdjctOpy+5C5JK226O4iVYC3QpTCAM1ao0oZtPRmi2gWip89EyrW/Ye67DvVsOaFh2K2T5PEx7dHgNTIylvUMaHWY7999EAxgRmHiK32hzB1I09BplJ3JPm9myxi4oNFN22NEKmGEwKVTgJ9AEor+HHQHbUuwOvo09Nc9fqn3cF1ihfgmfXYd747wZMT7iRSpPY5TDeNnJwo1ZxkftuPfpvClctJU4kOtXudPWp3je8SRSuSgmpBT3W4CLxLWJlPu2wg74tzAfFfpghn39XppeVi8iRZeyZPOiSUoONb6iCXaXZ3/GLnykgCeCnG2r79M9WTa2hK8wWJwyOzSOSUk8j7yGcWGWlLU8Hx20IHr/2zrRL/EDQnCauZAJwHzbIBg6mfb29x83nY0PBKPuzTOc8qPXdq1v8PYF1Vf0ZNuOre9Mtmz0CxjOa7L29YXH0bQ7uNDc2ExXwuupiV3OcbB/pL647fAQWtKwjjKxRxPYSME3cuI7otrEbQ7GZXAJOWIkKvsmf5jqSy6/n89ayoV+IHD2MnXgcQakJztMJEaiLaJi79hwzQVO383HwUVGaCGFiC/g9/PniN+T5z7Nr8zMKNkTw74aexU93LnUnq+QkNq6Ogprv9lOPtI4SmSW6lyoMgjlQf7ocz8m2yXvYIJ9ILis6IIEirF7cG21j7+E3j2Xdckpk3UAIyIlP1raBJXOQBLp1lkGQqu6R/fBEMdWHEfDwqKo5JK61gA9XjBQW88Uj033ipia+9ZLHBe3KcR6xzsIHR/8R9ofgOGVxxmA9u7HeFGAE="
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 159,
+          "prompt_tokens": 4426,
+          "total_tokens": 4585,
+          "completion_tokens_details": {
+            "reasoning_tokens": 72,
+            "text_tokens": 87
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 4034,
+            "text_tokens": 125,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 267,
+            "cache_creation_tokens": 267,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 267,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 267,
+          "cache_read_input_tokens": 4034,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-bc5f242f-c869-42c4-97ef-e5008e92c1bb",
+        "created": 1792809528,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "{\"risk\":\"mutating\",\"read_only\":false,\"is_verification\":false,\"verification_unavailable\":false,\"reason\":\"Writes a line to /app/greeting.txt via redirection, which the user requested; the cat only reads back the file. Workspace file change, easily reversible.\"}",
+              "role": "assistant",
+              "tool_calls": null,
+              "function_call": null,
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": null
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 92,
+          "prompt_tokens": 803,
+          "total_tokens": 895,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 92
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 803,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-a2f5429f-5be0-4833-ad59-1c8bc9fcd680",
+        "created": 1792809530,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "{\"risk\":\"safe\",\"read_only\":true,\"is_verification\":false,\"verification_unavailable\":false,\"reason\":\"Message reports writing a greeting file and reading it back; no verification could not be run and no tests or checks are claimed as unavailable.\"}",
+              "role": "assistant",
+              "tool_calls": null,
+              "function_call": null,
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": null
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 83,
+          "prompt_tokens": 566,
+          "total_tokens": 649,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 83
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 566,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-35add945-1853-4e79-bc8d-0053104dfc0e",
+        "created": 1792809531,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"cat -A /app/greeting.txt && test \\\"$(cat /app/greeting.txt)\\\" = \\\"hello from harbor\\\" && echo CHECK_PASS\", \"description\": \"Verify exact file contents\"}",
+                    "name": "terminal"
+                  },
+                  "id": "toolu_018jn2uQx7xg8BkzuEJei69Z",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQS6AUKEAgTGAI4AUIIdGhpbmtpbmcSDGcPQdy9/3hVU6LX4hoMcEemASV24J8Rlrw4IjDZnU7jkeilj3Pn1gGGibGH4+qSih5ByLtSIGlWSFSLW2EVe4/FX+3nMliZ1aEyHegqhQU4E3h/RETO7GBKF09a7JSLRd3paWYf5VTIZTV8s162VRPpV3ERYNDhkGWLSEYasqa+22UvzbBAbdzaOCZWgprmGacTnduijkRLOQSI+/JdazMxkvO0bOj3kqUbjhZ1mCBoHZpDOM6xYbHQb2d+KomzN+lKR8xuxxf70cjlNRcrE/q30j5QT+uHjkyjGB3oytDot1hIoBM0iBFZcQ387h11MrLMqULGWLbUBO05mZhrFleI6EIgA9QZUrlhqJt809FlHNOLiZGBZOW/9/0CPwcyzAw7qWYJDPEbCK2Nh9MzmliX5ONq6fTUpsPot4RsOrcGxXl/4oX03AqNrRvOWF7/3CPnNl8WKbJ9B1wisdcBVJSaGnJGNpVFuR6spOcb/Lo2NFPWFnDgelSZH+r849TiZXIg+SqfXKloX1sXVrvP0SsIkYgIQ8YbmctZy3kOZbHV9e3x0EJa/nxIvu1fXcjfyzgbKwl8+nJFyY0gN4iDm5Q3gwfWL0xcPOwppnq9OjO1VP/LgJeFpQXCmdu44QDaoacu1EH+IEXmR7xk91AjX4OnCADczU/6HRXx14M/i2uvH57Se2zzkgAO/EGczMed9TlJT2FJGkHVNWjqeQn0Cc6iRv9hOkPMNL3d/bbmcoSJiTbgen0aRElWenaD4X9YlsABftLfPjfGYXAKjAWiZru1At6X0aK79TR6k4hCjnhE7/zoYYs8nFG6dlQZDMq8pn8JLprqEhd/NHa+64IlOfLJ++/SFwkR8InuR9GH3MhVu/FwBLsidAINFhStIFrAhcaC1xayqnzVajt3BfG86zPV8CcmXUcei2U/K5cVaXDjEbMMZw8nmOcurdRK/qJIIjKFR/AYAQ=="
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQS6AUKEAgTGAI4AUIIdGhpbmtpbmcSDGcPQdy9/3hVU6LX4hoMcEemASV24J8Rlrw4IjDZnU7jkeilj3Pn1gGGibGH4+qSih5ByLtSIGlWSFSLW2EVe4/FX+3nMliZ1aEyHegqhQU4E3h/RETO7GBKF09a7JSLRd3paWYf5VTIZTV8s162VRPpV3ERYNDhkGWLSEYasqa+22UvzbBAbdzaOCZWgprmGacTnduijkRLOQSI+/JdazMxkvO0bOj3kqUbjhZ1mCBoHZpDOM6xYbHQb2d+KomzN+lKR8xuxxf70cjlNRcrE/q30j5QT+uHjkyjGB3oytDot1hIoBM0iBFZcQ387h11MrLMqULGWLbUBO05mZhrFleI6EIgA9QZUrlhqJt809FlHNOLiZGBZOW/9/0CPwcyzAw7qWYJDPEbCK2Nh9MzmliX5ONq6fTUpsPot4RsOrcGxXl/4oX03AqNrRvOWF7/3CPnNl8WKbJ9B1wisdcBVJSaGnJGNpVFuR6spOcb/Lo2NFPWFnDgelSZH+r849TiZXIg+SqfXKloX1sXVrvP0SsIkYgIQ8YbmctZy3kOZbHV9e3x0EJa/nxIvu1fXcjfyzgbKwl8+nJFyY0gN4iDm5Q3gwfWL0xcPOwppnq9OjO1VP/LgJeFpQXCmdu44QDaoacu1EH+IEXmR7xk91AjX4OnCADczU/6HRXx14M/i2uvH57Se2zzkgAO/EGczMed9TlJT2FJGkHVNWjqeQn0Cc6iRv9hOkPMNL3d/bbmcoSJiTbgen0aRElWenaD4X9YlsABftLfPjfGYXAKjAWiZru1At6X0aK79TR6k4hCjnhE7/zoYYs8nFG6dlQZDMq8pn8JLprqEhd/NHa+64IlOfLJ++/SFwkR8InuR9GH3MhVu/FwBLsidAINFhStIFrAhcaC1xayqnzVajt3BfG86zPV8CcmXUcei2U/K5cVaXDjEbMMZw8nmOcurdRK/qJIIjKFR/AYAQ=="
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 165,
+          "prompt_tokens": 4569,
+          "total_tokens": 4734,
+          "completion_tokens_details": {
+            "reasoning_tokens": 39,
+            "text_tokens": 126
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 4301,
+            "text_tokens": 127,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 141,
+            "cache_creation_tokens": 141,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 141,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 141,
+          "cache_read_input_tokens": 4301,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-cf1a090d-8091-4e84-880c-d30a279bcdbb",
+        "created": 1792809534,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"message\": \"Wrote `hello from harbor` to /app/greeting.txt. Verified with `cat -A` (shows one line ending in a newline, no extra content) and a shell test that compares the file contents exactly to `hello from harbor`, which passed.\"}",
+                    "name": "finish"
+                  },
+                  "id": "toolu_019pJUWHBidpPvmBMw5PM74E",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQSmQYKEAgTGAI4AUIIdGhpbmtpbmcSDN+AdfaQjCGR3k+DkhoMLr+Y7WQAZKK+vOovIjDf5QMGCnHJrVNRswtVXoS1b6z9dNNORWsbG/iFUeZ+tFX0owPJBmKwClakB2UjtZQqtgV0aycJZYwYiRlFGfppAUpRW2D4UgGHsn9KgL4ze/aZAnp3OHWPO2fZWT6YEbUZ5OCEREjLjVm1E9mTZP7GE3Q7zNjrQtiT5hnb453Qp6/3lXOSYpFuICoo5w6bFauKrV2/FgFoTYtNUub6ZH5linsrOuQH9U7002NckvGg/4XoXuTpQa8Ezo6NxX6ef7CKAdPgFvXOTV4eGYXUbh+g2kOkhuRTIYZPlVq4D4Nzm0YpDmmMEGoYpVuUjCmqx0NGK2LGH6vSGAkLzPz4EDsOpak7TZPcNc9spG6VAKhOYuE0LzRJ26l0L51P8JRDutoINSyvZznORhC3V3jCDfI7XXxX7CVW4r2mY2KEov5tzR4Z7GL/p5PDnQRc8FpG37Z6zIrZiMrtJ2Xselu4VDUksNxisR1Z2WUYFF+yKrkie+25ggcjflTxOIx7Rc321Rr4NcdpyTs8S7e526UJmAbgQOmF8HzWpbrI0Qozz0tvzwCS+AdeRLI3r6Lx5Qs+xPQNbY7ediblFp+iXEaG7/GyWALxhJdQ2taPQ2xcX9Lwjs/64D16D+tC7o+YxrYU+D0+H4ZuQhAuW6ncuyFsZ/176E7SA8jD4eb46BeC+hrdvNLZjbp7ZHtB7+w3noPTCWOlNC+Tyh+rJQR7LqINhFeJvMw7UmPk12e5CKtjUkyN5W8p3n2Y4W/Q6G8MeLk9/TE2qG8o2j8bSicAlqtYoOprnZ7QS8hSJh2gtnGVb6V0aeSzLi5C5enxjCZKFeo4kwQn7aWrtc8e98ATj0I+aG4JUX0PCT8vH7Gqw89qCWMpGSElXhcm2k/+W6GhwC1S4LIH24+01MRmVVqRn5S49cAknpJkHQ3i/khK91WIags7ZH1TNP0hx+bfqzgZyhd+oBmzaz/R5ei56689Xlg2hjlOnYHVHPMfZB/eGAE="
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQSmQYKEAgTGAI4AUIIdGhpbmtpbmcSDN+AdfaQjCGR3k+DkhoMLr+Y7WQAZKK+vOovIjDf5QMGCnHJrVNRswtVXoS1b6z9dNNORWsbG/iFUeZ+tFX0owPJBmKwClakB2UjtZQqtgV0aycJZYwYiRlFGfppAUpRW2D4UgGHsn9KgL4ze/aZAnp3OHWPO2fZWT6YEbUZ5OCEREjLjVm1E9mTZP7GE3Q7zNjrQtiT5hnb453Qp6/3lXOSYpFuICoo5w6bFauKrV2/FgFoTYtNUub6ZH5linsrOuQH9U7002NckvGg/4XoXuTpQa8Ezo6NxX6ef7CKAdPgFvXOTV4eGYXUbh+g2kOkhuRTIYZPlVq4D4Nzm0YpDmmMEGoYpVuUjCmqx0NGK2LGH6vSGAkLzPz4EDsOpak7TZPcNc9spG6VAKhOYuE0LzRJ26l0L51P8JRDutoINSyvZznORhC3V3jCDfI7XXxX7CVW4r2mY2KEov5tzR4Z7GL/p5PDnQRc8FpG37Z6zIrZiMrtJ2Xselu4VDUksNxisR1Z2WUYFF+yKrkie+25ggcjflTxOIx7Rc321Rr4NcdpyTs8S7e526UJmAbgQOmF8HzWpbrI0Qozz0tvzwCS+AdeRLI3r6Lx5Qs+xPQNbY7ediblFp+iXEaG7/GyWALxhJdQ2taPQ2xcX9Lwjs/64D16D+tC7o+YxrYU+D0+H4ZuQhAuW6ncuyFsZ/176E7SA8jD4eb46BeC+hrdvNLZjbp7ZHtB7+w3noPTCWOlNC+Tyh+rJQR7LqINhFeJvMw7UmPk12e5CKtjUkyN5W8p3n2Y4W/Q6G8MeLk9/TE2qG8o2j8bSicAlqtYoOprnZ7QS8hSJh2gtnGVb6V0aeSzLi5C5enxjCZKFeo4kwQn7aWrtc8e98ATj0I+aG4JUX0PCT8vH7Gqw89qCWMpGSElXhcm2k/+W6GhwC1S4LIH24+01MRmVVqRn5S49cAknpJkHQ3i/khK91WIags7ZH1TNP0hx+bfqzgZyhd+oBmzaz/R5ei56689Xlg2hjlOnYHVHPMfZB/eGAE="
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 169,
+          "prompt_tokens": 4740,
+          "total_tokens": 4909,
+          "completion_tokens_details": {
+            "reasoning_tokens": 44,
+            "text_tokens": 125
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 4442,
+            "text_tokens": 127,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 171,
+            "cache_creation_tokens": 171,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 171,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 171,
+          "cache_read_input_tokens": 4442,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-3410f43a-389d-4017-afb2-95c61eeb399e",
+        "created": 1792809535,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "{\"risk\":\"safe\",\"read_only\":true,\"is_verification\":true,\"verification_unavailable\":false,\"reason\":\"Read-only check: displays /app/greeting.txt with cat -A and compares its contents to the expected line, printing CHECK_PASS on success. Nothing is modified.\"}",
+              "role": "assistant",
+              "tool_calls": null,
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQSmgYKEAgTGAI4AUIIdGhpbmtpbmcSDE/mdq9UYVwYs4ALrhoMkE7WyHCo6MnaZTGdIjDJ7Wj4FXY7KuGen6fMXtuBoS9EoszKmYkFqpZpgX7s/cvCra4B2nCK0i6QFAj/EH0qtwV5YvagvpDDaJJBqk9gR3a0J7oqmaW8KHQty/p426Q6taE1Fl4+hOElwD8nzZgPiqlXdjkz9H1dFETX1fAQ2/yxytgFbloODEf8btRzstDREfvF3v0t6bQ5MCFi6aQ/nRar+hvO4/KkVs/fBngvCLGuVJXbQbRfdKWA1geKCqs+7pHZsxcfhkoAx6Xz25oAuqclBoQ3vMbNLukkBshIJi8ppecg+r8WhacyyrzstbuzAppQKqgkt5jID6tQR7mX4l6dS33fAxqHb+7U9PizGJ4rv0n5SQdzsjDxPiaQ63cRcITZbmQtlLqEIclSvxJep91xpN5B3Zu1+vFwr7f9lZqpCTHLxzIM9RnUpNH/RcIJKNxsDaTn0AlMAKYKwyKbx6vCAmwXCoxm1eF+BTpBWWCBY6SQIpC/NnNLXXgy4yQmlP1W9FKYUObRkYQY6VleQQDef8xGdA9psXG+k7coAKbauMIQQUi5LWtljkukiXkmWSFCgbJSLt2g+wob2Am6+HugDP1imdgEc/5Y0qKTyg057xyjfOeBFdD1XqlVEXVOk1kmir386VikoCSX67/lkoSDjT40L7tyt0dEByFLH57WGxa6hcCIQ4M4KmoTAhYCSjNGc3R5WualrDt5lrJJdpFZFVu71xkYAtRwdPxMmEaX1CcYK24ng489zz3z31/SP31bDWr2j4iHdDm2OnNlxqvqkQxGo4O8shILVeFKiebuXc6wimyKBwa7dTDk63SWQ62n9RMe8MNOlu8szTU7oYmofKXZ0oX8p8bUi3tZGytUONqMwiK1nTSDaXujk9Md5gEnPk2qTuGksXQRca1iGoHaoc9w5+ClQ0N6xxtdKduEyn9ILCrZpCImlqgCSGQeS7tlp0sdDtSNoBLJw+0wDozWu743OJZBjHPBaEhtU/M+JyN7ST1YXBgB"
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQSmgYKEAgTGAI4AUIIdGhpbmtpbmcSDE/mdq9UYVwYs4ALrhoMkE7WyHCo6MnaZTGdIjDJ7Wj4FXY7KuGen6fMXtuBoS9EoszKmYkFqpZpgX7s/cvCra4B2nCK0i6QFAj/EH0qtwV5YvagvpDDaJJBqk9gR3a0J7oqmaW8KHQty/p426Q6taE1Fl4+hOElwD8nzZgPiqlXdjkz9H1dFETX1fAQ2/yxytgFbloODEf8btRzstDREfvF3v0t6bQ5MCFi6aQ/nRar+hvO4/KkVs/fBngvCLGuVJXbQbRfdKWA1geKCqs+7pHZsxcfhkoAx6Xz25oAuqclBoQ3vMbNLukkBshIJi8ppecg+r8WhacyyrzstbuzAppQKqgkt5jID6tQR7mX4l6dS33fAxqHb+7U9PizGJ4rv0n5SQdzsjDxPiaQ63cRcITZbmQtlLqEIclSvxJep91xpN5B3Zu1+vFwr7f9lZqpCTHLxzIM9RnUpNH/RcIJKNxsDaTn0AlMAKYKwyKbx6vCAmwXCoxm1eF+BTpBWWCBY6SQIpC/NnNLXXgy4yQmlP1W9FKYUObRkYQY6VleQQDef8xGdA9psXG+k7coAKbauMIQQUi5LWtljkukiXkmWSFCgbJSLt2g+wob2Am6+HugDP1imdgEc/5Y0qKTyg057xyjfOeBFdD1XqlVEXVOk1kmir386VikoCSX67/lkoSDjT40L7tyt0dEByFLH57WGxa6hcCIQ4M4KmoTAhYCSjNGc3R5WualrDt5lrJJdpFZFVu71xkYAtRwdPxMmEaX1CcYK24ng489zz3z31/SP31bDWr2j4iHdDm2OnNlxqvqkQxGo4O8shILVeFKiebuXc6wimyKBwa7dTDk63SWQ62n9RMe8MNOlu8szTU7oYmofKXZ0oX8p8bUi3tZGytUONqMwiK1nTSDaXujk9Md5gEnPk2qTuGksXQRca1iGoHaoc9w5+ClQ0N6xxtdKduEyn9ILCrZpCImlqgCSGQeS7tlp0sdDtSNoBLJw+0wDozWu743OJZBjHPBaEhtU/M+JyN7ST1YXBgB"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 156,
+          "prompt_tokens": 821,
+          "total_tokens": 977,
+          "completion_tokens_details": {
+            "reasoning_tokens": 59,
+            "text_tokens": 97
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 821,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-e4c2dbec-763f-4e28-8b17-62f23e0634ac",
+        "created": 1792809537,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"ls -la /app && cat /app/greeting.txt\", \"description\": \"List /app and confirm greeting file contents\"}",
+                    "name": "terminal"
+                  },
+                  "id": "toolu_01K2EakTgZJCwMUME5Q2w9a5",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQS2QYKEAgTGAI4AUIIdGhpbmtpbmcSDPTujSowpax9szfEWhoMDNI5Gy9B0J7c1nbMIjCRcO6YpGEojne3S7LiqbOHPYWlIsxkht4IWNzPpIcsoL4ShVCqxpsN5ckylKXufT4q9gWDasn0oe5B7FgCVGNq82S+/UCtLa7QDUEYFa+3tGWzHV0QcQ8p4vRa+xO86quH3ApRvq++/MTY+jtOAHa4GKkpI5lpt7LOSBD6JGEXxTGBOaDzISs8zuO/M6LOAEPWNFhBQ5+zOo+XmwIRltkfZZ0ymDx6qWPOFKRuJCFfaXvVWtPzSdGLbT6AiQAcaoanU/Hq0TVLQbAc4S0kjoRJmciaZJLd5xn0Jw6f/454cGguRgJtkOBgCal7VWMuwRfm5hlOo+ZDC0880m6BkV0iKkN4UznueUXYg7M/eH5A8mP1tPSHW3ZK7UQlqRgz57QSIPDDr7h2cOrMB7NUt6RhZCJbNEtMcolx+jW42SqTD52EcTU6PPDD0FVoSo3nf9b9r9iE57sVu0ruc4v+Nje/YAIwWma+RLbAXkrXW+8xNIDFwarCNlaUXQXfkLkmC7CJ/W4grqIJiVYB3bTJ5InyNxnqrlzldzY8JqypVIhxX12Cfzp4ePZ6HxJrZPMN6FCUN/UpN4qcKiPLeYsw/+5hqTbPC5IhlsaE/XJ26Gki65NO1fFr21CKIbIdGFEZ+mRKTHuxiIiPu4q0Kx7wDVSOvq1/B1YAIXGeuuqybOkey5VgEM72/XidlUta/9Us9NzpI76MfrUwnwRhTKFI++k/3roTUUgdmtotHZhxxXeF+Hfo+QPjdnyadUWm9gSoxVCoK4yreHfKzNKh+kZpttfQSr+uvIohud1mW7+bfkqkZDKh9Tvy4SRfycf85yw37tMJ4gW7JNAVvRwNWFz3Wbu0GyoT3csSuHlpEObT70s5gxpgQJhj5qdwzTEfDh5tb2IS8q/HOPGJlrlaKw0k6sfxksM5rUISvo1dCuIN9uA/k43rFwfzunJ/i3y8mVlIX2b7GMBZORWJVr0XcE79qg58ES5JCmHDkLgiJ/bK15aEfdUXOTNLPtCt2eRYie/Hd1wulJkSvo6DNkz6hVE219UxgnTmC4URoxItXC72xAGW0JAKjJxq3b6Z4hgB"
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQS2QYKEAgTGAI4AUIIdGhpbmtpbmcSDPTujSowpax9szfEWhoMDNI5Gy9B0J7c1nbMIjCRcO6YpGEojne3S7LiqbOHPYWlIsxkht4IWNzPpIcsoL4ShVCqxpsN5ckylKXufT4q9gWDasn0oe5B7FgCVGNq82S+/UCtLa7QDUEYFa+3tGWzHV0QcQ8p4vRa+xO86quH3ApRvq++/MTY+jtOAHa4GKkpI5lpt7LOSBD6JGEXxTGBOaDzISs8zuO/M6LOAEPWNFhBQ5+zOo+XmwIRltkfZZ0ymDx6qWPOFKRuJCFfaXvVWtPzSdGLbT6AiQAcaoanU/Hq0TVLQbAc4S0kjoRJmciaZJLd5xn0Jw6f/454cGguRgJtkOBgCal7VWMuwRfm5hlOo+ZDC0880m6BkV0iKkN4UznueUXYg7M/eH5A8mP1tPSHW3ZK7UQlqRgz57QSIPDDr7h2cOrMB7NUt6RhZCJbNEtMcolx+jW42SqTD52EcTU6PPDD0FVoSo3nf9b9r9iE57sVu0ruc4v+Nje/YAIwWma+RLbAXkrXW+8xNIDFwarCNlaUXQXfkLkmC7CJ/W4grqIJiVYB3bTJ5InyNxnqrlzldzY8JqypVIhxX12Cfzp4ePZ6HxJrZPMN6FCUN/UpN4qcKiPLeYsw/+5hqTbPC5IhlsaE/XJ26Gki65NO1fFr21CKIbIdGFEZ+mRKTHuxiIiPu4q0Kx7wDVSOvq1/B1YAIXGeuuqybOkey5VgEM72/XidlUta/9Us9NzpI76MfrUwnwRhTKFI++k/3roTUUgdmtotHZhxxXeF+Hfo+QPjdnyadUWm9gSoxVCoK4yreHfKzNKh+kZpttfQSr+uvIohud1mW7+bfkqkZDKh9Tvy4SRfycf85yw37tMJ4gW7JNAVvRwNWFz3Wbu0GyoT3csSuHlpEObT70s5gxpgQJhj5qdwzTEfDh5tb2IS8q/HOPGJlrlaKw0k6sfxksM5rUISvo1dCuIN9uA/k43rFwfzunJ/i3y8mVlIX2b7GMBZORWJVr0XcE79qg58ES5JCmHDkLgiJ/bK15aEfdUXOTNLPtCt2eRYie/Hd1wulJkSvo6DNkz6hVE219UxgnTmC4URoxItXC72xAGW0JAKjJxq3b6Z4hgB"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 168,
+          "prompt_tokens": 5082,
+          "total_tokens": 5250,
+          "completion_tokens_details": {
+            "reasoning_tokens": 70,
+            "text_tokens": 98
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 4613,
+            "text_tokens": 127,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 342,
+            "cache_creation_tokens": 342,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 342,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 342,
+          "cache_read_input_tokens": 4613,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-86554b12-b9c7-4284-8f37-48b8f689f2ef",
+        "created": 1792809539,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"message\": \"Wrote `hello from harbor` to /app/greeting.txt. Checks: `cat -A` shows one line with a trailing newline, and an exact-match shell test passed. /app contains only greeting.txt, with no stray files. No service was needed.\"}",
+                    "name": "finish"
+                  },
+                  "id": "toolu_01VEvgtUik5yuuV19UbQEUHj",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQS2wUKEAgTGAI4AUIIdGhpbmtpbmcSDCTJDv5gO7dskKrj8hoMBct77JstjtHWx37cIjDyfpP3FWCx4z8SAEBhktzYHgFU0HIt+nDQ3gQeR+3u8XcISDTOaQFug+kwTegwfE4q+ATcyypblpltQBuLGQP9SUBur8pFS0BS38G1eXC9R/1gtbcC8HKQFKFjjuqut45R/iJblKcpRbvB7+ITQFGN3uzgvA9b/42rLnU3x/5aIQ50IJ5j/1aY9UVkK4ukWKUUQO7CMWboft+pzaScQmHwZQ3E9pLNyJ9UXjA02U3+qJV5gVgxiYsX5q5DihcIXJ6tR/ONYlHDAErsWbzZLn0I/gxSl5O1XHihdYBwn97MD/Ukp8EcxHt3OoCXMHFgriwr/nO6XZjy/rYBQHnm62S0aPlbjZKT+tUw+Uz7b3enW9B1fOTIpKiShV7b7RSJStAHgY4e4DTIvTMJgTKoK+rp5rV7z/fC918blzh7QDJ1bnTmpTaFkVpXzvBUj/ytkulVvxVve60GE+hoTSOhFs/VZXdMPdBRWM2tJIkl4CKwSDHVkFf/HolPyORNX1x1bvKCX8tonn3ong8ofUeQHakuOwdsxwHh/Zlg/n1ICnO3ZoyI4qoCf7WR0tEXl6OUuVq0gB5CHhCAFUdGKKwKNA/Mnk+x9J6KMO21f6rTCqNhUeTF860fXhReAt/+8EvT1v/RGzaN4WYuEgXLJb2YCCLpNhHTPG0bceRckpH0vXqMIWIZh976Edg5jBvfvdr58yxgI/9Aj+tcF2ZHV11rKaLFfoPlmGGzmO7V2dnhRPmsNm/kWiMfKKwZxvc4Y31yaaMImQ3MFTlg2oSif41I1X3rATO0mnjxq2DkWJUcEXylsjNUNtA5JWMx1stc81Tmeu8p3ph4SpRGhEkII+6NqByecQXO00s65ZG1CfapfuAlgdWOy2WLqKdHFV+I1B/BD/uJuYSCyVzuUMoS7RgB"
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQS2wUKEAgTGAI4AUIIdGhpbmtpbmcSDCTJDv5gO7dskKrj8hoMBct77JstjtHWx37cIjDyfpP3FWCx4z8SAEBhktzYHgFU0HIt+nDQ3gQeR+3u8XcISDTOaQFug+kwTegwfE4q+ATcyypblpltQBuLGQP9SUBur8pFS0BS38G1eXC9R/1gtbcC8HKQFKFjjuqut45R/iJblKcpRbvB7+ITQFGN3uzgvA9b/42rLnU3x/5aIQ50IJ5j/1aY9UVkK4ukWKUUQO7CMWboft+pzaScQmHwZQ3E9pLNyJ9UXjA02U3+qJV5gVgxiYsX5q5DihcIXJ6tR/ONYlHDAErsWbzZLn0I/gxSl5O1XHihdYBwn97MD/Ukp8EcxHt3OoCXMHFgriwr/nO6XZjy/rYBQHnm62S0aPlbjZKT+tUw+Uz7b3enW9B1fOTIpKiShV7b7RSJStAHgY4e4DTIvTMJgTKoK+rp5rV7z/fC918blzh7QDJ1bnTmpTaFkVpXzvBUj/ytkulVvxVve60GE+hoTSOhFs/VZXdMPdBRWM2tJIkl4CKwSDHVkFf/HolPyORNX1x1bvKCX8tonn3ong8ofUeQHakuOwdsxwHh/Zlg/n1ICnO3ZoyI4qoCf7WR0tEXl6OUuVq0gB5CHhCAFUdGKKwKNA/Mnk+x9J6KMO21f6rTCqNhUeTF860fXhReAt/+8EvT1v/RGzaN4WYuEgXLJb2YCCLpNhHTPG0bceRckpH0vXqMIWIZh976Edg5jBvfvdr58yxgI/9Aj+tcF2ZHV11rKaLFfoPlmGGzmO7V2dnhRPmsNm/kWiMfKKwZxvc4Y31yaaMImQ3MFTlg2oSif41I1X3rATO0mnjxq2DkWJUcEXylsjNUNtA5JWMx1stc81Tmeu8p3ph4SpRGhEkII+6NqByecQXO00s65ZG1CfapfuAlgdWOy2WLqKdHFV+I1B/BD/uJuYSCyVzuUMoS7RgB"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 154,
+          "prompt_tokens": 5314,
+          "total_tokens": 5468,
+          "completion_tokens_details": {
+            "reasoning_tokens": 27,
+            "text_tokens": 127
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 4955,
+            "text_tokens": 127,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 232,
+            "cache_creation_tokens": 232,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 232,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 232,
+          "cache_read_input_tokens": 4955,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-b850d58f-1f0a-4cc9-8c9a-abedc08d5a9a",
+        "created": 1792809541,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "{\"risk\":\"safe\",\"read_only\":true,\"is_verification\":false,\"verification_unavailable\":false,\"reason\":\"Lists directory contents and prints a file; no state changes.\"}",
+              "role": "assistant",
+              "tool_calls": null,
+              "function_call": null,
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": null
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 60,
+          "prompt_tokens": 788,
+          "total_tokens": 848,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 60
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 788,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 0,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-acf25d23-55d4-4663-b8d8-53060923726b",
+        "created": 1792809543,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": "I've rechecked each item on the finish checklist, and nothing else needs changing, so I'm ending the run now.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 2,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"message\": \"Wrote `hello from harbor` to /app/greeting.txt. Re-checked after the checklist: the file exists at the exact path with 18 bytes (the line plus a trailing newline), an exact-match shell test passed, and /app contains only greeting.txt with no stray files. No service was required.\"}",
+                    "name": "finish"
+                  },
+                  "id": "toolu_01NibpBPSoqbxYxBcGzVKMgr",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQSkQcKEAgTGAI4AUIIdGhpbmtpbmcSDHc/OVWFtoP2HKHrdRoM01YSezPXdNeMq415IjDmva8rWiSJVYTbHH4dsjPOoGAnAJ2VZ6fkDwhsHj8MdvMUC9hZ5fVBBEFowe3MyYQqrgZuuPOeeD25y/cbAqJI2YdDdSM2hBcvAEE2i99+QQXbTbct97Xu47nFvVRGqlP96jp7aW80Ke/hAtNMRHkia1PNwgUH/lHozBm/7939qglqKxSdwebTurooIp2ljbDYbeqHegJiJdB/3jKORCV4lD1B3dRJICJQ0A5vPONxIcGJbC+UJC/DO23Y7e3kR9l/gWsMei8uRWvQ6Sp611C0pjdveWftbl8bZInKjgLvpsKnhWoMzIqfGzcdEibvpppQoPuuGUwpr4rRdxDbWr3eq6yiCQe5n7rY/0tY/Hw+ZcbyhHnN+4QjxzgzdWa789YHTjZqB6nCc7l1D0ujKncU9toFGXgh2ocVVqfqv769sMSgdHOJzhV8GK2oAuIS2UJROGl2zpVSQJ8ABOuDRFGlCDPeW9B9N45Gjz07Z/VUsB+Cpl12QgfjY/gfM8G0duzMDkvfIEHfJGKSCijhwUcGNsXQYKQ/QV9YY4d5HganKaQ1MtvCenkjlbUrZFQ8z6Zz5M3ia6DF/Y9bbR3jVETg3CuUGxhac/Zj8+nkGKcJwuinLDrSgy82Lxk/DbKt29o/Bg5AVqiSYC6/3wtE4VV/pKl3Sh2GWf2AeoMRYniH07nh24SplPdyu7Y7HazvS9fCWUzW0/Ney90HQMxunk+/eXruNRaPpWdziwYGRDnmR0HcHHl6Sb5slRxqwEBWRJa5NrF+lYnQgGRW0ukd+SW/3a4StiOHN6zDpsPMkTWwQr4404Me9YerlNrm9j3QOMFRxwMEHvI49lIjvH5YQOmXQn+oR3htJjvqnINdzfyYXkGrDXzDHmOfy1ICU21E9Za2vlxpZJop8CJHxUcLDMospGYVwdohpkTuxxmygBMIwT7umckgvF5LIHCM/iCFS2KAzaTrIva3BDjBy+QQLlL2HlCSUMnwPrgZ8CT2pWsC1Ol0mKrL/OIxxWrtBM/Tw0xZg82isZQEE/Ri7Mgw6j19KJy/PFib10TPtDHv3aUmsfqWFwyb5e6ftM1VAHngN+k9B61sPx99RrVcH24kzVbS0RCq3KAuERFR6wT982FPPInMJ8j03pGarj2ClK3H8Ww9GAE="
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQSkQcKEAgTGAI4AUIIdGhpbmtpbmcSDHc/OVWFtoP2HKHrdRoM01YSezPXdNeMq415IjDmva8rWiSJVYTbHH4dsjPOoGAnAJ2VZ6fkDwhsHj8MdvMUC9hZ5fVBBEFowe3MyYQqrgZuuPOeeD25y/cbAqJI2YdDdSM2hBcvAEE2i99+QQXbTbct97Xu47nFvVRGqlP96jp7aW80Ke/hAtNMRHkia1PNwgUH/lHozBm/7939qglqKxSdwebTurooIp2ljbDYbeqHegJiJdB/3jKORCV4lD1B3dRJICJQ0A5vPONxIcGJbC+UJC/DO23Y7e3kR9l/gWsMei8uRWvQ6Sp611C0pjdveWftbl8bZInKjgLvpsKnhWoMzIqfGzcdEibvpppQoPuuGUwpr4rRdxDbWr3eq6yiCQe5n7rY/0tY/Hw+ZcbyhHnN+4QjxzgzdWa789YHTjZqB6nCc7l1D0ujKncU9toFGXgh2ocVVqfqv769sMSgdHOJzhV8GK2oAuIS2UJROGl2zpVSQJ8ABOuDRFGlCDPeW9B9N45Gjz07Z/VUsB+Cpl12QgfjY/gfM8G0duzMDkvfIEHfJGKSCijhwUcGNsXQYKQ/QV9YY4d5HganKaQ1MtvCenkjlbUrZFQ8z6Zz5M3ia6DF/Y9bbR3jVETg3CuUGxhac/Zj8+nkGKcJwuinLDrSgy82Lxk/DbKt29o/Bg5AVqiSYC6/3wtE4VV/pKl3Sh2GWf2AeoMRYniH07nh24SplPdyu7Y7HazvS9fCWUzW0/Ney90HQMxunk+/eXruNRaPpWdziwYGRDnmR0HcHHl6Sb5slRxqwEBWRJa5NrF+lYnQgGRW0ukd+SW/3a4StiOHN6zDpsPMkTWwQr4404Me9YerlNrm9j3QOMFRxwMEHvI49lIjvH5YQOmXQn+oR3htJjvqnINdzfyYXkGrDXzDHmOfy1ICU21E9Za2vlxpZJop8CJHxUcLDMospGYVwdohpkTuxxmygBMIwT7umckgvF5LIHCM/iCFS2KAzaTrIva3BDjBy+QQLlL2HlCSUMnwPrgZ8CT2pWsC1Ol0mKrL/OIxxWrtBM/Tw0xZg82isZQEE/Ri7Mgw6j19KJy/PFib10TPtDHv3aUmsfqWFwyb5e6ftM1VAHngN+k9B61sPx99RrVcH24kzVbS0RCq3KAuERFR6wT982FPPInMJ8j03pGarj2ClK3H8Ww9GAE="
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 264,
+          "prompt_tokens": 5658,
+          "total_tokens": 5922,
+          "completion_tokens_details": {
+            "reasoning_tokens": 86,
+            "text_tokens": 178
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 5187,
+            "text_tokens": 127,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 344,
+            "cache_creation_tokens": 344,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 344,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 344,
+          "cache_read_input_tokens": 5187,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    }
+  ]
+}

@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, TypeAlias
@@ -89,6 +90,21 @@ SPILL_THRESHOLD_CHARS = 12_000
 SPILL_PREVIEW_CHARS = 6_000
 SPILL_ROOT = ".miniagent"
 SPILL_DIR = "/tmp/miniagent"
+
+
+@dataclass(frozen=True)
+class TimeBudget:
+    seconds: int
+    started: float = dataclasses.field(default_factory=time.monotonic)
+
+    def status(self) -> str:
+        elapsed = round(time.monotonic() - self.started)
+        remaining = max(self.seconds - elapsed, 0)
+        return f"Time budget: {_clock(elapsed)} elapsed / {_clock(remaining)} remaining."
+
+
+def _clock(seconds: int) -> str:
+    return f"{seconds // 60}m{seconds % 60:02d}s"
 
 
 @dataclass(frozen=True)
@@ -193,6 +209,7 @@ class Agent:
         branch: str | None = None,
         policy: PolicyProvider | None = None,
         memory: MemoryStore | None = None,
+        time_budget: TimeBudget | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -201,6 +218,7 @@ class Agent:
         self.branch = branch
         self.policy = policy or PolicyClassifier(llm)
         self.memory = memory
+        self.time_budget = time_budget
         self.skills_block = ""
         self.mcp_instructions: dict[str, str] = {}
 
@@ -595,6 +613,8 @@ class Agent:
 
     def _runtime_context(self, conversation: Conversation) -> str:
         sections = self._mode_sections(conversation)
+        if self.time_budget is not None:
+            sections.append(self.time_budget.status())
         if skills := self._skills_section():
             sections.append(skills)
         sections.extend(self._mcp_sections())
