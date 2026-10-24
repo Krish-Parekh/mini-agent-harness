@@ -88,7 +88,7 @@ def capture() -> dict[str, list[dict]]:
     conversation = Conversation(
         agent=agent,
         sandbox=SnapshotSandbox(),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
 

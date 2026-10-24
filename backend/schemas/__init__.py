@@ -22,6 +22,7 @@ from backend.schemas.conversation import (
     SendMessageRequest,
     StatusUpdate,
     TurnInfo,
+    UpdateConversationRequest,
 )
 from backend.schemas.github import ImportRepoRequest, RepoOut
 
@@ -53,5 +54,6 @@ __all__ = [
     "StatusUpdate",
     "SyncRequest",
     "TurnInfo",
+    "UpdateConversationRequest",
     "UserOut",
 ]

@@ -10,6 +10,7 @@ def _load(name: str) -> str:
 DEFAULT_SYSTEM_PROMPT = _load("system.md")
 PLAN_MODE_DIRECTIVE = _load("plan_mode.md")
 IMPLEMENT_PLAN_DIRECTIVE = _load("implement_plan.md")
+FULL_ACCESS_NOTE = _load("full_access.md")
 EARLY_STOP_PROMPT = _load("early_stop.md")
 FINISH_NUDGE_PROMPT = _load("finish_nudge.md")
 CONDENSE_SYSTEM_PROMPT = _load("condense.md")

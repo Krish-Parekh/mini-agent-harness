@@ -29,6 +29,7 @@ from miniagent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
     EARLY_STOP_PROMPT,
     FINISH_NUDGE_PROMPT,
+    FULL_ACCESS_NOTE,
     IMPLEMENT_PLAN_DIRECTIVE,
     PLAN_MODE_DIRECTIVE,
 )
@@ -609,6 +610,8 @@ class Agent:
             sections.append(PLAN_MODE_DIRECTIVE.strip())
         elif conversation.implementing_plan:
             sections.append(IMPLEMENT_PLAN_DIRECTIVE.strip())
+        if conversation.confirm_policy.mode == "full":
+            sections.append(FULL_ACCESS_NOTE.strip())
         return sections
 
     def _skills_section(self) -> str:
@@ -762,7 +765,7 @@ class Agent:
             return False
         if self._needs_confirmation(action_event, conversation):
             return False
-        if conversation.plan_mode and self._blocked_in_plan_mode(action_event):
+        if conversation.plan_mode and self._mutates(action_event):
             return False
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") == "view"
@@ -838,7 +841,7 @@ class Agent:
             )
             return "ok"
 
-        if conversation.plan_mode and self._blocked_in_plan_mode(action_event):
+        if conversation.plan_mode and self._mutates(action_event):
             self._observe(
                 conversation,
                 call,
@@ -1035,7 +1038,7 @@ class Agent:
             return False
         return isinstance(tool := self.tools[name], McpTool) and tool.read_only
 
-    def _blocked_in_plan_mode(self, action_event: ActionEvent) -> bool:
+    def _mutates(self, action_event: ActionEvent) -> bool:
         if self._is_mcp(action_event):
             return not self._is_read_only_mcp(action_event)
         if action_event.tool_name == "file_edit":
@@ -1050,9 +1053,9 @@ class Agent:
         self, action_event: ActionEvent, conversation: Conversation
     ) -> bool:
         mode = conversation.confirm_policy.mode
-        if mode == "never":
+        if mode == "full":
             return False
-        if mode == "always":
+        if mode == "ask" and self._mutates(action_event):
             return True
         if action_event.tool_name == "bash":
             return self.policy.classify_bash(

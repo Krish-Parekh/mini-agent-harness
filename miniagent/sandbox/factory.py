@@ -8,6 +8,7 @@ from miniagent.config import Settings
 from miniagent.sandbox.base import Sandbox
 
 HOST_GIT_PROVIDERS = frozenset({"local", "docker"})
+FULL_ACCESS_PROVIDERS = frozenset({"docker"})
 
 _SDK = {
     "docker": ("docker", "docker"),
@@ -31,6 +32,10 @@ class SandboxConfigError(Exception):
 
 def is_host_git(provider: str) -> bool:
     return provider in HOST_GIT_PROVIDERS
+
+
+def allows_full_access(provider: str) -> bool:
+    return provider in FULL_ACCESS_PROVIDERS
 
 
 PROVIDER_LABELS = {

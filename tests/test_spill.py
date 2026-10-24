@@ -33,7 +33,7 @@ def _run(workspace, command: str) -> tuple[Conversation, LocalSandbox]:
     conversation = Conversation(
         agent=agent,
         sandbox=sandbox,
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
     conversation.send_message("print a lot")

@@ -75,11 +75,6 @@ class Conversation:
         self.cancel_event = threading.Event()
         self._steering: list[MessageEvent] = []
         self._steering_lock = threading.Lock()
-        # When set, the agent plans (read-only) and pauses via `present_plan`
-        # instead of implementing. Sticky: it stays on across clarifying
-        # `ask_user` rounds and plan refinements, and only clears when the
-        # user approves the plan, so the whole planning conversation,
-        # including feedback after a presented plan, runs in plan mode.
         self.plan_mode = False
         self.plan: Plan | None = None
         self.implementing_plan = False
@@ -102,10 +97,7 @@ class Conversation:
         client_event_id: str | None = None,
         attachments: list[Attachment] | None = None,
     ) -> None:
-        # Only ever turn it on here; plan approval clears it. A plain reply
-        # (answering a question, refining the plan) keeps the existing mode.
-        if plan_mode:
-            self.plan_mode = True
+        self.plan_mode = plan_mode
         self.close_orphaned_actions(
             "Not executed: the user sent a new message instead of approving this call."
         )

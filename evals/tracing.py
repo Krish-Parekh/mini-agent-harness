@@ -118,7 +118,7 @@ def run_agent(golden: Golden) -> Outcome:
             agent=agent,
             sandbox=LocalSandbox(str(workspace)),
             max_iterations=SETTINGS.max_iterations,
-            confirm_policy=ConfirmPolicy("never"),
+            confirm_policy=ConfirmPolicy("full"),
         )
         started = time.monotonic()
         conversation.send_message(golden.input)

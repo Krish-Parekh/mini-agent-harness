@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from miniagent.config import Settings
 from miniagent.factory import build_agent
-from miniagent.confirm import ConfirmMode, ConfirmPolicy
+from miniagent.confirm import ConfirmPolicy, PermissionMode
 from miniagent.conversation import Conversation, Status
 from miniagent.events import Attachment, ErrorEvent, Event, MessageEvent
 from miniagent.sandbox.base import Sandbox, SandboxError
@@ -93,6 +93,8 @@ class QueuedMessage:
     attachments: list[Attachment]
     model: str | None
     client_event_id: str | None
+    plan_mode: bool
+    permission_mode: PermissionMode
 
 
 class EventBroker:
@@ -378,7 +380,8 @@ class ConversationManager:
         repo: str | None = None,
         branch: str | None = None,
         workspace_dir: str | None = None,
-        confirm_mode: ConfirmMode = "risky",
+        permission_mode: PermissionMode = "auto",
+        plan_mode: bool = False,
         token: str | None = None,
         provider: str | None = None,
     ) -> ManagedConversation:
@@ -393,7 +396,9 @@ class ConversationManager:
         else:
             ws = workspace_dir or self._settings.workspace_dir
         sandbox = self._sandbox(cid, provider, ws, None, repo)
-        return self._build(cid, sandbox, confirm_mode, user_id, repo, branch, token)
+        managed = self._build(cid, sandbox, permission_mode, user_id, repo, branch, token)
+        managed.conversation.plan_mode = plan_mode
+        return managed
 
     def _sandbox(
         self,
@@ -456,6 +461,8 @@ class ConversationManager:
         events: list[Event],
         plan: dict | None = None,
         implementing_plan: bool = False,
+        plan_mode: bool = False,
+        permission_mode: PermissionMode = "auto",
         pr_number: int | None = None,
         pr_url: str | None = None,
         token: str | None = None,
@@ -467,10 +474,11 @@ class ConversationManager:
         else:
             ws = workspace_dir or None
         sandbox = self._sandbox(cid, sandbox_provider, ws, sandbox_id, repo)
-        managed = self._build(cid, sandbox, "risky", user_id, repo, branch, token)
+        managed = self._build(cid, sandbox, permission_mode, user_id, repo, branch, token)
         managed.conversation.events = events
         managed.conversation.plan = Plan.model_validate(plan) if plan else None
         managed.conversation.implementing_plan = implementing_plan
+        managed.conversation.plan_mode = plan_mode
         managed.title = title
         managed._ai_titled = managed.user_turns() >= AI_TITLE_AFTER_TURNS
         managed.pr_number = pr_number
@@ -487,7 +495,7 @@ class ConversationManager:
         self,
         cid: str,
         sandbox: Sandbox,
-        confirm_mode: ConfirmMode,
+        permission_mode: PermissionMode,
         user_id: uuid.UUID,
         repo: str | None,
         branch: str | None,
@@ -509,7 +517,7 @@ class ConversationManager:
             ),
             sandbox=sandbox,
             max_iterations=self._settings.max_iterations,
-            confirm_policy=ConfirmPolicy(confirm_mode),
+            confirm_policy=ConfirmPolicy(permission_mode),
             id=cid,
         )
         managed = ManagedConversation(

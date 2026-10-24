@@ -5,6 +5,7 @@ from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation, Status
 from miniagent.events import ActionEvent, MessageEvent, ObservationEvent
 from miniagent.llm import LLMResponse, ToolCall
+from miniagent.policy import CommandPolicy
 from miniagent.sandbox.base import CommandResult, Sandbox
 from miniagent.tools.base import ToolRegistry
 from miniagent.tools.bash import BashTool
@@ -49,11 +50,16 @@ class EchoSandbox(Sandbox):
     def close(self): ...
 
 
-def _conversation(llm, confirm="never") -> tuple[Conversation, EchoSandbox]:
+class MutatingPolicy(SafePolicy):
+    def classify_bash(self, command: str) -> CommandPolicy:
+        return CommandPolicy(risk="mutating", read_only=False)
+
+
+def _conversation(llm, confirm="full", policy=SafePolicy()) -> tuple[Conversation, EchoSandbox]:
     agent = Agent(
         llm=llm,
         tools=ToolRegistry([BashTool(), FinishTool()]),
-        policy=SafePolicy(),
+        policy=policy,
     )
     sandbox = EchoSandbox()
     conversation = Conversation(
@@ -73,7 +79,7 @@ def _bash(call_id: str, command: str) -> LLMResponse:
 
 def test_a_new_message_closes_a_call_awaiting_approval_without_running_it():
     llm = QueueLLM(_bash("c1", "rm -rf build"), LLMResponse(text="ok, skipped"))
-    conversation, sandbox = _conversation(llm, confirm="always")
+    conversation, sandbox = _conversation(llm, confirm="ask", policy=MutatingPolicy())
     conversation.send_message("clean the build")
     conversation.run()
     assert conversation.status == Status.WAITING_FOR_CONFIRMATION
@@ -107,7 +113,7 @@ def test_an_orphan_from_an_earlier_run_is_closed_not_executed():
 
 def test_approval_still_runs_the_pending_call():
     llm = QueueLLM(_bash("c1", "make test"), LLMResponse(text="passed"))
-    conversation, sandbox = _conversation(llm, confirm="always")
+    conversation, sandbox = _conversation(llm, confirm="ask", policy=MutatingPolicy())
     conversation.send_message("run tests")
     conversation.run()
     conversation.approve("c1")
@@ -118,7 +124,7 @@ def test_a_stale_approval_does_not_approve_the_next_pending_call():
     llm = QueueLLM(
         _bash("c1", "make test"), _bash("c2", "make deploy"), LLMResponse(text="done")
     )
-    conversation, sandbox = _conversation(llm, confirm="always")
+    conversation, sandbox = _conversation(llm, confirm="ask", policy=MutatingPolicy())
     conversation.send_message("test then deploy")
     conversation.run()
     conversation.approve("c1")

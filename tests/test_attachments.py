@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from backend.runtime.attachments import AttachmentError, copy_into_sandbox
 from backend.schemas import AttachmentIn, SendMessageRequest
 from backend.service.conversation import ConversationService
+from miniagent.confirm import ConfirmPolicy
 from miniagent.events import Attachment, MessageEvent
 from miniagent.sandbox.base import CommandResult
 from miniagent.sandbox.local import LocalSandbox
@@ -185,6 +186,7 @@ def _managed(sandbox) -> SimpleNamespace:
     sent: list[dict] = []
     conversation = SimpleNamespace(
         status=None,
+        confirm_policy=ConfirmPolicy(),
         send_message=lambda text, **kwargs: sent.append({"text": text, **kwargs}),
         run=lambda: None,
     )

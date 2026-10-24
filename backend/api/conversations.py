@@ -36,10 +36,12 @@ from backend.schemas import (
     RewindResult,
     SendMessageRequest,
     TurnInfo,
+    UpdateConversationRequest,
 )
 from miniagent.agent import ContextWindow
+from miniagent.confirm import PermissionMode
 from miniagent.conversation import Status
-from miniagent.sandbox.factory import default_provider, provider_problem
+from miniagent.sandbox.factory import allows_full_access, default_provider, provider_problem
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 
 router = APIRouter()
@@ -57,6 +59,14 @@ async def _in_sandbox(fn: Callable[..., T], *args) -> T:
         raise HTTPException(status_code=503, detail="sandbox_unavailable") from exc
     except CheckpointError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _check_permission(mode: PermissionMode | None, provider: str) -> None:
+    if mode == "full" and not allows_full_access(provider):
+        raise HTTPException(
+            status_code=422,
+            detail=f"full access needs a container sandbox, not {provider!r}",
+        )
 
 
 async def _raw(path: str, fn: Callable[..., bytes], *args) -> Response:
@@ -97,6 +107,7 @@ async def create_conversation(
         if problem:
             raise HTTPException(status_code=400, detail=problem)
     provider = body.sandbox_provider or await asyncio.to_thread(default_provider, settings)
+    _check_permission(body.permission_mode, provider)
     for skill_id in body.skill_ids:
         if await skills.get(skill_id, user.id) is None:
             raise HTTPException(status_code=404, detail="skill not found")
@@ -105,7 +116,8 @@ async def create_conversation(
         repo=body.repo,
         branch=body.branch,
         workspace_dir=body.workspace_dir,
-        confirm_mode=body.confirm_mode,
+        permission_mode=body.permission_mode,
+        plan_mode=body.plan_mode,
         token=token,
         initial_message=body.initial_message,
         model=body.model,
@@ -136,6 +148,15 @@ async def conversation_changes_stream(
 
 @router.get("/conversations/{cid}", response_model=ConversationInfo)
 async def get_conversation(managed: ManagedDep, service: ServiceDep):
+    return service.info(managed)
+
+
+@router.patch("/conversations/{cid}", response_model=ConversationInfo)
+async def update_conversation(
+    managed: ManagedDep, body: UpdateConversationRequest, service: ServiceDep
+):
+    _check_permission(body.permission_mode, managed.sandbox.provider)
+    await service.update_modes(managed, body.permission_mode, body.plan_mode)
     return service.info(managed)
 
 
@@ -212,6 +233,7 @@ async def send_message(
             status_code=409,
             detail="conversation is waiting for confirmation; use /confirm",
         )
+    _check_permission(body.permission_mode, managed.sandbox.provider)
     try:
         attachments = await service.stage_attachments(
             managed.user_id, caller_token, body.attachments
@@ -224,6 +246,7 @@ async def send_message(
             body.text,
             body.model,
             body.plan_mode,
+            body.permission_mode,
             body.client_event_id,
             attachments,
             caller_token,

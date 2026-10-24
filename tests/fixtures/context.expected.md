@@ -297,6 +297,8 @@ E   AssertionError: assert 41 == 42
 <runtime-context>
 Runtime context for this step, set by MiniAgent rather than typed by the user. It reflects the current mode and enabled extensions.
 
+Full access is on: no action waits for the user's approval, so double-check anything destructive or hard to reverse before running it.
+
 # Skills
 Playbooks the user enabled for this project. Before a task one applies to, load it with the `skill` tool and follow it.
 - `tidy-imports`: sort and dedupe Python imports
@@ -522,6 +524,8 @@ Show me the sum again.
 <runtime-context>
 Runtime context for this step, set by MiniAgent rather than typed by the user. It reflects the current mode and enabled extensions.
 
+Full access is on: no action waits for the user's approval, so double-check anything destructive or hard to reverse before running it.
+
 # Skills
 Playbooks the user enabled for this project. Before a task one applies to, load it with the `skill` tool and follow it.
 - `tidy-imports`: sort and dedupe Python imports
@@ -682,6 +686,8 @@ Fix it.
 ````text
 <runtime-context>
 Runtime context for this step, set by MiniAgent rather than typed by the user. It reflects the current mode and enabled extensions.
+
+Full access is on: no action waits for the user's approval, so double-check anything destructive or hard to reverse before running it.
 
 # Skills
 Playbooks the user enabled for this project. Before a task one applies to, load it with the `skill` tool and follow it.

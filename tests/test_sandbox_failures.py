@@ -69,7 +69,7 @@ def _run(error: SandboxError) -> tuple[Conversation, ScriptedLLM]:
     conversation = Conversation(
         agent=agent,
         sandbox=FailingSandbox(error),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
     conversation.send_message("say hi")

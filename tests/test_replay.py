@@ -21,7 +21,7 @@ from tests.replay import cassette  # noqa: F401
 MODEL = "anthropic/claude-haiku-5-5"
 
 
-def _conversation(workspace, confirm: str = "never") -> Conversation:
+def _conversation(workspace, confirm: str = "full") -> Conversation:
     agent = Agent(
         llm=LLM(model=MODEL, max_tokens=4096),
         tools=ToolRegistry([BashTool(), FileEditTool(), GrepTool(), GlobTool(), FinishTool()]),
@@ -84,7 +84,7 @@ def test_edit_and_verify(tmp_path, cassette):  # noqa: F811
 
 
 def test_a_destructive_command_waits_for_approval(tmp_path, cassette):  # noqa: F811
-    conversation = _conversation(_repo(tmp_path), confirm="risky")
+    conversation = _conversation(_repo(tmp_path), confirm="auto")
     conversation.send_message("Delete the build directory with `rm -rf build`, then finish.")
     conversation.run()
     assert conversation.status == Status.WAITING_FOR_CONFIRMATION

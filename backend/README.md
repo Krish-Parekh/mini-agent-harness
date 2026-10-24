@@ -65,7 +65,7 @@ curl -s -X POST "$BASE/conversations" \
   -d '{
         "repo": "owner/name",
         "branch": "main",
-        "confirm_mode": "risky",
+        "permission_mode": "auto",
         "initial_message": "Add a hello world endpoint"
       }'
 ```
@@ -78,7 +78,12 @@ All fields are optional. Body shape (`CreateConversationRequest`):
 | `branch`          | string or null                        | null       |
 | `workspace_dir`   | string or null                        | null       |
 | `initial_message` | string or null                        | null       |
-| `confirm_mode`    | `"never"` \| `"risky"` \| `"always"`  | `"risky"`  |
+| `permission_mode` | `"ask"` \| `"auto"` \| `"full"`       | `"auto"`   |
+| `plan_mode`       | bool                                  | `false`    |
+
+`ask` pauses before every action that changes the workspace, `auto` pauses
+only before risky ones, and `full` never pauses. `full` is allowed only on
+container sandboxes (`docker`); anywhere else the request returns **422**.
 
 Grab the returned `id` for the calls below:
 
@@ -102,8 +107,21 @@ curl -s -X POST "$BASE/conversations/$CID/messages" \
 ```
 
 Body (`SendMessageRequest`): `text` (required), `model` (optional string),
-`plan_mode` (bool, default `false`). Returns **409** if the conversation is
-`waiting_for_confirmation`; use `/confirm` instead.
+`plan_mode` (bool, default `false`), `permission_mode` (default `"auto"`).
+Every message sets both modes, steered and queued ones included. Returns
+**409** if the conversation is `waiting_for_confirmation`; use `/confirm`
+instead.
+
+### Change modes
+
+```bash
+curl -s -X PATCH "$BASE/conversations/$CID" \
+  -H 'Content-Type: application/json' \
+  -d '{"permission_mode": "ask", "plan_mode": false}'
+```
+
+Both fields are optional. A change made during a run applies from the next
+action.
 
 ### Plan mode flow
 

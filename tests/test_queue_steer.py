@@ -50,7 +50,7 @@ def test_a_steer_message_lands_after_the_tool_result_at_the_next_step(tmp_path):
     conversation = Conversation(
         agent=Agent(llm=llm, tools=ToolRegistry([probe, FinishTool()]), policy=SafePolicy()),
         sandbox=LocalSandbox(str(tmp_path)),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
     probe.conversation = conversation
@@ -89,6 +89,8 @@ class FakeConversation:
         self.cancel_event = asyncio.Event()
         self.steered: list[str] = []
         self.sent: list[str] = []
+        self.plan_mode = False
+        self.confirm_policy = ConfirmPolicy()
 
     def steer(self, text, **kwargs) -> None:
         self.steered.append(text)
@@ -134,8 +136,8 @@ async def test_while_running_steer_goes_to_the_loop_and_queue_waits():
 async def test_the_next_queued_message_starts_when_the_turn_ends():
     service, managed = _service(), _managed()
     managed.queue = [
-        QueuedMessage(id="q1", text="one", attachments=[], model=None, client_event_id=None),
-        QueuedMessage(id="q2", text="two", attachments=[], model=None, client_event_id=None),
+        QueuedMessage(id="q1", text="one", attachments=[], model=None, client_event_id=None, plan_mode=False, permission_mode="auto"),
+        QueuedMessage(id="q2", text="two", attachments=[], model=None, client_event_id=None, plan_mode=False, permission_mode="auto"),
     ]
     managed.conversation.status = Status.IDLE
 
@@ -148,7 +150,7 @@ async def test_the_next_queued_message_starts_when_the_turn_ends():
 
 async def test_a_stopped_turn_holds_the_queue_and_queued_items_can_be_removed():
     service, managed = _service(), _managed()
-    managed.queue = [QueuedMessage(id="q1", text="one", attachments=[], model=None, client_event_id=None)]
+    managed.queue = [QueuedMessage(id="q1", text="one", attachments=[], model=None, client_event_id=None, plan_mode=False, permission_mode="auto")]
     managed.conversation.status = Status.IDLE
     managed.conversation.cancel_event.set()
 

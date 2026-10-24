@@ -53,7 +53,7 @@ def _conversation(llm) -> Conversation:
     return Conversation(
         agent=agent,
         sandbox=EchoSandbox(),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
 

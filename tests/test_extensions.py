@@ -314,7 +314,7 @@ class _PlainTool(Tool):
 
 
 def test_mcp_tools_are_risky_under_the_confirm_policy():
-    policy = ConfirmPolicy("risky")
+    policy = ConfirmPolicy("auto")
     call = ActionEvent(
         tool_name=tool_name("linear", "create_issue"), arguments={}, tool_call_id="1"
     )
@@ -600,7 +600,7 @@ def _mcp_agent():
 
     tools = ToolRegistry([remote("search", True), remote("create_issue", False)])
     agent = Agent(llm=SimpleNamespace(model="m"), tools=tools, policy=object())
-    policy = ConfirmPolicy("risky")
+    policy = ConfirmPolicy("auto")
     conversation = SimpleNamespace(
         confirm_policy=policy, needs_confirmation=policy.needs_confirmation
     )
@@ -619,8 +619,8 @@ def test_read_only_mcp_tools_run_without_confirmation():
 
 def test_plan_mode_allows_mcp_reads_and_blocks_writes():
     agent, _ = _mcp_agent()
-    assert not agent._blocked_in_plan_mode(_call("search"))
-    assert agent._blocked_in_plan_mode(_call("create_issue"))
+    assert not agent._mutates(_call("search"))
+    assert agent._mutates(_call("create_issue"))
 
 
 def test_enabled_skills_register_the_skill_tool_and_disable_removes_it():
@@ -671,7 +671,7 @@ def test_propose_skills_pauses_the_turn():
     conversation = Conversation(
         agent=agent,
         sandbox=SnapshotSandbox(),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
     proposal = {

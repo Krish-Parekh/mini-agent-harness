@@ -223,7 +223,7 @@ class FanoutTool(Tool):
             sandbox=sandbox,
             on_event=on_worker_event,
             max_iterations=self.max_iterations,
-            confirm_policy=ConfirmPolicy("never"),
+            confirm_policy=ConfirmPolicy("full"),
         )
         try:
             conversation.send_message(task.prompt)

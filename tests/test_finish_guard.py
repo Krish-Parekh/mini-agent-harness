@@ -40,7 +40,7 @@ def _run(*responses: LLMResponse) -> Conversation:
     conversation = Conversation(
         agent=agent,
         sandbox=EchoSandbox(),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
     conversation.send_message("go")

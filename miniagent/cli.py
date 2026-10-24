@@ -43,7 +43,7 @@ def main() -> int:
         sandbox=LocalSandbox(args.workspace),
         on_event=_print_step,
         max_iterations=settings.max_iterations,
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
     )
     conversation.send_message(args.task)
     conversation.run()
