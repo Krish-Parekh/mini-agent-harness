@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from miniagent.agent import Agent
+from miniagent.agent import SKETCH_COMMAND, Agent
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation
 from miniagent.events import CondensationEvent, ObservationEvent
@@ -30,7 +30,7 @@ class SnapshotSandbox(Sandbox):
         self.workspace_dir = "/workspace/app"
 
     def run_command(self, command, timeout=30, env=None):
-        if command == "git ls-files":
+        if command == SKETCH_COMMAND:
             return CommandResult(stdout="AGENTS.md\nsrc/app.py\ntests/test_app.py\n", stderr="", exit_code=0)
         if command == "uv run pytest -q":
             return CommandResult(stdout=TEST_OUTPUT, stderr="", exit_code=1)

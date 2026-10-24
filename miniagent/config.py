@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+ReasoningEffort = Literal["low", "medium", "high"]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -22,6 +24,8 @@ class Settings(BaseSettings):
     temperature: float = 0.0
     workspace_dir: str = "./workspace"
     mcp_config: str = "mcp.json"
+    max_iterations: int = 50
+    reasoning_effort: ReasoningEffort | None = None
 
     supabase_url: str = Field("", validation_alias=AliasChoices("SUPABASE_URL"))
     supabase_publishable_key: str = Field(

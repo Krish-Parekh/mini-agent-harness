@@ -113,7 +113,7 @@ Why is test_totals failing?
 
 ````text
 [workspace sketch]
-## Tracked files (git ls-files)
+## Workspace files
 AGENTS.md
 src/app.py
 tests/test_app.py
@@ -415,7 +415,7 @@ Why is test_totals failing?
 
 ````text
 [workspace sketch]
-## Tracked files (git ls-files)
+## Workspace files
 AGENTS.md
 src/app.py
 tests/test_app.py
@@ -645,7 +645,7 @@ The sum is 41; the test expects 42.
 
 ````text
 [workspace sketch]
-## Tracked files (git ls-files)
+## Workspace files
 AGENTS.md
 src/app.py
 tests/test_app.py

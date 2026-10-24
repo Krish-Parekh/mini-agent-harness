@@ -1,0 +1,211 @@
+{
+  "interactions": [
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-9fa6f6f1-b608-464a-a9c3-4e7ff8ee385e",
+        "created": 1792803039,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"command\": \"seq 1 20000 | tail -n 1\", \"description\": \"Print last number from seq 1 20000\"}",
+                    "name": "bash"
+                  },
+                  "id": "toolu_011khaafvYcNYns43TtRyW6B",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": null
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 92,
+          "prompt_tokens": 5215,
+          "total_tokens": 5307,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 92
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 5215,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-7bd8cbd4-d384-4a60-9aed-bb3660f3b779",
+        "created": 1792803041,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "stop",
+            "index": 0,
+            "message": {
+              "content": "{\"is_verification\": false, \"read_only\": true, \"reason\": \"Pipes seq 1 20000 into tail -n 1 to print the last number. Only generates and reads output; no files or state changed.\", \"risk\": \"safe\", \"verification_unavailable\": false}",
+              "role": "assistant",
+              "tool_calls": null,
+              "function_call": null
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 171,
+          "prompt_tokens": 1099,
+          "total_tokens": 1270,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 171
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 1099,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-d7677ea5-86d8-4ac4-b0d1-113b18ef3028",
+        "created": 1792803042,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 1,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"message\": \"The last number printed by `seq 1 20000` is **20000**. I ran it through `tail -n 1` to pick out that final line, and the command exited with code 0. No files were changed.\"}",
+                    "name": "finish"
+                  },
+                  "id": "toolu_01Bahy3PkKEAajKDV8tGkK1Y",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQSvgYKEAgTGAI4AUIIdGhpbmtpbmcSDHiA6AXIRTKhmgUjThoMAyotxRckVdLECzxpIjC0rEOdg/0XKUMeb0OM+5M9fbgol66iwu024oGqaWhgIL31c1yRQ5Y/O7XgpTgvU3kq2wV8A498ayspYRFIA+5d0tOQc1TjaHz2C7eTeVEkXvgbWBocCyZGLXqmBhSbFwlpF/cIdnvRuAR4I7kyBKttRLTWDUbvoa2joYN4EqeCcRhtcGUpjd1OjYa8LyHnvtTZVYoJ22zHRcHZhZY6ge9PTpTldRXZIgNqotcaFplNT3ohz4KRDqn4G6FOj4NWn4xO4mmpBkMGdXv/wARpYCCQP6277TPMWDJuI+lCGc+dmgSeY9eh9kN0p3sSluKIDe5G/TyfsA+trcILk3oyQ+RgKvslzEENGDKQmhmiYlR2d45LWEx587vLhBKPBVD1XUu+pcUje3T9NCtky0XpKSr2EZYkgS8nE1s9truftj0pHIeFrrqnhvBke+14C+AJINZ8IybqSwWleHf665OdvOIJymh6G2T10gPo7eW9YMhf7GceDUt0QI60iBNsujQiy6JgQfNE1V47Ydrfc5aA456LQqrNFgT7hJTron7yjrBKg9LdkMs6LFkFjCc1ycAI+SwTCo2JwwCJ3do9cd8mHR9YCrThldqjPhKW6HOFLzNAU4I175dZFoXk+p266R5lTHBT5kOXiSOZl39lS+aiyl3SkZOTSnsEKYfB9QBQSHyJ81/qqD1wJCm6/mzspG+j7+GTto6GlPWXJVnXx72XLRVyRJQZRFD5Bb2GAqoFDuwFbj+DJ6NC0pqXbaj3PAWJE9J2u/LAB6HhLShUyR8rGlCOZ3nhiBofjb3ut1Fzmd6r5UQSQsv6oeT9IeuAL+qNTLh4Wi3BiBgoZUxY/+1DIl3Dejg7wPm8k7q/io+SfgzEeroqIG8LLjntXmUUYe/k10HrX5iB5Mi7B+k7UkyQiYmF/MARFPzSZgwGJIdOv68xCahTC2TnG/T7U9XPo3nOKyIia0pdM0Wzm6cYpPgF4oM0AHNwcb+ZYG0MrQOKT15tCHC+NAzLMh/UHYuYpdaeDCdkk4WcaDGliZjudCi0CRgB"
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQSvgYKEAgTGAI4AUIIdGhpbmtpbmcSDHiA6AXIRTKhmgUjThoMAyotxRckVdLECzxpIjC0rEOdg/0XKUMeb0OM+5M9fbgol66iwu024oGqaWhgIL31c1yRQ5Y/O7XgpTgvU3kq2wV8A498ayspYRFIA+5d0tOQc1TjaHz2C7eTeVEkXvgbWBocCyZGLXqmBhSbFwlpF/cIdnvRuAR4I7kyBKttRLTWDUbvoa2joYN4EqeCcRhtcGUpjd1OjYa8LyHnvtTZVYoJ22zHRcHZhZY6ge9PTpTldRXZIgNqotcaFplNT3ohz4KRDqn4G6FOj4NWn4xO4mmpBkMGdXv/wARpYCCQP6277TPMWDJuI+lCGc+dmgSeY9eh9kN0p3sSluKIDe5G/TyfsA+trcILk3oyQ+RgKvslzEENGDKQmhmiYlR2d45LWEx587vLhBKPBVD1XUu+pcUje3T9NCtky0XpKSr2EZYkgS8nE1s9truftj0pHIeFrrqnhvBke+14C+AJINZ8IybqSwWleHf665OdvOIJymh6G2T10gPo7eW9YMhf7GceDUt0QI60iBNsujQiy6JgQfNE1V47Ydrfc5aA456LQqrNFgT7hJTron7yjrBKg9LdkMs6LFkFjCc1ycAI+SwTCo2JwwCJ3do9cd8mHR9YCrThldqjPhKW6HOFLzNAU4I175dZFoXk+p266R5lTHBT5kOXiSOZl39lS+aiyl3SkZOTSnsEKYfB9QBQSHyJ81/qqD1wJCm6/mzspG+j7+GTto6GlPWXJVnXx72XLRVyRJQZRFD5Bb2GAqoFDuwFbj+DJ6NC0pqXbaj3PAWJE9J2u/LAB6HhLShUyR8rGlCOZ3nhiBofjb3ut1Fzmd6r5UQSQsv6oeT9IeuAL+qNTLh4Wi3BiBgoZUxY/+1DIl3Dejg7wPm8k7q/io+SfgzEeroqIG8LLjntXmUUYe/k10HrX5iB5Mi7B+k7UkyQiYmF/MARFPzSZgwGJIdOv68xCahTC2TnG/T7U9XPo3nOKyIia0pdM0Wzm6cYpPgF4oM0AHNwcb+ZYG0MrQOKT15tCHC+NAzLMh/UHYuYpdaeDCdkk4WcaDGliZjudCi0CRgB"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 186,
+          "prompt_tokens": 5332,
+          "total_tokens": 5518,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0,
+            "text_tokens": 186
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 0,
+            "text_tokens": 5332,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_creation_tokens": 0,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 0,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "global",
+          "speed": null
+        }
+      }
+    }
+  ]
+}

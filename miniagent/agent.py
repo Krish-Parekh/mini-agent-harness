@@ -5,7 +5,6 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import logfire
@@ -67,6 +66,7 @@ _MAX_MESSAGE_CHARS = 12_000
 _NUDGE_AFTER_REPEATS = 2
 
 _MAX_FILE_SKETCH_CHARS = 2_000
+SKETCH_COMMAND = "rg --files --hidden --glob '!.git' --sort path"
 
 COMPACT_AT = 0.8
 PRUNE_TARGET = 0.6
@@ -86,7 +86,7 @@ REPO_INSTRUCTIONS_MAX_CHARS = 8_000
 SPILL_THRESHOLD_CHARS = 12_000
 SPILL_PREVIEW_CHARS = 6_000
 SPILL_ROOT = ".miniagent"
-SPILL_DIR = f"{SPILL_ROOT}/outputs"
+SPILL_DIR = "/tmp/miniagent"
 
 
 @dataclass(frozen=True)
@@ -98,31 +98,11 @@ class ToolResult:
 
 
 def _file_sketch(sandbox: Sandbox) -> str:
-    """Tracked-files listing so the model can orient before exploring."""
-    result = sandbox.run_command("git ls-files", timeout=10)
+    result = sandbox.run_command(SKETCH_COMMAND, timeout=10)
     files = result.stdout.strip()
-    if result.exit_code == 0 and files:
-        return "\n\n## Tracked files (git ls-files)\n" + clip(
-            files, _MAX_FILE_SKETCH_CHARS
-        )
-    try:
-        has_git_dir = ".git" in sandbox.list_files(".")
-    except Exception:
-        has_git_dir = False
-    if not has_git_dir:
+    if result.exit_code != 0 or not files:
         return ""
-    workspace = Path(sandbox.workspace_dir)
-    fallback = sorted(
-        str(path.relative_to(workspace))
-        for path in workspace.rglob("*")
-        if path.is_file()
-        and not any(part.startswith(".") for part in path.relative_to(workspace).parts)
-    )
-    if not fallback:
-        return ""
-    return "\n\n## Tracked files (git ls-files)\n" + clip(
-        "\n".join(fallback), _MAX_FILE_SKETCH_CHARS
-    )
+    return "\n\n## Workspace files\n" + clip(files, _MAX_FILE_SKETCH_CHARS)
 
 
 def _pruned_output(event: ObservationEvent) -> str:
@@ -137,14 +117,15 @@ def _pruned_output(event: ObservationEvent) -> str:
     )
 
 
-def _spill_oversized(call: ToolCall, result: ToolResult, sandbox: Sandbox) -> ToolResult:
+def _spill_oversized(
+    call: ToolCall, result: ToolResult, sandbox: Sandbox, conversation_id: str
+) -> ToolResult:
     content = result.content
     if len(content) <= SPILL_THRESHOLD_CHARS:
         return result
-    path = f"{SPILL_DIR}/{call.id}.txt"
+    path = f"{SPILL_DIR}/{conversation_id}/outputs/{call.id}.txt"
     try:
         with logfire.span("tool.spill", path=path, chars=len(content)):
-            exclude_from_git(sandbox)
             sandbox.write_file(path, content)
     except Exception as exc:
         _log.warning("could not spill %s output: %s", call.name, exc)
@@ -154,7 +135,7 @@ def _spill_oversized(call: ToolCall, result: ToolResult, sandbox: Sandbox) -> To
         )
     note = (
         f"\n[output truncated: {len(content):,} chars total. Full output: {path}. "
-        "Use file_edit view with view_range, or bash grep/sed, to read the rest]"
+        "Read the rest with bash, e.g. sed -n or grep]"
     )
     details = {**(result.details or {}), "spill_path": path, "full_chars": len(content)}
     return dataclasses.replace(
@@ -811,7 +792,12 @@ class Agent:
         ]
         with ThreadPoolExecutor(max_workers=len(calls)) as executor:
             futures = [
-                executor.submit(bind_context(self._run_tool_for_observation), call, sandbox)
+                executor.submit(
+                    bind_context(self._run_tool_for_observation),
+                    call,
+                    sandbox,
+                    conversation,
+                )
                 for call in calls
             ]
             results = [future.result() for future in futures]
@@ -946,7 +932,7 @@ class Agent:
         self,
         call: ToolCall,
         sandbox: Sandbox,
-        conversation: Conversation | None = None,
+        conversation: Conversation,
     ) -> ToolResult:
         with logfire.span(
             "tool.execute {tool}",
@@ -956,7 +942,10 @@ class Agent:
         ) as span:
             span.set_attributes(tool_attributes(name=call.name, arguments=call.arguments))
             result = _spill_oversized(
-                call, self._execute_tool_call(call, sandbox, conversation), sandbox
+                call,
+                self._execute_tool_call(call, sandbox, conversation),
+                sandbox,
+                conversation.id,
             )
             span.set_attributes(
                 tool_result_attributes(
@@ -971,7 +960,7 @@ class Agent:
         self,
         call: ToolCall,
         sandbox: Sandbox,
-        conversation: Conversation | None = None,
+        conversation: Conversation,
     ) -> ToolResult:
         if call.name not in self.tools:
             available = ", ".join(t.name for t in self.tools.all())
@@ -985,7 +974,6 @@ class Agent:
 
         if (
             call.name == "finish"
-            and conversation is not None
             and conversation.has_unverified_changes(self.policy)
             and not self.policy.classify_finish_message(
                 getattr(action, "message", "")
@@ -1001,8 +989,6 @@ class Agent:
         # The plan lives on the conversation, which tools never see, so the
         # step mutation happens here; the tool's observation reports it.
         if call.name == "update_plan":
-            if conversation is None:
-                return ToolResult("update_plan requires a live conversation.", True)
             plan = conversation.plan
             if plan is None or not (1 <= action.step <= len(plan.steps)):
                 return ToolResult(
@@ -1012,7 +998,7 @@ class Agent:
             plan.steps[action.step - 1].status = action.status
 
         try:
-            if call.name in ("fanout", "web_research") and conversation is not None:
+            if call.name in ("fanout", "web_research"):
                 observation = tool.execute(
                     action,
                     sandbox,

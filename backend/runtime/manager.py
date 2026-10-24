@@ -10,13 +10,11 @@ from typing import Any, Callable
 import logfire
 from pydantic import BaseModel
 
-from miniagent.agent import Agent
 from miniagent.config import Settings
+from miniagent.factory import build_agent
 from miniagent.confirm import ConfirmMode, ConfirmPolicy
 from miniagent.conversation import Conversation, Status
 from miniagent.events import Attachment, ErrorEvent, Event, MessageEvent
-from miniagent.llm import LLM
-from miniagent.policy import PolicyClassifier
 from miniagent.sandbox.base import Sandbox, SandboxError
 from miniagent.sandbox import docker as docker_sandbox
 from miniagent.sandbox.factory import build_sandbox, default_provider, is_host_git
@@ -26,20 +24,8 @@ from backend.runtime import mcp
 from backend.runtime.memory import DbMemoryStore
 from backend.runtime.workspaces import BRANCH_PREFIX, WorkspaceManager
 from miniagent.tools.mcp import MAX_TOOLS as MAX_MCP_TOOLS, McpTool
-from miniagent.tools.memory import MemoryStore, MemoryTool
 from miniagent.tools.skill import SkillTool
-from miniagent.tools.bash import BashTool
-from miniagent.tools.base import ToolRegistry
-from miniagent.tools.file_edit import FileEditTool
-from miniagent.tools.search import GlobTool, GrepTool
-from miniagent.tools.finish import FinishTool
-from miniagent.tools.ask import AskUserTool
-from miniagent.tools.fanout import FanoutTool
-from miniagent.tools.find_skills import FindSkillsTool, ProposeSkillsTool
-from miniagent.tools.plan import Plan, PresentPlanTool, UpdatePlanTool
-from miniagent.tools.fetch_url import FetchUrlTool
-from miniagent.tools.web_research import WebResearchTool
-from miniagent.tools.web_search import WebSearchTool
+from miniagent.tools.plan import Plan
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
 
@@ -92,60 +78,6 @@ def title_snippet(text: str, limit: int = TITLE_SNIPPET_CHARS) -> str:
         return line
     cut = line[:limit].rsplit(" ", 1)[0]
     return cut.rstrip(" ,.;:-") + "…"
-
-
-def _build_agent(
-    settings: Settings,
-    repo: str | None,
-    branch: str | None,
-    memory: MemoryStore | None,
-) -> Agent:
-    llm = LLM(
-        model=settings.model,
-        temperature=settings.temperature,
-        max_tokens=settings.max_tokens,
-    )
-    policy = PolicyClassifier(
-        LLM(
-            model=settings.policy_model,
-            temperature=0.0,
-            max_tokens=1024,
-        )
-    )
-    tool_list: list = [
-        BashTool(),
-        FileEditTool(),
-        GrepTool(),
-        GlobTool(),
-        FinishTool(),
-        PresentPlanTool(),
-        UpdatePlanTool(),
-        AskUserTool(),
-        FanoutTool(llm, repo, branch, policy),
-        FindSkillsTool(),
-        ProposeSkillsTool(),
-    ]
-    if settings.tavily_api_key:
-        web_search = WebSearchTool(settings.tavily_api_key)
-        fetch_url = FetchUrlTool()
-        tool_list.extend(
-            [
-                web_search,
-                fetch_url,
-                WebResearchTool(llm, web_search, fetch_url),
-            ]
-        )
-    if memory is not None:
-        tool_list.append(MemoryTool(memory))
-    tools = ToolRegistry(tool_list)
-    return Agent(
-        llm=llm,
-        tools=tools,
-        repo=repo,
-        branch=branch,
-        policy=policy,
-        memory=memory,
-    )
 
 
 @dataclass(frozen=True)
@@ -568,8 +500,15 @@ class ConversationManager:
             else None
         )
         conversation = Conversation(
-            agent=_build_agent(self._settings, repo, branch, memory),
+            agent=build_agent(
+                self._settings,
+                preset="interactive",
+                repo=repo,
+                branch=branch,
+                memory=memory,
+            ),
             sandbox=sandbox,
+            max_iterations=self._settings.max_iterations,
             confirm_policy=ConfirmPolicy(confirm_mode),
             id=cid,
         )

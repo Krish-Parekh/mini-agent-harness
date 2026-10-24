@@ -17,6 +17,7 @@ from tenacity import (
     wait_random_exponential,
 )
 
+from miniagent.config import ReasoningEffort
 from miniagent.tools.base import Tool, to_openai_schema
 from miniagent.tracing import generation_attributes, usage_details
 
@@ -99,6 +100,7 @@ class LLM:
         max_tokens: int = 4096,
         num_retries: int = 4,
         backoff: float = 1.0,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> None:
         self.model = model
         self.api_key = api_key
@@ -106,6 +108,7 @@ class LLM:
         self.max_tokens = max_tokens
         self.num_retries = num_retries
         self.backoff = backoff
+        self.reasoning_effort = reasoning_effort
 
     @property
     def prompt_caching(self) -> bool:
@@ -211,6 +214,8 @@ class LLM:
             kwargs["temperature"] = self.temperature
         if self.api_key:
             kwargs["api_key"] = self.api_key
+        if self.reasoning_effort:
+            kwargs["reasoning_effort"] = self.reasoning_effort
         return kwargs
 
     def _call_with_retry(self, kwargs: dict[str, Any]) -> ModelResponse:
