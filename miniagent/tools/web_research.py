@@ -65,6 +65,7 @@ class WebResearchTool(Tool):
     )
     action_type = WebResearchAction
     observation_type = WebResearchObservation
+    uses_conversation = True
 
     def __init__(
         self,

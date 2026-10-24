@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from miniagent.agent import Agent
+from miniagent.agent import SKETCH_COMMAND, Agent
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation, Status
 from miniagent.events import ErrorEvent, ObservationEvent
@@ -8,8 +8,8 @@ from miniagent.llm import LLMResponse, ToolCall
 from miniagent.policy import CommandPolicy
 from miniagent.sandbox.base import CommandResult, Sandbox, SandboxError, SandboxExpired
 from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.terminal import TerminalTool
 
 
 class ScriptedLLM:
@@ -27,7 +27,7 @@ class ScriptedLLM:
     def complete(self, messages, tools=None, phase="agent"):
         self.calls += 1
         return LLMResponse(
-            tool_calls=[ToolCall(id=f"c{self.calls}", name="bash", arguments={"command": "echo hi"})]
+            tool_calls=[ToolCall(id=f"c{self.calls}", name="terminal", arguments={"command": "echo hi"})]
         )
 
 
@@ -49,7 +49,7 @@ class FailingSandbox(Sandbox):
         self.error = error
 
     def run_command(self, command, timeout=30, env=None):
-        if command == "echo hi":
+        if command != SKETCH_COMMAND:
             raise self.error
         return CommandResult(stdout="", stderr="", exit_code=1)
 
@@ -63,7 +63,7 @@ def _run(error: SandboxError) -> tuple[Conversation, ScriptedLLM]:
     llm = ScriptedLLM()
     agent = Agent(
         llm=llm,
-        tools=ToolRegistry([BashTool(), FinishTool()]),
+        tools=ToolRegistry([TerminalTool(), FinishTool()]),
         policy=SafePolicy(),
     )
     conversation = Conversation(

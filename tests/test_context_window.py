@@ -12,9 +12,9 @@ from miniagent.events import (
 from miniagent.llm import LLM
 from miniagent.sandbox.local import LocalSandbox
 from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.mcp import McpTool
+from miniagent.tools.terminal import TerminalTool
 
 
 def _conversation(tmp_path) -> Conversation:
@@ -28,7 +28,7 @@ def _conversation(tmp_path) -> Conversation:
     )
     agent = Agent(
         llm=LLM(model="anthropic/claude-sonnet-5-5"),
-        tools=ToolRegistry([BashTool(), FinishTool(), tracker]),
+        tools=ToolRegistry([TerminalTool(), FinishTool(), tracker]),
         policy=object(),
     )
     agent.skills_block = "- review: check the diff before finishing"

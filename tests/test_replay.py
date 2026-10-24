@@ -12,27 +12,37 @@ from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier
 from miniagent.sandbox.local import LocalSandbox
 from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.search import GlobTool, GrepTool
+from miniagent.tools.terminal import TerminalTool
 from tests.replay import cassette  # noqa: F401
 
 MODEL = "anthropic/claude-haiku-5-5"
 
 
-def _conversation(workspace, confirm: str = "never") -> Conversation:
-    agent = Agent(
-        llm=LLM(model=MODEL, max_tokens=4096),
-        tools=ToolRegistry([BashTool(), FileEditTool(), GrepTool(), GlobTool(), FinishTool()]),
-        policy=PolicyClassifier(LLM(model=MODEL, temperature=0.0, max_tokens=1024)),
-    )
-    return Conversation(
-        agent=agent,
-        sandbox=LocalSandbox(str(workspace)),
-        confirm_policy=ConfirmPolicy(confirm),
-        stuck_detection=False,
-    )
+@pytest.fixture
+def conversation_in():
+    built: list[Conversation] = []
+
+    def build(workspace, confirm: str = "never") -> Conversation:
+        agent = Agent(
+            llm=LLM(model=MODEL, max_tokens=4096),
+            tools=ToolRegistry([TerminalTool(), FileEditTool(), GrepTool(), GlobTool(), FinishTool()]),
+            policy=PolicyClassifier(LLM(model=MODEL, temperature=0.0, max_tokens=1024)),
+        )
+        conversation = Conversation(
+            agent=agent,
+            sandbox=LocalSandbox(str(workspace)),
+            confirm_policy=ConfirmPolicy(confirm),
+            stuck_detection=False,
+        )
+        built.append(conversation)
+        return conversation
+
+    yield build
+    for conversation in built:
+        conversation.agent.close()
 
 
 def _repo(tmp_path):
@@ -57,8 +67,8 @@ def _final_text(conversation: Conversation) -> str:
     return " ".join([*finishes, *replies])
 
 
-def test_read_and_answer(tmp_path, cassette):  # noqa: F811
-    conversation = _conversation(_repo(tmp_path))
+def test_read_and_answer(tmp_path, cassette, conversation_in):  # noqa: F811
+    conversation = conversation_in(_repo(tmp_path))
     conversation.send_message(
         "What is RETRY_LIMIT set to in this repository? Do not change any files. Answer, then finish."
     )
@@ -67,8 +77,8 @@ def test_read_and_answer(tmp_path, cassette):  # noqa: F811
     assert (tmp_path / "config.py").read_text() == "RETRY_LIMIT = 7\nTIMEOUT_S = 30\n"
 
 
-def test_edit_and_verify(tmp_path, cassette):  # noqa: F811
-    conversation = _conversation(_repo(tmp_path))
+def test_edit_and_verify(tmp_path, cassette, conversation_in):  # noqa: F811
+    conversation = conversation_in(_repo(tmp_path))
     conversation.send_message(
         "The test in test_greet.py fails. Fix greet.py so it passes, run "
         "`python -m pytest -q test_greet.py` to verify, then finish."
@@ -78,13 +88,15 @@ def test_edit_and_verify(tmp_path, cassette):  # noqa: F811
     commands = [
         e.arguments.get("command", "")
         for e in conversation.events
-        if isinstance(e, ActionEvent) and e.tool_name == "bash"
+        if isinstance(e, ActionEvent) and e.tool_name == "terminal"
     ]
     assert any("pytest" in command for command in commands)
 
 
-def test_a_destructive_command_waits_for_approval(tmp_path, cassette):  # noqa: F811
-    conversation = _conversation(_repo(tmp_path), confirm="risky")
+def test_a_destructive_command_waits_for_approval(
+    tmp_path, cassette, conversation_in  # noqa: F811
+):
+    conversation = conversation_in(_repo(tmp_path), confirm="risky")
     conversation.send_message("Delete the build directory with `rm -rf build`, then finish.")
     conversation.run()
     assert conversation.status == Status.WAITING_FOR_CONFIRMATION

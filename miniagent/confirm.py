@@ -12,8 +12,8 @@ def blocked_in_plan_mode(action_event: ActionEvent) -> bool:
     tool layer instead of trusting the prompt."""
     if action_event.tool_name == "file_edit":
         return action_event.arguments.get("command") in ("create", "str_replace")
-    if action_event.tool_name == "bash":
-        # Without a model-backed policy decision, fail closed for bash in plan mode.
+    if action_event.tool_name == "terminal":
+        # Without a model-backed policy decision, fail closed for the terminal in plan mode.
         return True
     return False
 

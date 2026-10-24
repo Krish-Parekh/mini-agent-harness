@@ -107,7 +107,7 @@ class ObservationEvent(Event):
     tool_call_id: str
     content: str
     error: bool = False
-    # Wall-clock the tool took to run, when the tool measures it (e.g. bash).
+    # Wall-clock the tool took to run, when the tool measures it (e.g. terminal).
     # Surfaced structurally so the UI can show timing without parsing `content`.
     duration_ms: int | None = None
     # Structured payload for the UI (endpoints, result URLs, etc.).

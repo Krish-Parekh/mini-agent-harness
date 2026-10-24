@@ -14,8 +14,8 @@ from miniagent.events import (
 )
 from miniagent.llm import ContextOverflow, LLMResponse
 from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.terminal import TerminalTool
 from tests.test_agent_history import EchoSandbox
 from tests.test_sandbox_failures import SafePolicy
 
@@ -47,7 +47,7 @@ class WindowLLM:
 def _conversation(llm) -> Conversation:
     agent = Agent(
         llm=llm,
-        tools=ToolRegistry([BashTool(), FinishTool()]),
+        tools=ToolRegistry([TerminalTool(), FinishTool()]),
         policy=SafePolicy(),
     )
     return Conversation(
@@ -62,10 +62,10 @@ def _history(conversation: Conversation, turns: int, output_chars: int) -> None:
     for i in range(turns):
         conversation.add_event(MessageEvent(role="user", text=f"task {i}"))
         conversation.add_event(
-            ActionEvent(tool_name="bash", arguments={"command": f"cmd {i}"}, tool_call_id=f"c{i}")
+            ActionEvent(tool_name="terminal", arguments={"command": f"cmd {i}"}, tool_call_id=f"c{i}")
         )
         conversation.add_event(
-            ObservationEvent(tool_name="bash", tool_call_id=f"c{i}", content="x" * output_chars)
+            ObservationEvent(tool_name="terminal", tool_call_id=f"c{i}", content="x" * output_chars)
         )
         conversation.add_event(MessageEvent(role="assistant", text=f"done {i}"))
 
@@ -148,7 +148,7 @@ def _pruned_step_messages(observation: ObservationEvent) -> list[dict]:
     conversation = _conversation(llm)
     conversation.add_event(MessageEvent(role="user", text="look"))
     conversation.add_event(
-        ActionEvent(tool_name="bash", arguments={"command": "cat log"}, tool_call_id="c1")
+        ActionEvent(tool_name="terminal", arguments={"command": "cat log"}, tool_call_id="c1")
     )
     conversation.add_event(observation)
     conversation.add_event(
@@ -169,7 +169,7 @@ def _pruned_step_messages(observation: ObservationEvent) -> list[dict]:
 def test_pruned_output_keeps_head_and_tail_and_names_the_spill_file():
     content = "H" * 3_000 + "M" * 2_000 + "T" * 1_200
     observation = ObservationEvent(
-        tool_name="bash",
+        tool_name="terminal",
         tool_call_id="c1",
         content=content,
         details={"spill_path": ".miniagent/outputs/c1.txt", "full_chars": 20_000},

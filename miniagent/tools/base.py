@@ -13,9 +13,13 @@ class Tool(ABC):
     action_type: type[Action]
     observation_type: type[Observation]
     parameters_schema: dict[str, Any] | None = None
+    uses_conversation: bool = False
 
     @abstractmethod
     def execute(self, action: Action, sandbox: Sandbox) -> Observation: ...
+
+    def close(self) -> None:
+        pass
 
 
 def to_openai_schema(tool: Tool) -> dict[str, Any]:

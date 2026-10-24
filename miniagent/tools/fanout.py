@@ -15,10 +15,15 @@ from miniagent.policy import PolicyClassifier, PolicyProvider
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
 from miniagent.tools.base import Tool, ToolRegistry
-from miniagent.tools.bash import BashAction, BashObservation, BashTool
 from miniagent.tools.file_edit import FileEditAction, FileEditObservation, FileEditTool
 from miniagent.tools.finish import FinishTool
 from miniagent.tools.search import GlobTool, GrepTool
+from miniagent.tools.terminal import (
+    TerminalAction,
+    TerminalObservation,
+    TerminalTool,
+    shell_command,
+)
 from miniagent.tracing import bind_context
 
 if TYPE_CHECKING:
@@ -63,21 +68,31 @@ class FanoutObservation(Observation):
         return "\n".join(lines)
 
 
-class ReadOnlyBashTool(BashTool):
-    description = BashTool.description + " This worker instance rejects mutating commands."
+class ReadOnlyTerminalTool(TerminalTool):
+    description = TerminalTool.description + " This worker instance rejects mutating commands."
 
     def __init__(self, policy: PolicyProvider) -> None:
+        super().__init__()
         self.policy = policy
 
-    def execute(self, action: BashAction, sandbox: Sandbox) -> BashObservation:
-        if not self.policy.classify_bash(action.command).read_only:
-            return BashObservation(
-                stdout="",
-                stderr="Read-only worker rejected a mutating command.",
-                exit_code=1,
+    def execute(
+        self,
+        action: TerminalAction,
+        sandbox: Sandbox,
+        *,
+        conversation: Conversation,
+        tool_call_id: str | None = None,
+    ) -> TerminalObservation:
+        command = shell_command(action.model_dump())
+        if command is not None and not self.policy.classify_bash(command).read_only:
+            return TerminalObservation(
+                command=command,
+                output="Read-only worker rejected a mutating command.",
                 error=True,
             )
-        return super().execute(action, sandbox)
+        return super().execute(
+            action, sandbox, conversation=conversation, tool_call_id=tool_call_id
+        )
 
 
 class ReadOnlyFileEditTool(FileEditTool):
@@ -93,7 +108,7 @@ class ReadOnlyFileEditTool(FileEditTool):
 
 
 def _describe_worker_activity(event: ActionEvent) -> str | None:
-    if event.tool_name == "bash":
+    if event.tool_name == "terminal":
         command = str(event.arguments.get("command", "")).strip()
         if not command:
             return "Running shell command"
@@ -118,6 +133,7 @@ class FanoutTool(Tool):
     )
     action_type = FanoutAction
     observation_type = FanoutObservation
+    uses_conversation = True
 
     def __init__(
         self,
@@ -244,10 +260,12 @@ class FanoutTool(Tool):
                 status="error",
                 summary=str(exc),
             )
+        finally:
+            agent.close()
 
     def _worker_tools(self) -> ToolRegistry:
         tools: list[Tool] = [
-            ReadOnlyBashTool(self.policy),
+            ReadOnlyTerminalTool(self.policy),
             ReadOnlyFileEditTool(),
             GrepTool(),
             GlobTool(),

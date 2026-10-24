@@ -568,6 +568,7 @@ class ConversationService:
         if managed is not None:
             managed.conversation.set_finished()
             await asyncio.to_thread(managed.close_mcp)
+            await asyncio.to_thread(managed.conversation.agent.close)
             await asyncio.to_thread(managed.sandbox.close)
         elif row is not None:
             await asyncio.to_thread(

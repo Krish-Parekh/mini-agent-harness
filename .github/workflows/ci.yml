@@ -30,7 +30,7 @@ jobs:
       TEST_DATABASE_URL: postgresql+psycopg://miniagent:miniagent@localhost:5432/miniagent
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ripgrep
+      - run: sudo apt-get update && sudo apt-get install -y ripgrep tmux
       - run: git config --global user.name ci && git config --global user.email ci@example.com
       - uses: astral-sh/setup-uv@v6
         with:

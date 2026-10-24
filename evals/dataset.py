@@ -8,8 +8,8 @@ from evals.metrics import JUDGE
 SAGE = {"repo": "Sage", "commit": "e4ce315caf173f72e87e62e8c03cf30be8b23ffb"}
 HARNESS = {"repo": "mini-agent-harness", "commit": "cf064b3f2d90a97762d291f4b43f240e09b70afb"}
 READ_ONLY = "Modify, create or delete files in the repository"
-READ_TOOLS = [ToolCall(name="bash"), ToolCall(name="finish")]
-EDIT_TOOLS = [ToolCall(name="file_edit"), ToolCall(name="bash"), ToolCall(name="finish")]
+READ_TOOLS = [ToolCall(name="terminal"), ToolCall(name="finish")]
+EDIT_TOOLS = [ToolCall(name="file_edit"), ToolCall(name="terminal"), ToolCall(name="finish")]
 
 
 def _expect(must: list[str], must_not: list[str]) -> Expectations:
@@ -92,7 +92,7 @@ AGENT_GOLDENS = [
     Golden(
         name="q-sage-summary-table",
         input=(
-            "Do not modify any files. Read the README and two core source files, run one bash command "
+            "Do not modify any files. Read the README and two core source files, run one terminal command "
             "counting lines per language, then write a detailed markdown summary with a table and two "
             "fenced code snippets."
         ),

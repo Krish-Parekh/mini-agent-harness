@@ -72,10 +72,10 @@ class FileEditTool(Tool):
         "must match the raw file bytes exactly (copy from view output, never "
         "include line-number prefixes) and appear exactly once, so include "
         "enough surrounding context to be unique. Edit only files you have viewed "
-        "with command='view' in this conversation; reading a file with bash "
+        "with command='view' in this conversation; reading a file in the terminal "
         "(cat, sed, head) does not count. If a file changed since your last view, "
         "view it again before editing. Change files only with this tool, never "
-        "with bash scripts, sed -i or redirects."
+        "with scripts, sed -i or redirects in the terminal."
     )
     action_type = FileEditAction
     observation_type = FileEditObservation

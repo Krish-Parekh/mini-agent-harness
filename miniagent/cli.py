@@ -46,7 +46,10 @@ def main() -> int:
         confirm_policy=ConfirmPolicy("never"),
     )
     conversation.send_message(args.task)
-    conversation.run()
+    try:
+        conversation.run()
+    finally:
+        conversation.agent.close()
     print(_final_answer(conversation.events))
     return 0 if conversation.status == Status.FINISHED else 1
 
