@@ -41,6 +41,7 @@ from backend.runtime.workspaces import BRANCH_PREFIX
 from backend.schemas import (
     AttachmentIn,
     ChangedFile,
+    ChangeSide,
     ContextChanges,
     ContextCounts,
     ContextError,
@@ -753,6 +754,15 @@ class ConversationService:
     def file_content(self, managed: ManagedConversation, path: str) -> FileContent:
         return changes.file_content(managed.sandbox, path)
 
+    def file_bytes(self, managed: ManagedConversation, path: str) -> bytes:
+        return changes.file_bytes(managed.sandbox, path)
+
+    def change_bytes(
+        self, managed: ManagedConversation, path: str, scope: str, side: ChangeSide
+    ) -> bytes:
+        base, *head = self._revs(managed, scope).split()
+        rev = base if side == "before" else (head[0] if head else None)
+        return changes.file_bytes(managed.sandbox, path, rev)
 
     def _spawn(self, coro) -> None:
         task = asyncio.create_task(coro)

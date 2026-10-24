@@ -26,12 +26,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { langForPath } from "@/lib/lang";
+import { previewKindForPath } from "@/lib/preview";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { DiffViewer } from "@/components/bui/diff-viewer";
 import { CodeBlock } from "@/components/bui/code-block";
 import { FileTree } from "@/components/bui/file-tree";
+import { MediaChange, MediaPreview } from "@/components/media-preview";
 import { GlideMenu } from "@/components/bui/glide-menu";
 import { LoadingState } from "@/components/bui/loading-state";
 import { Pill } from "@/components/bui/button";
@@ -277,7 +279,8 @@ function FileDetail({
   onBack: () => void;
 }) {
   const [view, setView] = useState<View>("diff");
-  const canToggle = changed !== undefined && changed.status !== "deleted";
+  const kind = previewKindForPath(path);
+  const canToggle = !kind && changed !== undefined && changed.status !== "deleted";
   const mode: View = !changed ? "code" : canToggle ? view : "diff";
 
   return (
@@ -295,7 +298,25 @@ function FileDetail({
         )}
       </DetailHeader>
       <ScrollArea className="min-h-0 flex-1">
-        {mode === "diff" ? (
+        {kind && changed ? (
+          <MediaChange
+            kind={kind}
+            conversationId={conversationId}
+            path={path}
+            status={changed.status}
+            scope={scope}
+            revision={revision}
+          />
+        ) : kind ? (
+          <div className="flex flex-col items-start p-3">
+            <MediaPreview
+              kind={kind}
+              conversationId={conversationId}
+              path={path}
+              revision={revision}
+            />
+          </div>
+        ) : mode === "diff" ? (
           <FileDiffView
             conversationId={conversationId}
             path={path}

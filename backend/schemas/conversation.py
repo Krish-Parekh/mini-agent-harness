@@ -124,6 +124,9 @@ class ChangedFile(BaseModel):
     status: Literal["added", "modified", "deleted"]
 
 
+ChangeSide = Literal["before", "after"]
+
+
 class FileDiff(BaseModel):
     path: str
     patch: str

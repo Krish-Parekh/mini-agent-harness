@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import mimetypes
 from collections.abc import AsyncIterable, Callable
 from typing import Annotated, TypeVar
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from backend.api.deps import (
@@ -19,10 +20,12 @@ from backend.api.deps import (
 )
 from backend.api.streaming import stream_conversation
 from backend.runtime.attachments import AttachmentError
+from backend.runtime.changes import MAX_PREVIEW_BYTES, PreviewTooLarge
 from backend.runtime.checkpoints import CheckpointError
 from backend.schemas import (
     AttachmentIn,
     ChangedFile,
+    ChangeSide,
     ConfirmRequest,
     ConversationContext,
     ConversationInfo,
@@ -54,6 +57,23 @@ async def _in_sandbox(fn: Callable[..., T], *args) -> T:
         raise HTTPException(status_code=503, detail="sandbox_unavailable") from exc
     except CheckpointError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+async def _raw(path: str, fn: Callable[..., bytes], *args) -> Response:
+    try:
+        content = await _in_sandbox(fn, *args)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="file not found") from exc
+    except PreviewTooLarge as exc:
+        raise HTTPException(
+            status_code=413,
+            detail=f"This file is over {MAX_PREVIEW_BYTES // (1024 * 1024)} MB, too large to preview.",
+        ) from exc
+    return Response(
+        content,
+        media_type=mimetypes.guess_type(path)[0] or "application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+    )
 
 
 @router.post("/conversations", response_model=ConversationInfo)
@@ -149,6 +169,17 @@ async def get_file_diff(
     return await _in_sandbox(service.file_diff, managed, path, scope)
 
 
+@router.get("/conversations/{cid}/changes/raw", response_class=Response)
+async def get_change_raw(
+    managed: ManagedDep,
+    path: str,
+    side: ChangeSide,
+    service: ServiceDep,
+    scope: str = "all",
+):
+    return await _raw(path, service.change_bytes, managed, path, scope, side)
+
+
 @router.get("/conversations/{cid}/turns", response_model=list[TurnInfo])
 async def get_turns(managed: ManagedDep, service: ServiceDep):
     return await _in_sandbox(service.turns, managed)
@@ -162,6 +193,11 @@ async def get_files(managed: ManagedDep, service: ServiceDep):
 @router.get("/conversations/{cid}/files/content", response_model=FileContent)
 async def get_file_content(managed: ManagedDep, path: str, service: ServiceDep):
     return await _in_sandbox(service.file_content, managed, path)
+
+
+@router.get("/conversations/{cid}/files/raw", response_class=Response)
+async def get_file_raw(managed: ManagedDep, path: str, service: ServiceDep):
+    return await _raw(path, service.file_bytes, managed, path)
 
 
 @router.post("/conversations/{cid}/messages", response_model=ConversationInfo)

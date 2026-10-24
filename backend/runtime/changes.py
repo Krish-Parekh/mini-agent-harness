@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import shlex
 
 from backend.schemas import ChangedFile, FileContent, FileDiff
@@ -7,6 +8,9 @@ from miniagent.sandbox.base import Sandbox
 
 _STATUS = {"A": "added", "M": "modified", "D": "deleted"}
 MAX_PATCH_CHARS = 200_000
+MAX_PREVIEW_BYTES = 25 * 1024 * 1024
+_MISSING_EXIT_CODE = 44
+_TOO_LARGE_EXIT_CODE = 45
 
 _EXCLUDE_DIRS = ("node_modules", ".next", "dist", "build", ".venv", "__pycache__")
 _EXCLUDE = " ".join(
@@ -76,11 +80,41 @@ def list_files(sandbox: Sandbox) -> list[str]:
     return sorted(line for line in out.splitlines() if line)
 
 
+class PreviewTooLarge(Exception):
+    pass
+
+
+def _outside_checkout(path: str) -> bool:
+    return path.startswith("/") or ".." in path.split("/")
+
+
 def file_content(sandbox: Sandbox, path: str) -> FileContent:
-    if path.startswith("/") or ".." in path.split("/"):
+    if _outside_checkout(path):
         return FileContent(path=path, content="")
     try:
         content = sandbox.read_file(path)
     except Exception:
         content = ""
     return FileContent(path=path, content=content)
+
+
+def file_bytes(sandbox: Sandbox, path: str, rev: str | None = None) -> bytes:
+    if _outside_checkout(path):
+        raise FileNotFoundError(path)
+    if rev:
+        spec = shlex.quote(f"{rev}:{path}")
+        size, read = f"git cat-file -s {spec}", f"git cat-file blob {spec}"
+    else:
+        target = shlex.quote(path)
+        size, read = f"wc -c < {target}", f"cat {target}"
+    result = sandbox.run_command(
+        f"size=$({size} 2>/dev/null) || exit {_MISSING_EXIT_CODE}\n"
+        f"[ $size -le {MAX_PREVIEW_BYTES} ] || exit {_TOO_LARGE_EXIT_CODE}\n"
+        f"{read} | base64",
+        timeout=120,
+    )
+    if result.exit_code == _TOO_LARGE_EXIT_CODE:
+        raise PreviewTooLarge(path)
+    if result.exit_code != 0:
+        raise FileNotFoundError(path)
+    return base64.b64decode("".join(result.stdout.split()))

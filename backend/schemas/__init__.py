@@ -2,6 +2,7 @@ from backend.schemas.auth import AuthState, GitHubConnection, SyncRequest, UserO
 from backend.schemas.conversation import (
     AttachmentIn,
     ChangedFile,
+    ChangeSide,
     ConfirmRequest,
     ContextChanges,
     ContextCounts,
@@ -28,6 +29,7 @@ __all__ = [
     "AttachmentIn",
     "AuthState",
     "ChangedFile",
+    "ChangeSide",
     "ConfirmRequest",
     "ContextChanges",
     "ContextCounts",

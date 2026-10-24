@@ -217,6 +217,8 @@ export type EnabledItem = {
 
 export type FileDiff = { path: string; patch: string; truncated?: boolean };
 
+export type ChangeSide = "before" | "after";
+
 export type TurnInfo = { id: string; text: string };
 
 export type FileContent = { path: string; content: string };
@@ -245,11 +247,21 @@ export class ApiError extends Error {
 
 const jsonHeaders = { "content-type": "application/json" };
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = await accessToken();
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  return json<T>(await fetch(`${API}${path}`, { ...init, headers }));
+  return fetch(`${API}${path}`, { ...init, headers });
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return json<T>(await authedFetch(path, init));
+}
+
+async function requestBlob(path: string): Promise<Blob> {
+  const res = await authedFetch(path);
+  if (!res.ok) throw new ApiError(res.status, await readDetail(res));
+  return res.blob();
 }
 
 const post = <T>(path: string, body?: unknown) =>
@@ -451,6 +463,11 @@ export const api = {
       `/conversations/${id}/changes/diff?path=${encodeURIComponent(path)}&scope=${encodeURIComponent(scope)}`,
     ),
 
+  changeBlob: (id: string, path: string, scope: string, side: ChangeSide) =>
+    requestBlob(
+      `/conversations/${id}/changes/raw?path=${encodeURIComponent(path)}&scope=${encodeURIComponent(scope)}&side=${side}`,
+    ),
+
   turns: (id: string) => request<TurnInfo[]>(`/conversations/${id}/turns`),
 
   files: (id: string) => request<string[]>(`/conversations/${id}/files`),
@@ -459,6 +476,9 @@ export const api = {
     request<FileContent>(
       `/conversations/${id}/files/content?path=${encodeURIComponent(path)}`,
     ),
+
+  fileBlob: (id: string, path: string) =>
+    requestBlob(`/conversations/${id}/files/raw?path=${encodeURIComponent(path)}`),
 
   eventStream: (id: string, lastEventId: string | null, signal: AbortSignal) =>
     readEventStream(`/conversations/${id}/events/stream`, lastEventId, signal),
