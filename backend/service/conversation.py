@@ -352,7 +352,7 @@ class ConversationService:
         text: str,
         model: str | None = None,
         plan_mode: bool = False,
-        permission_mode: PermissionMode = "auto",
+        permission_mode: PermissionMode | None = None,
         client_event_id: str | None = None,
         attachments: list[Attachment] | None = None,
         storage_token: str | None = None,
@@ -378,7 +378,8 @@ class ConversationService:
             return
         if model:
             managed.set_model(model)
-        conv.confirm_policy.mode = permission_mode
+        if permission_mode is not None:
+            conv.confirm_policy.mode = permission_mode
         if running:
             conv.plan_mode = plan_mode
             conv.steer(text, client_event_id=client_event_id, attachments=attachments)
@@ -417,7 +418,8 @@ class ConversationService:
         self._publish_queue(managed)
         if queued.model:
             managed.set_model(queued.model)
-        conv.confirm_policy.mode = queued.permission_mode
+        if queued.permission_mode is not None:
+            conv.confirm_policy.mode = queued.permission_mode
         conv.send_message(
             queued.text,
             plan_mode=queued.plan_mode,

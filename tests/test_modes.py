@@ -250,6 +250,17 @@ async def test_a_mode_change_during_a_run_applies_to_the_next_action(stack):
     assert not (stack.workspace / "second.md").exists()
 
 
+async def test_a_message_without_a_permission_mode_keeps_the_current_one(stack):
+    cid = await _start(stack, ScriptLLM(LLMResponse(text="Done.")))
+    await stack.client.patch(
+        f"/conversations/{cid}", json={"permission_mode": "ask"}, headers=AUTH
+    )
+
+    await _send(stack, cid, "hello")
+
+    assert (await _info(stack, cid))["permission_mode"] == "ask"
+
+
 async def test_a_steered_message_switches_plan_mode_mid_run(stack):
     def steer():
         return stack.client.post(

@@ -107,8 +107,8 @@ curl -s -X POST "$BASE/conversations/$CID/messages" \
 ```
 
 Body (`SendMessageRequest`): `text` (required), `model` (optional string),
-`plan_mode` (bool, default `false`), `permission_mode` (default `"auto"`).
-Every message sets both modes, steered and queued ones included. Returns
+`plan_mode` (bool, default `false`), `permission_mode` (optional; omitted keeps
+the conversation's current mode). Steered and queued messages carry both. Returns
 **409** if the conversation is `waiting_for_confirmation`; use `/confirm`
 instead.
 

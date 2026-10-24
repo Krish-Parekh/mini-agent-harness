@@ -76,7 +76,7 @@ class SendMessageRequest(BaseModel):
     text: str
     model: str | None = None
     plan_mode: bool = False
-    permission_mode: PermissionMode = "auto"
+    permission_mode: PermissionMode | None = None
     client_event_id: str | None = None
     attachments: list[AttachmentIn] = Field(default=[], max_length=MAX_ATTACHMENTS)
     mode: Literal["steer", "queue"] = "steer"

@@ -94,7 +94,7 @@ class QueuedMessage:
     model: str | None
     client_event_id: str | None
     plan_mode: bool
-    permission_mode: PermissionMode
+    permission_mode: PermissionMode | None
 
 
 class EventBroker:
