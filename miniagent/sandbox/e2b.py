@@ -56,25 +56,25 @@ class E2BSandbox(ShellSandbox):
             raise SandboxError(f"e2b command failed: {exc}") from exc
         return RawResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.exit_code)
 
-    def write_file(self, path: str, content: str) -> None:
+    def write_file(self, path: str, content: str, workdir: str | None = None) -> None:
         self.ensure_open()
-        self._sbx.files.write(self._abs(path), content)
+        self._sbx.files.write(self._abs(path, workdir), content)
 
-    def read_file(self, path: str) -> str:
+    def read_file(self, path: str, workdir: str | None = None) -> str:
         import e2b
 
         self.ensure_open()
         try:
-            return self._sbx.files.read(self._abs(path))
+            return self._sbx.files.read(self._abs(path, workdir))
         except (e2b.FileNotFoundException, e2b.NotFoundException) as exc:
             raise FileNotFoundError(path) from exc
 
-    def list_files(self, path: str) -> list[str]:
+    def list_files(self, path: str, workdir: str | None = None) -> list[str]:
         import e2b
 
         self.ensure_open()
         try:
-            entries = self._sbx.files.list(self._abs(path), depth=1)
+            entries = self._sbx.files.list(self._abs(path, workdir), depth=1)
         except (e2b.FileNotFoundException, e2b.NotFoundException):
             return []
         return sorted(entry.name for entry in entries)

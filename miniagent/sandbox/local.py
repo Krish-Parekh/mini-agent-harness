@@ -33,14 +33,15 @@ class LocalSandbox(Sandbox):
         self._killed: set[subprocess.Popen] = set()
         self._lock = threading.Lock()
 
-    def _resolve(self, path: str) -> Path:
-        p = Path(path)
-        if p.is_absolute():
-            return p
-        return Path(self.workspace_dir).joinpath(p)
+    def _resolve(self, path: str, workdir: str | None = None) -> Path:
+        return Path(self.workspace_dir).joinpath(workdir or "", path)
 
     def run_command(
-        self, command: str, timeout: int = 30, env: dict[str, str] | None = None
+        self,
+        command: str,
+        timeout: int = 30,
+        env: dict[str, str] | None = None,
+        workdir: str | None = None,
     ) -> CommandResult:
         start = time.perf_counter()
         proc_env = {**os.environ, **env} if env else None
@@ -52,7 +53,7 @@ class LocalSandbox(Sandbox):
         proc = subprocess.Popen(
             command,
             shell=True,
-            cwd=self.workspace_dir,
+            cwd=self._resolve(".", workdir),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -95,16 +96,16 @@ class LocalSandbox(Sandbox):
         for proc in procs:
             _kill_group(proc)
 
-    def write_file(self, path: str, content: str) -> None:
-        target = self._resolve(path)
+    def write_file(self, path: str, content: str, workdir: str | None = None) -> None:
+        target = self._resolve(path, workdir)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
 
-    def read_file(self, path: str) -> str:
-        return self._resolve(path).read_text()
+    def read_file(self, path: str, workdir: str | None = None) -> str:
+        return self._resolve(path, workdir).read_text()
 
-    def list_files(self, path: str) -> list[str]:
-        target = self._resolve(path)
+    def list_files(self, path: str, workdir: str | None = None) -> list[str]:
+        target = self._resolve(path, workdir)
         if not target.exists():
             return []
         return sorted(p.name for p in target.iterdir())
