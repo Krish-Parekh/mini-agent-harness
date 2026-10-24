@@ -13,6 +13,7 @@ import {
   ApiError,
   type AttachmentRef,
   type Branch,
+  type ContextWindow,
   type ConversationContext,
   type ConversationInfo,
   type CreateConversationBody,
@@ -37,6 +38,7 @@ export const queryKeys = {
   conversations: ["conversations"] as const,
   conversation: (id: string) => ["conversation", id] as const,
   context: (id: string) => ["context", id] as const,
+  contextWindow: (id: string) => ["context-window", id] as const,
   events: (id: string) => ["events", id] as const,
   files: (id: string) => ["files", id] as const,
   turns: (id: string) => ["turns", id] as const,
@@ -180,6 +182,14 @@ export function useConversationContext(id: string, enabled = true) {
   return useQuery<ConversationContext>({
     queryKey: queryKeys.context(id),
     queryFn: () => api.context(id),
+    enabled,
+  });
+}
+
+export function useContextWindow(id: string, enabled = true) {
+  return useQuery<ContextWindow>({
+    queryKey: queryKeys.contextWindow(id),
+    queryFn: () => api.contextWindow(id),
     enabled,
   });
 }

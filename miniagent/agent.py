@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import logfire
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from miniagent.events import (
     ActionEvent,
@@ -46,6 +46,17 @@ if TYPE_CHECKING:
     from miniagent.sandbox.base import Sandbox
 
 ToolOutcome: TypeAlias = Literal["ok", "finished", "paused"]
+
+
+class ContextCategory(BaseModel):
+    name: str
+    tokens: int
+
+
+class ContextWindow(BaseModel):
+    used: int
+    limit: int
+    categories: list[ContextCategory]
 
 # Per-message ceiling sent to the LLM; long tool output is head+tail clipped.
 _MAX_MESSAGE_CHARS = 12_000
@@ -600,6 +611,15 @@ class Agent:
         return messages
 
     def _runtime_context(self, conversation: Conversation) -> str:
+        sections = self._mode_sections(conversation)
+        if skills := self._skills_section():
+            sections.append(skills)
+        sections.extend(self._mcp_sections())
+        body = "\n\n".join(sections)
+        return f"<runtime-context>\n{body}\n</runtime-context>"
+
+    @staticmethod
+    def _mode_sections(conversation: Conversation) -> list[str]:
         sections = [
             "Runtime context for this step, set by MiniAgent rather than typed by "
             "the user. It reflects the current mode and enabled extensions."
@@ -608,16 +628,70 @@ class Agent:
             sections.append(PLAN_MODE_DIRECTIVE.strip())
         elif conversation.implementing_plan:
             sections.append(IMPLEMENT_PLAN_DIRECTIVE.strip())
-        if self.skills_block:
-            sections.append(
-                "# Skills\nPlaybooks the user enabled for this project. "
-                "Before a task one applies to, load it with the `skill` tool and "
-                "follow it.\n" + self.skills_block
+        return sections
+
+    def _skills_section(self) -> str:
+        if not self.skills_block:
+            return ""
+        return (
+            "# Skills\nPlaybooks the user enabled for this project. "
+            "Before a task one applies to, load it with the `skill` tool and "
+            "follow it.\n" + self.skills_block
+        )
+
+    def _mcp_sections(self) -> list[str]:
+        return [
+            f"# MCP server: {server}\n{instructions}"
+            for server, instructions in sorted(self.mcp_instructions.items())
+        ]
+
+    def context_window(
+        self, conversation: Conversation, sandbox: Sandbox
+    ) -> ContextWindow:
+        tools = self.tools.all()
+        builtin = [tool for tool in tools if not isinstance(tool, McpTool)]
+        remote = [tool for tool in tools if isinstance(tool, McpTool)]
+        compacted = conversation.compacted_event_ids()
+
+        def text(*parts: str) -> int:
+            return sum(self.llm.count_text(part) for part in parts if part)
+
+        def schemas(selected: list) -> int:
+            return self.llm.count_tokens([], selected) if selected else 0
+
+        def history(kind: type[Event]) -> int:
+            return text(
+                *(
+                    message["content"]
+                    for event in conversation.events
+                    if isinstance(event, kind) and event.id not in compacted
+                    if (message := event.to_chat_message()) is not None
+                )
             )
-        for server, instructions in sorted(self.mcp_instructions.items()):
-            sections.append(f"# MCP server: {server}\n{instructions}")
-        body = "\n\n".join(sections)
-        return f"<runtime-context>\n{body}\n</runtime-context>"
+
+        measured = {
+            "System prompt": text(
+                self.system_prompt,
+                self._context_block(conversation, sandbox),
+                *self._mode_sections(conversation),
+            ),
+            "Tool definitions": schemas(builtin),
+            "Rules": history(RepoInstructionsEvent),
+            "Memory": history(MemoryIndexEvent),
+            "Skills": text(self._skills_section()),
+            "MCP tools": schemas(remote) + text(*self._mcp_sections()),
+            "Workspace": history(WorkspaceSketchEvent),
+        }
+        used = self.llm.count_tokens(self._build_messages(conversation, sandbox), tools)
+        measured["Conversation"] = used - sum(measured.values())
+        return ContextWindow(
+            used=used,
+            limit=self.llm.context_window(),
+            categories=[
+                ContextCategory(name=name, tokens=tokens)
+                for name, tokens in measured.items()
+            ],
+        )
 
     def _record_llm_usage(
         self, conversation: Conversation, response: LLMResponse, phase: str

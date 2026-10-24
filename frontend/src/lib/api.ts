@@ -153,6 +153,22 @@ export type ConversationContext = {
   counts: { events: number; user_turns: number };
 };
 
+export type ContextCategoryName =
+  | "System prompt"
+  | "Tool definitions"
+  | "Rules"
+  | "Memory"
+  | "Skills"
+  | "MCP tools"
+  | "Workspace"
+  | "Conversation";
+
+export type ContextWindow = {
+  used: number;
+  limit: number;
+  categories: { name: ContextCategoryName; tokens: number }[];
+};
+
 export type Skill = {
   id: string;
   name: string;
@@ -366,6 +382,9 @@ export const api = {
 
   context: (id: string) =>
     request<ConversationContext>(`/conversations/${id}/context`),
+
+  contextWindow: (id: string) =>
+    request<ContextWindow>(`/conversations/${id}/context/window`),
 
   skills: () => request<Skill[]>("/skills"),
 

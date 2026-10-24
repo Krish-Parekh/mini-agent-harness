@@ -34,6 +34,7 @@ from backend.schemas import (
     SendMessageRequest,
     TurnInfo,
 )
+from miniagent.agent import ContextWindow
 from miniagent.conversation import Status
 from miniagent.sandbox.factory import default_provider, provider_problem
 from miniagent.sandbox.base import SandboxError, SandboxExpired
@@ -129,6 +130,11 @@ async def get_events(managed: ManagedDep):
 @router.get("/conversations/{cid}/context", response_model=ConversationContext)
 async def get_context(managed: ManagedDep, service: ServiceDep):
     return await _in_sandbox(service.context, managed)
+
+
+@router.get("/conversations/{cid}/context/window", response_model=ContextWindow)
+async def get_context_window(managed: ManagedDep, service: ServiceDep):
+    return await asyncio.to_thread(service.context_window, managed)
 
 
 @router.get("/conversations/{cid}/changes", response_model=list[ChangedFile])

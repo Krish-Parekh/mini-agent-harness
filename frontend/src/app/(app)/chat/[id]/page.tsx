@@ -9,7 +9,12 @@ import Link from "next/link";
 import { api, type AttachmentRef } from "@/lib/api";
 import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
-import { queryKeys, useConversationContext, useTurns } from "@/lib/queries";
+import {
+  queryKeys,
+  useContextWindow,
+  useConversationContext,
+  useTurns,
+} from "@/lib/queries";
 import { useComposerText } from "@/hooks/use-composer-text";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
 import { useDelayedFlag } from "@/hooks/use-delayed-flag";
@@ -42,6 +47,7 @@ import {
   AttachmentDropZone,
   useComposerAttachments,
 } from "@/components/composer-attachments";
+import { ContextWindowMeter } from "@/components/context-window-meter";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
 import { SkillSlashTextarea } from "@/components/skill-slash-menu";
 import { AlertTriangleIcon, XIcon } from "lucide-react";
@@ -94,6 +100,7 @@ export default function ChatPage({
   const attachments = useComposerAttachments();
   const [model, setModel] = useState<string | null>(null);
   const { data: context } = useConversationContext(id, exists);
+  const { data: contextWindow } = useContextWindow(id, exists);
   const [modelFor, setModelFor] = useState(id);
   if (modelFor !== id) {
     setModelFor(id);
@@ -423,14 +430,17 @@ export default function ChatPage({
                     onChange={setModel}
                   />
                 </PromptBarTools>
-                <PromptBarSubmit
-                  status={busy ? "streaming" : status === "error" ? "error" : undefined}
-                  onStop={stop}
-                  disabled={
-                    attachments.uploading ||
-                    (!busy && !input.trim() && attachments.items.length === 0)
-                  }
-                />
+                <div className="flex items-center gap-1">
+                  {contextWindow && <ContextWindowMeter usage={contextWindow} />}
+                  <PromptBarSubmit
+                    status={busy ? "streaming" : status === "error" ? "error" : undefined}
+                    onStop={stop}
+                    disabled={
+                      attachments.uploading ||
+                      (!busy && !input.trim() && attachments.items.length === 0)
+                    }
+                  />
+                </div>
               </PromptBarFooter>
             </PromptBar>
           </AttachmentDropZone>

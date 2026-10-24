@@ -188,6 +188,12 @@ class LLM:
         except Exception:
             return 0
 
+    def count_text(self, text: str) -> int:
+        try:
+            return litellm.token_counter(model=self.model, text=text)
+        except Exception:
+            return 0
+
     def context_window(self) -> int:
         try:
             info = litellm.get_model_info(self.model)

@@ -25,6 +25,7 @@ from backend.repository import (
     SkillRepository,
 )
 from backend.service.extension import McpService, SkillService, render_skills
+from miniagent.agent import ContextWindow
 from miniagent.tracing import trace_attributes
 from backend.runtime import changes, checkpoints, pulls
 from fastmcp.mcp_config import MCPConfig
@@ -692,6 +693,11 @@ class ConversationService:
                 deletions=sum(f.deletions for f in files),
             ),
             counts=ContextCounts(events=len(events), user_turns=user_turns),
+        )
+
+    def context_window(self, managed: ManagedConversation) -> ContextWindow:
+        return managed.conversation.agent.context_window(
+            managed.conversation, managed.sandbox
         )
 
     def list_changes(self, managed: ManagedConversation, scope: str = "all") -> list[ChangedFile]:
