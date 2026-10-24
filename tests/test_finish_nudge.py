@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from miniagent.conversation import Status
-from miniagent.events import ActionEvent, MessageEvent
+from miniagent.events import ActionEvent, MessageEvent, ObservationEvent
 from miniagent.llm import LLMResponse, ToolCall
-from tests.test_agent_history import _conversation
+from tests.test_agent_history import _conversation, workspace_conversation  # noqa: F401
 
 
 class NudgeLLM:
@@ -63,21 +63,25 @@ def test_a_second_text_only_reply_ends_the_turn_without_looping():
     assert _assistant_texts(conversation) == ["Still thinking."]
 
 
-def test_the_nudge_can_continue_the_task_with_another_tool():
-    bash = LLMResponse(
-        tool_calls=[ToolCall(id="b1", name="bash", arguments={"command": "ls"})]
+def test_the_nudge_can_continue_the_task_with_another_tool(
+    tmp_path, workspace_conversation  # noqa: F811
+):
+    (tmp_path / "notes.txt").write_text("x\n")
+    terminal = LLMResponse(
+        tool_calls=[ToolCall(id="b1", name="terminal", arguments={"command": "ls"})]
     )
     llm = NudgeLLM(
-        LLMResponse(text="Let me look."), bash, _finish("Listed the files.")
+        LLMResponse(text="Let me look."), terminal, _finish("Listed the files.")
     )
-    conversation, sandbox = _conversation(llm)
+    conversation = workspace_conversation(llm)
     conversation.send_message("list files")
     conversation.run()
 
     assert conversation.status == Status.FINISHED
     assert llm.phases == ["step", "finish_nudge", "step"]
-    assert sandbox.commands[-1] == "ls"
+    [listing, _] = [e for e in conversation.events if isinstance(e, ObservationEvent)]
+    assert "notes.txt" in listing.content
     assert [e.tool_name for e in conversation.events if isinstance(e, ActionEvent)] == [
-        "bash",
+        "terminal",
         "finish",
     ]

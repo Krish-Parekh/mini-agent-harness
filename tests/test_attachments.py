@@ -243,6 +243,7 @@ async def test_deleting_a_chat_removes_its_attachments():
         conversation=SimpleNamespace(
             events=[MessageEvent(role="user", text="x", attachments=[_attachment()])],
             set_finished=lambda: None,
+            agent=SimpleNamespace(close=lambda: None),
         ),
         sandbox=SimpleNamespace(close=lambda: None),
         close_mcp=lambda: None,

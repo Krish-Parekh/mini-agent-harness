@@ -21,7 +21,7 @@ from miniagent.llm import LLMResponse, ToolCall
 from miniagent.policy import CommandPolicy
 from miniagent.sandbox.local import LocalSandbox
 from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
+from miniagent.tools.terminal import TerminalTool
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
 from tests.fakes import FakeConnectionRepository
@@ -62,23 +62,33 @@ def _edit(path: str) -> LLMResponse:
     return _call("file_edit", command="create", path=path, content="x\n")
 
 
-def _conversation(tmp_path, mode, *steps) -> Conversation:
-    agent = Agent(
-        llm=ScriptLLM(*steps),
-        tools=ToolRegistry([BashTool(), FileEditTool(), FinishTool()]),
-        policy=TablePolicy(),
-    )
-    return Conversation(
-        agent=agent,
-        sandbox=LocalSandbox(str(tmp_path)),
-        confirm_policy=ConfirmPolicy(mode),
-        stuck_detection=False,
-    )
+@pytest.fixture
+def conversation_in(tmp_path):
+    built: list[Conversation] = []
+
+    def build(mode, *steps) -> Conversation:
+        agent = Agent(
+            llm=ScriptLLM(*steps),
+            tools=ToolRegistry([TerminalTool(), FileEditTool(), FinishTool()]),
+            policy=TablePolicy(),
+        )
+        conversation = Conversation(
+            agent=agent,
+            sandbox=LocalSandbox(str(tmp_path)),
+            confirm_policy=ConfirmPolicy(mode),
+            stuck_detection=False,
+        )
+        built.append(conversation)
+        return conversation
+
+    yield build
+    for conversation in built:
+        conversation.agent.close()
 
 
-def test_ask_pauses_a_workspace_edit_but_not_a_read_or_finish(tmp_path):
-    conversation = _conversation(
-        tmp_path, "ask", _call("bash", command="ls"), _edit("notes.md"), _call("finish", message="Done.")
+def test_ask_pauses_a_workspace_edit_but_not_a_read_or_finish(tmp_path, conversation_in):
+    conversation = conversation_in(
+        "ask", _call("terminal", command="ls"), _edit("notes.md"), _call("finish", message="Done.")
     )
     conversation.send_message("write notes")
     conversation.run()
@@ -86,7 +96,7 @@ def test_ask_pauses_a_workspace_edit_but_not_a_read_or_finish(tmp_path):
     assert conversation.status == Status.WAITING_FOR_CONFIRMATION
     assert conversation.pending_action().tool_name == "file_edit"
     assert any(
-        isinstance(e, ObservationEvent) and e.tool_name == "bash" and not e.error
+        isinstance(e, ObservationEvent) and e.tool_name == "terminal" and not e.error
         for e in conversation.events
     )
 
@@ -95,13 +105,14 @@ def test_ask_pauses_a_workspace_edit_but_not_a_read_or_finish(tmp_path):
     assert (tmp_path / "notes.md").exists()
 
 
-def test_auto_runs_workspace_edits_and_pauses_on_danger_or_outside_paths(tmp_path):
+def test_auto_runs_workspace_edits_and_pauses_on_danger_or_outside_paths(
+    tmp_path, conversation_in
+):
     (tmp_path / "build").mkdir()
-    conversation = _conversation(
-        tmp_path,
+    conversation = conversation_in(
         "auto",
         _edit("notes.md"),
-        _call("bash", command="rm -rf build"),
+        _call("terminal", command="rm -rf build"),
         _call("file_edit", command="view", path="/etc/hosts"),
     )
     conversation.send_message("tidy up")
@@ -236,7 +247,7 @@ async def test_full_access_is_refused_outside_a_container(stack):
 
 @docker_only
 async def test_full_access_runs_a_dangerous_command_in_docker(stack):
-    llm = ScriptLLM(_call("bash", command="rm -rf build"), LLMResponse(text="Removed build."))
+    llm = ScriptLLM(_call("terminal", command="rm -rf build"), LLMResponse(text="Removed build."))
     cid = await _start(stack, llm, sandbox_provider="docker", permission_mode="full")
     sandbox = stack.manager.get(cid).sandbox
     try:

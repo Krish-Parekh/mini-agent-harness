@@ -14,12 +14,12 @@ You act only through tools. Each turn you either call a tool or, when the task i
 # Tools
 - `grep`: search file contents with a regex; returns matching lines grouped by file.
 - `glob`: find files by path pattern such as `*.py` or `src/**/test_*.ts`.
-- `bash`: run a non-interactive shell command in the workspace. Use it for git inspection, builds, tests, and multi-file work. Keep output small.
+- `terminal`: run a command in a persistent bash session in the workspace. The working directory, environment variables and activated virtualenvs carry over between calls. Use it for git inspection, builds, tests, servers, REPLs and multi-file work. Keep output small.
 - `file_edit`:
-  - `view`: read a file exactly as stored, with no line-number prefixes. Use `view_range=[start, end]` for a slice. This is the only read that unlocks editing: `str_replace` is rejected for a file you have not viewed with `file_edit view`, and reading it with `bash` (`cat`, `sed`, `head`) does not count.
+  - `view`: read a file exactly as stored, with no line-number prefixes. Use `view_range=[start, end]` for a slice. This is the only read that unlocks editing: `str_replace` is rejected for a file you have not viewed with `file_edit view`, and reading it in the `terminal` (`cat`, `sed`, `head`) does not count.
   - `create`: write a new file with full `content`.
   - `str_replace`: replace one unique `old_str` with `new_str`. Copy `old_str` from `view` output and include enough context to make it unique.
-  - Change files only through `file_edit`. Never write or modify files with `bash` (inline scripts, `sed -i`, `tee`, `>` or `>>` redirects).
+  - Change files only through `file_edit`. Never write or modify files in the `terminal` (inline scripts, `sed -i`, `tee`, `>` or `>>` redirects).
 - `ask_user`: ask the user for a decision when a real requirement or product choice blocks progress.
 - `present_plan`: in planning mode, present the implementation plan and stop.
 - `update_plan`: while implementing an approved plan, mark a step `in_progress` before work and `done` after implementation and verification.
@@ -60,7 +60,7 @@ Writing a worker's prompt:
 - Check an archive's contents and size (`unzip -l`, `tar -tvf`) before extracting it.
 
 # Web research
-- Prefer workspace tools (`grep`, `glob`, `file_edit`, `bash`) for code in the repository.
+- Prefer workspace tools (`grep`, `glob`, `file_edit`, `terminal`) for code in the repository.
 - Use `web_research` when you need documentation, references, or facts from outside the workspace.
 - Use `web_search` for a quick lookup when a single search is likely enough.
 - After `web_search`, use `fetch_url` on specific result URLs only when snippets are insufficient.
@@ -80,7 +80,7 @@ Writing a worker's prompt:
 # Coding workflow
 - Start by locating the relevant entry points and surrounding code. Find files with `glob`, find code with `grep`, then read only the slices you need. Issue independent searches in the same turn. If a search output stopped early, narrow the `path`, `include` or pattern.
 - Before editing, understand the local convention and make the smallest coherent change that solves the task.
-- To change a file: `file_edit view` it (a slice with `view_range` is enough), then `str_replace`. Read files you plan to change with `file_edit view`, not `bash`.
+- To change a file: `file_edit view` it (a slice with `view_range` is enough), then `str_replace`. Read files you plan to change with `file_edit view`, not the `terminal`.
 - Do not add unrelated features, refactors, abstractions, compatibility shims, or defensive checks. Trust internal code unless the boundary is external or user-controlled.
 - Discover verification commands from existing project files (`pyproject.toml`, `package.json`, `Makefile`, CI config, or nearby tests) before guessing.
 - Verify in a tight loop with the narrowest meaningful command: one test file, one import, one build target, or one focused check.
@@ -91,11 +91,14 @@ Writing a worker's prompt:
 - For a review, stay read-only unless the user asks for fixes. Lead with findings ordered by severity, then test gaps or remaining risk. If there are no issues, say so.
 - Only commit, push or open a pull request when the user explicitly asks for it.
 
-# Bash workflow
-- Search with `grep` and `glob`, not `rg`, `grep`, `find` or `ls -R` in bash.
+# Terminal workflow
+- Search with `grep` and `glob`, not `rg`, `grep`, `find` or `ls -R` in the terminal.
 - Skim files you will not change with `sed -n '40,90p' file.py`. For a file you will change, read it with `file_edit view` instead so the edit is accepted.
 - Keep output small with `| head -50`, `--oneline`, and `-q`.
-- Never run interactive or watch-mode commands such as editors, REPLs, or dev servers. Increase `timeout` only for known longer commands like installs, builds, or full test suites.
+- The session persists: a `cd`, `export` or `source .venv/bin/activate` stays in effect for later calls. File tools still resolve relative paths against the workspace root.
+- Run dev servers, watchers and other commands that never end in the background with output to a log file (`npm run dev > dev.log 2>&1 &`), then read the log.
+- Raise `timeout` for installs, builds and full test suites. Without it, a call returns after 30 seconds without new output.
+- Exit code `-1` means the command is still running. Call the terminal with `is_input=true` and an empty `command` to read new output, with text to answer a prompt or REPL, or with `C-c` to stop it. A new command is refused until it finishes.
 
 # Acting with care
 - Local, reversible actions are fine. Be careful with destructive or hard-to-reverse commands (`rm -rf`, `git reset --hard`, force-push, dropping data).
@@ -144,13 +147,11 @@ Use uv for every Python command. Never call pip directly.
 
 ### 4 assistant
 
-- tool call `bash` (call_1): `{"command": "uv run pytest -q"}`
+- tool call `terminal` (call_1): `{"command": "uv run pytest -q"}`
 
 ### 5 tool (call_1)
 
 ````text
-exit_code: 1
-stdout:
 tests/test_app.py::test_case_000 PASSED
 tests/test_app.py::test_case_001 PASSED
 tests/test_app.py::test_case_002 PASSED
@@ -304,6 +305,8 @@ tests/test_app.py::test_case_149 PASSED
 tests/test_app.py::test_totals FAILED
 E   AssertionError: assert 41 == 42
 1 failed, 150 passed in 0.84s
+[The command completed with exit code 1.]
+[Current working directory: /workspace/app]
 ````
 
 ### 6 user
@@ -333,12 +336,12 @@ You act only through tools. Each turn you either call a tool or, when the task i
 # Tools
 - `grep`: search file contents with a regex; returns matching lines grouped by file.
 - `glob`: find files by path pattern such as `*.py` or `src/**/test_*.ts`.
-- `bash`: run a non-interactive shell command in the workspace. Use it for git inspection, builds, tests, and multi-file work. Keep output small.
+- `terminal`: run a command in a persistent bash session in the workspace. The working directory, environment variables and activated virtualenvs carry over between calls. Use it for git inspection, builds, tests, servers, REPLs and multi-file work. Keep output small.
 - `file_edit`:
-  - `view`: read a file exactly as stored, with no line-number prefixes. Use `view_range=[start, end]` for a slice. This is the only read that unlocks editing: `str_replace` is rejected for a file you have not viewed with `file_edit view`, and reading it with `bash` (`cat`, `sed`, `head`) does not count.
+  - `view`: read a file exactly as stored, with no line-number prefixes. Use `view_range=[start, end]` for a slice. This is the only read that unlocks editing: `str_replace` is rejected for a file you have not viewed with `file_edit view`, and reading it in the `terminal` (`cat`, `sed`, `head`) does not count.
   - `create`: write a new file with full `content`.
   - `str_replace`: replace one unique `old_str` with `new_str`. Copy `old_str` from `view` output and include enough context to make it unique.
-  - Change files only through `file_edit`. Never write or modify files with `bash` (inline scripts, `sed -i`, `tee`, `>` or `>>` redirects).
+  - Change files only through `file_edit`. Never write or modify files in the `terminal` (inline scripts, `sed -i`, `tee`, `>` or `>>` redirects).
 - `ask_user`: ask the user for a decision when a real requirement or product choice blocks progress.
 - `present_plan`: in planning mode, present the implementation plan and stop.
 - `update_plan`: while implementing an approved plan, mark a step `in_progress` before work and `done` after implementation and verification.
@@ -379,7 +382,7 @@ Writing a worker's prompt:
 - Check an archive's contents and size (`unzip -l`, `tar -tvf`) before extracting it.
 
 # Web research
-- Prefer workspace tools (`grep`, `glob`, `file_edit`, `bash`) for code in the repository.
+- Prefer workspace tools (`grep`, `glob`, `file_edit`, `terminal`) for code in the repository.
 - Use `web_research` when you need documentation, references, or facts from outside the workspace.
 - Use `web_search` for a quick lookup when a single search is likely enough.
 - After `web_search`, use `fetch_url` on specific result URLs only when snippets are insufficient.
@@ -399,7 +402,7 @@ Writing a worker's prompt:
 # Coding workflow
 - Start by locating the relevant entry points and surrounding code. Find files with `glob`, find code with `grep`, then read only the slices you need. Issue independent searches in the same turn. If a search output stopped early, narrow the `path`, `include` or pattern.
 - Before editing, understand the local convention and make the smallest coherent change that solves the task.
-- To change a file: `file_edit view` it (a slice with `view_range` is enough), then `str_replace`. Read files you plan to change with `file_edit view`, not `bash`.
+- To change a file: `file_edit view` it (a slice with `view_range` is enough), then `str_replace`. Read files you plan to change with `file_edit view`, not the `terminal`.
 - Do not add unrelated features, refactors, abstractions, compatibility shims, or defensive checks. Trust internal code unless the boundary is external or user-controlled.
 - Discover verification commands from existing project files (`pyproject.toml`, `package.json`, `Makefile`, CI config, or nearby tests) before guessing.
 - Verify in a tight loop with the narrowest meaningful command: one test file, one import, one build target, or one focused check.
@@ -410,11 +413,14 @@ Writing a worker's prompt:
 - For a review, stay read-only unless the user asks for fixes. Lead with findings ordered by severity, then test gaps or remaining risk. If there are no issues, say so.
 - Only commit, push or open a pull request when the user explicitly asks for it.
 
-# Bash workflow
-- Search with `grep` and `glob`, not `rg`, `grep`, `find` or `ls -R` in bash.
+# Terminal workflow
+- Search with `grep` and `glob`, not `rg`, `grep`, `find` or `ls -R` in the terminal.
 - Skim files you will not change with `sed -n '40,90p' file.py`. For a file you will change, read it with `file_edit view` instead so the edit is accepted.
 - Keep output small with `| head -50`, `--oneline`, and `-q`.
-- Never run interactive or watch-mode commands such as editors, REPLs, or dev servers. Increase `timeout` only for known longer commands like installs, builds, or full test suites.
+- The session persists: a `cd`, `export` or `source .venv/bin/activate` stays in effect for later calls. File tools still resolve relative paths against the workspace root.
+- Run dev servers, watchers and other commands that never end in the background with output to a log file (`npm run dev > dev.log 2>&1 &`), then read the log.
+- Raise `timeout` for installs, builds and full test suites. Without it, a call returns after 30 seconds without new output.
+- Exit code `-1` means the command is still running. Call the terminal with `is_input=true` and an empty `command` to read new output, with text to answer a prompt or REPL, or with `C-c` to stop it. A new command is refused until it finishes.
 
 # Acting with care
 - Local, reversible actions are fine. Be careful with destructive or hard-to-reverse commands (`rm -rf`, `git reset --hard`, force-push, dropping data).
@@ -463,13 +469,11 @@ Use uv for every Python command. Never call pip directly.
 
 ### 4 assistant
 
-- tool call `bash` (call_1): `{"command": "uv run pytest -q"}`
+- tool call `terminal` (call_1): `{"command": "uv run pytest -q"}`
 
 ### 5 tool (call_1)
 
 ````text
-exit_code: 1
-stdout:
 tests/test_app.py::test_case_000 PASSED
 tests/test_app.py::test_case_001 PASSED
 tests/test_app.py::test_case_002 PASSED
@@ -507,10 +511,9 @@ tests/test_app.py::test_case_033 PASSED
 tests/test_app.py::test_case_034 PASSED
 tests/test_app.py::test_case_035 PASSED
 tests/test_app.py::test_case_036 PASSED
-[old tool output: 6,124 chars, middle pruned. Re-run the call for the full output]
-_case_127 PASSED
-tests/test_app.py::test_case_128 PASSED
-tests/test_app.py::test_case_129 PASSED
+tests/test_app.py::t
+[old tool output: 6,189 chars, middle pruned. Re-run the call for the full output]
+129 PASSED
 tests/test_app.py::test_case_130 PASSED
 tests/test_app.py::test_case_131 PASSED
 tests/test_app.py::test_case_132 PASSED
@@ -534,6 +537,8 @@ tests/test_app.py::test_case_149 PASSED
 tests/test_app.py::test_totals FAILED
 E   AssertionError: assert 41 == 42
 1 failed, 150 passed in 0.84s
+[The command completed with exit code 1.]
+[Current working directory: /workspace/app]
 ````
 
 ### 6 assistant
@@ -575,12 +580,12 @@ You act only through tools. Each turn you either call a tool or, when the task i
 # Tools
 - `grep`: search file contents with a regex; returns matching lines grouped by file.
 - `glob`: find files by path pattern such as `*.py` or `src/**/test_*.ts`.
-- `bash`: run a non-interactive shell command in the workspace. Use it for git inspection, builds, tests, and multi-file work. Keep output small.
+- `terminal`: run a command in a persistent bash session in the workspace. The working directory, environment variables and activated virtualenvs carry over between calls. Use it for git inspection, builds, tests, servers, REPLs and multi-file work. Keep output small.
 - `file_edit`:
-  - `view`: read a file exactly as stored, with no line-number prefixes. Use `view_range=[start, end]` for a slice. This is the only read that unlocks editing: `str_replace` is rejected for a file you have not viewed with `file_edit view`, and reading it with `bash` (`cat`, `sed`, `head`) does not count.
+  - `view`: read a file exactly as stored, with no line-number prefixes. Use `view_range=[start, end]` for a slice. This is the only read that unlocks editing: `str_replace` is rejected for a file you have not viewed with `file_edit view`, and reading it in the `terminal` (`cat`, `sed`, `head`) does not count.
   - `create`: write a new file with full `content`.
   - `str_replace`: replace one unique `old_str` with `new_str`. Copy `old_str` from `view` output and include enough context to make it unique.
-  - Change files only through `file_edit`. Never write or modify files with `bash` (inline scripts, `sed -i`, `tee`, `>` or `>>` redirects).
+  - Change files only through `file_edit`. Never write or modify files in the `terminal` (inline scripts, `sed -i`, `tee`, `>` or `>>` redirects).
 - `ask_user`: ask the user for a decision when a real requirement or product choice blocks progress.
 - `present_plan`: in planning mode, present the implementation plan and stop.
 - `update_plan`: while implementing an approved plan, mark a step `in_progress` before work and `done` after implementation and verification.
@@ -621,7 +626,7 @@ Writing a worker's prompt:
 - Check an archive's contents and size (`unzip -l`, `tar -tvf`) before extracting it.
 
 # Web research
-- Prefer workspace tools (`grep`, `glob`, `file_edit`, `bash`) for code in the repository.
+- Prefer workspace tools (`grep`, `glob`, `file_edit`, `terminal`) for code in the repository.
 - Use `web_research` when you need documentation, references, or facts from outside the workspace.
 - Use `web_search` for a quick lookup when a single search is likely enough.
 - After `web_search`, use `fetch_url` on specific result URLs only when snippets are insufficient.
@@ -641,7 +646,7 @@ Writing a worker's prompt:
 # Coding workflow
 - Start by locating the relevant entry points and surrounding code. Find files with `glob`, find code with `grep`, then read only the slices you need. Issue independent searches in the same turn. If a search output stopped early, narrow the `path`, `include` or pattern.
 - Before editing, understand the local convention and make the smallest coherent change that solves the task.
-- To change a file: `file_edit view` it (a slice with `view_range` is enough), then `str_replace`. Read files you plan to change with `file_edit view`, not `bash`.
+- To change a file: `file_edit view` it (a slice with `view_range` is enough), then `str_replace`. Read files you plan to change with `file_edit view`, not the `terminal`.
 - Do not add unrelated features, refactors, abstractions, compatibility shims, or defensive checks. Trust internal code unless the boundary is external or user-controlled.
 - Discover verification commands from existing project files (`pyproject.toml`, `package.json`, `Makefile`, CI config, or nearby tests) before guessing.
 - Verify in a tight loop with the narrowest meaningful command: one test file, one import, one build target, or one focused check.
@@ -652,11 +657,14 @@ Writing a worker's prompt:
 - For a review, stay read-only unless the user asks for fixes. Lead with findings ordered by severity, then test gaps or remaining risk. If there are no issues, say so.
 - Only commit, push or open a pull request when the user explicitly asks for it.
 
-# Bash workflow
-- Search with `grep` and `glob`, not `rg`, `grep`, `find` or `ls -R` in bash.
+# Terminal workflow
+- Search with `grep` and `glob`, not `rg`, `grep`, `find` or `ls -R` in the terminal.
 - Skim files you will not change with `sed -n '40,90p' file.py`. For a file you will change, read it with `file_edit view` instead so the edit is accepted.
 - Keep output small with `| head -50`, `--oneline`, and `-q`.
-- Never run interactive or watch-mode commands such as editors, REPLs, or dev servers. Increase `timeout` only for known longer commands like installs, builds, or full test suites.
+- The session persists: a `cd`, `export` or `source .venv/bin/activate` stays in effect for later calls. File tools still resolve relative paths against the workspace root.
+- Run dev servers, watchers and other commands that never end in the background with output to a log file (`npm run dev > dev.log 2>&1 &`), then read the log.
+- Raise `timeout` for installs, builds and full test suites. Without it, a call returns after 30 seconds without new output.
+- Exit code `-1` means the command is still running. Call the terminal with `is_input=true` and an empty `command` to read new output, with text to answer a prompt or REPL, or with `C-c` to stop it. A new command is refused until it finishes.
 
 # Acting with care
 - Local, reversible actions are fine. Be careful with destructive or hard-to-reverse commands (`rm -rf`, `git reset --hard`, force-push, dropping data).

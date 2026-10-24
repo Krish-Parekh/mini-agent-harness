@@ -8,7 +8,6 @@ from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier
 from miniagent.tools.ask import AskUserTool
 from miniagent.tools.base import Tool, ToolRegistry
-from miniagent.tools.bash import BashTool
 from miniagent.tools.fetch_url import FetchUrlTool
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.find_skills import FindSkillsTool, ProposeSkillsTool
@@ -17,6 +16,7 @@ from miniagent.tools.memory import MemoryStore, MemoryTool
 from miniagent.tools.plan import PresentPlanTool, UpdatePlanTool
 from miniagent.tools.search import GlobTool, GrepTool
 from miniagent.tools.task import TaskTool
+from miniagent.tools.terminal import TerminalTool
 from miniagent.tools.web_research import WebResearchTool
 from miniagent.tools.web_search import WebSearchTool
 
@@ -24,7 +24,7 @@ Preset = Literal["interactive", "headless"]
 
 
 def headless_tools() -> list[Tool]:
-    return [BashTool(), FileEditTool(), GrepTool(), GlobTool(), FinishTool()]
+    return [TerminalTool(), FileEditTool(), GrepTool(), GlobTool(), FinishTool()]
 
 
 def build_agent(

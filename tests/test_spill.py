@@ -11,8 +11,8 @@ from miniagent.events import ObservationEvent
 from miniagent.llm import LLMResponse, ToolCall
 from miniagent.sandbox.local import LocalSandbox
 from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.terminal import TerminalTool
 from tests.test_agent_history import QueueLLM
 from tests.test_sandbox_failures import SafePolicy
 
@@ -20,13 +20,13 @@ from tests.test_sandbox_failures import SafePolicy
 def _run(workspace, command: str) -> tuple[Conversation, LocalSandbox]:
     llm = QueueLLM(
         LLMResponse(
-            tool_calls=[ToolCall(id="call_big", name="bash", arguments={"command": command})]
+            tool_calls=[ToolCall(id="call_big", name="terminal", arguments={"command": command})]
         ),
         LLMResponse(text="done"),
     )
     agent = Agent(
         llm=llm,
-        tools=ToolRegistry([BashTool(), FinishTool()]),
+        tools=ToolRegistry([TerminalTool(), FinishTool()]),
         policy=SafePolicy(),
     )
     sandbox = LocalSandbox(str(workspace))
@@ -37,7 +37,10 @@ def _run(workspace, command: str) -> tuple[Conversation, LocalSandbox]:
         stuck_detection=False,
     )
     conversation.send_message("print a lot")
-    conversation.run()
+    try:
+        conversation.run()
+    finally:
+        agent.close()
     return conversation, sandbox
 
 
@@ -59,7 +62,7 @@ def test_large_output_is_spilled_outside_the_workspace(tmp_path):
         assert observation.details["spill_path"] == str(spill)
         assert str(spill) in observation.content
         assert len(observation.content) < SPILL_PREVIEW_CHARS + 1_000
-        assert spill.read_text().splitlines()[-1] == "20000"
+        assert "\n20000\n[The command completed with exit code 0.]" in spill.read_text()
         assert sorted(p.name for p in repo.iterdir()) == [".git"]
     finally:
         shutil.rmtree(spill.parents[1], ignore_errors=True)

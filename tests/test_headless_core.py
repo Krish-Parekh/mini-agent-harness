@@ -18,7 +18,7 @@ def test_the_cli_answers_and_leaves_the_workspace_untouched(
         "argv",
         [
             "mini-agent",
-            "Run `seq 1 20000` with bash and tell me the last number it prints.",
+            "Run `seq 1 20000` in the terminal and tell me the last number it prints.",
             "--workspace",
             str(tmp_path),
             "--model",

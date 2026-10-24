@@ -35,14 +35,14 @@ The browser reconnects to the stream with `Last-Event-ID`. The server then sends
 
 1. The agent adds a sketch of the workspace files, the repository instructions and the saved memories.
 2. The model replies with text, tool calls, or both.
-3. `PolicyClassifier` gives each `bash` command a risk level: `safe`, `mutating`, `dangerous` or `unknown`. A risky command stops the turn until the user approves or rejects it.
+3. `PolicyClassifier` gives each `terminal` command a risk level: `safe`, `mutating`, `dangerous` or `unknown`. A risky command stops the turn until the user approves or rejects it.
 4. Calls that are safe to run together share a thread pool. Each result becomes an observation event. A very large output goes to a file, and the model gets a preview.
 5. When the history gets near the model's context window, the agent first shortens old tool outputs, then writes a summary of the old events.
 6. `StuckDetector` reads the last 20 events. It stops the turn when the agent repeats the same action, fails again and again, or talks without action.
 
 | Tool | Does |
 |---|---|
-| `bash` | Runs a shell command in the sandbox |
+| `terminal` | Runs commands in a persistent tmux-backed bash session in the sandbox, one per Conversation |
 | `grep` · `glob` | Searches file contents and file names with ripgrep |
 | `file_edit` | Views, creates and edits files |
 | `present_plan` · `update_plan` | Shows a plan for approval, then tracks its steps |

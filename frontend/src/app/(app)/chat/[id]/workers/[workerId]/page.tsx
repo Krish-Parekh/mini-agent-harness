@@ -115,10 +115,11 @@ function WorkerChat({
           <SidebarTrigger />
           <Link
             href={`/chat/${id}`}
-            className="flex min-w-0 shrink items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+            title={parentTitle}
+            className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowLeftIcon className="size-4 shrink-0" aria-hidden="true" />
-            <span className="truncate">{parentTitle}</span>
+            Main chat
           </Link>
           <span className="text-muted-foreground" aria-hidden="true">
             /

@@ -66,7 +66,10 @@ class Worker:
     def run(self, prompt: str) -> tuple[WorkerStatus, str | None]:
         conversation = self.conversation
         conversation.send_message(prompt)
-        conversation.run()
+        try:
+            conversation.run()
+        finally:
+            conversation.agent.close()
         if conversation.status == Status.FINISHED:
             return "done", self._finish_message()
         return ("cancelled" if conversation.cancelled else "failed"), None

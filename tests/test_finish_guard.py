@@ -6,9 +6,9 @@ from miniagent.conversation import Conversation, Status
 from miniagent.events import ObservationEvent
 from miniagent.llm import LLMResponse, ToolCall
 from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.terminal import TerminalTool
 from tests.test_agent_history import EchoSandbox, QueueLLM
 from tests.test_sandbox_failures import SafePolicy
 
@@ -34,7 +34,7 @@ def _finish(call_id: str) -> LLMResponse:
 def _run(*responses: LLMResponse) -> Conversation:
     agent = Agent(
         llm=QueueLLM(*responses),
-        tools=ToolRegistry([BashTool(), FileEditTool(), FinishTool()]),
+        tools=ToolRegistry([TerminalTool(), FileEditTool(), FinishTool()]),
         policy=SafePolicy(),
     )
     conversation = Conversation(

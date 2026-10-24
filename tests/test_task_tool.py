@@ -250,7 +250,7 @@ def test_an_explore_worker_cannot_write(tmp_path):
         {
             "EXPLORE": [
                 call("e1", "file_edit", command="create", path="hack.txt", content="x"),
-                call("e2", "bash", command="echo x > hack.txt"),
+                call("e2", "terminal", command="echo x > hack.txt"),
                 call("e3", "finish", message="notes.txt has three lines"),
             ]
         },
@@ -279,8 +279,8 @@ def test_stop_ends_every_worker_loop(tmp_path):
             call("p2", "finish", message="never reached"),
         ],
         {
-            "EXPLORE": [call("e1", "bash", command="sleep 60"), call("e2", "bash", command="ls")],
-            "FORK-A": [call("a1", "bash", command="sleep 60"), call("a2", "bash", command="ls")],
+            "EXPLORE": [call("e1", "terminal", command="sleep 60"), call("e2", "terminal", command="ls")],
+            "FORK-A": [call("a1", "terminal", command="sleep 60"), call("a2", "terminal", command="ls")],
         },
     )
     conversation = parent(sandbox, llm)

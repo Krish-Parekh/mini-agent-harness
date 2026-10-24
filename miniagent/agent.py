@@ -40,6 +40,7 @@ from miniagent.tracing import bind_context, tool_attributes, tool_result_attribu
 from miniagent.tools.mcp import NAME_PREFIX as MCP_PREFIX, McpTool
 from miniagent.tools.memory import MemoryStore, memory_index
 from miniagent.tools.plan import Plan
+from miniagent.tools.terminal import shell_command
 
 if TYPE_CHECKING:
     from miniagent.conversation import Conversation
@@ -136,7 +137,7 @@ def _spill_oversized(
         )
     note = (
         f"\n[output truncated: {len(content):,} chars total. Full output: {path}. "
-        "Read the rest with bash, e.g. sed -n or grep]"
+        "Read the rest with the terminal, e.g. sed -n or grep]"
     )
     details = {**(result.details or {}), "spill_path": path, "full_chars": len(content)}
     return dataclasses.replace(
@@ -771,13 +772,7 @@ class Agent:
             return False
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") == "view"
-        if action_event.tool_name in ("web_search", "fetch_url", "grep", "glob"):
-            return True
-        if action_event.tool_name == "bash":
-            return self.policy.classify_bash(
-                action_event.arguments.get("command", "")
-            ).read_only
-        return False
+        return action_event.tool_name in ("web_search", "fetch_url", "grep", "glob")
 
     def _execute_parallel_group(
         self,
@@ -964,6 +959,10 @@ class Agent:
                 span.set_attribute("tool.duration_ms", result.duration_ms)
         return result
 
+    def close(self) -> None:
+        for tool in self.tools.all():
+            tool.close()
+
     def _execute_tool_call(
         self,
         call: ToolCall,
@@ -1038,10 +1037,9 @@ class Agent:
             return not self._is_read_only_mcp(action_event)
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") in ("create", "str_replace")
-        if action_event.tool_name == "bash":
-            return not self.policy.classify_bash(
-                action_event.arguments.get("command", "")
-            ).read_only
+        if action_event.tool_name == "terminal":
+            command = shell_command(action_event.arguments)
+            return command is not None and not self.policy.classify_bash(command).read_only
         return False
 
     def _needs_confirmation(
@@ -1052,10 +1050,9 @@ class Agent:
             return False
         if mode == "ask" and self._mutates(action_event):
             return True
-        if action_event.tool_name == "bash":
-            return self.policy.classify_bash(
-                action_event.arguments.get("command", "")
-            ).needs_confirmation
+        if action_event.tool_name == "terminal":
+            command = shell_command(action_event.arguments)
+            return command is not None and self.policy.classify_bash(command).needs_confirmation
         if self._is_read_only_mcp(action_event):
             return False
         return conversation.needs_confirmation(action_event)

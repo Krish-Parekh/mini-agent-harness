@@ -134,7 +134,7 @@ function stepTiming(
   elapsedMs: number,
 ): string | undefined {
   if (
-    action.tool_name === "bash" ||
+    action.tool_name === "terminal" ||
     action.tool_name === "web_search" ||
     action.tool_name === "fetch_url" ||
     action.tool_name === "find_skills"
@@ -148,10 +148,6 @@ function stepTiming(
   return undefined;
 }
 
-
-function tailText(text: string, max = 8000): string {
-  return text.length > max ? `…${text.slice(-max)}` : text;
-}
 
 const ChainStep = memo(function ChainStep({
   action,
@@ -182,10 +178,6 @@ const ChainStep = memo(function ChainStep({
   const isError = !!obs?.error || orphaned;
   const observationDetail =
     obs && isObservation(obs) ? toolObservationDetail(action.tool_name, obs) : undefined;
-  const output =
-    action.tool_name === "bash" && obs && !obs.error && obs.content?.trim()
-      ? tailText(obs.content.trim())
-      : undefined;
   const hasWorkers = !!workers && workers.length > 0;
   const workersLive = running || (live && !obs);
 
@@ -195,7 +187,6 @@ const ChainStep = memo(function ChainStep({
     !!observationDetail ||
     !!view.fileChange ||
     !!view.preview ||
-    !!output ||
     hasWorkers;
   const autoOpen = !!obs?.error || (running && !!view.preview) || (hasWorkers && workersLive);
   const [manual, setManual] = useState<boolean | null>(null);
@@ -228,13 +219,6 @@ const ChainStep = memo(function ChainStep({
               {view.fileChange && <FileDiff view={view} />}
               {!view.fileChange && view.preview}
             </>
-          )}
-          {output && (
-            <ScrollablePreview>
-              <pre className="whitespace-pre-wrap break-words rounded-control bg-inset px-2.5 py-2 font-mono text-[11.5px] leading-[1.6] text-ink-2 shadow-hairline">
-                {output}
-              </pre>
-            </ScrollablePreview>
           )}
           {obs?.error && (
             <ScrollablePreview>

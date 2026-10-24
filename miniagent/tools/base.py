@@ -29,6 +29,9 @@ class Tool(ABC):
         self, action: Action, sandbox: Sandbox, context: ToolContext
     ) -> Observation: ...
 
+    def close(self) -> None:
+        pass
+
 
 def to_openai_schema(tool: Tool) -> dict[str, Any]:
     parameters = tool.parameters_schema

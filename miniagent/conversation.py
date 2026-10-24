@@ -21,6 +21,7 @@ from miniagent.events import (
 from miniagent.failures import classify, redact
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 from miniagent.stuck_detector import StuckDetectionThresholds, StuckDetector
+from miniagent.tools.terminal import shell_command
 
 if TYPE_CHECKING:
     from miniagent.agent import Agent
@@ -299,10 +300,10 @@ class Conversation:
     def has_unverified_changes(self, policy: PolicyProvider | None = None) -> bool:
         dirty = False
         for action, observation in self._observed_actions():
-            if action.tool_name == "bash":
-                if policy is None:
+            if action.tool_name == "terminal":
+                command = shell_command(action.arguments)
+                if policy is None or command is None:
                     continue
-                command = action.arguments.get("command", "")
                 command_policy = policy.classify_bash(command)
                 if command_policy.is_verification:
                     dirty = False
