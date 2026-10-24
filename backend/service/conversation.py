@@ -27,6 +27,7 @@ from backend.repository import (
 from backend.service.extension import McpService, SkillService, render_skills
 from miniagent.tracing import trace_attributes
 from backend.runtime import changes, checkpoints, pulls
+from fastmcp.mcp_config import MCPConfig
 from backend.runtime.checkpoints import CheckpointError
 from backend.runtime.attachments import (
     ATTACHMENTS_DIR,
@@ -83,6 +84,7 @@ class ConversationService:
         skills: SkillRepository | None = None,
         mcp: McpConnectionRepository | None = None,
         storage: Storage | None = None,
+        mcp_config: MCPConfig | None = None,
     ) -> None:
         self._manager = manager
         self._repo = repository
@@ -90,6 +92,7 @@ class ConversationService:
         self._skills = skills
         self._mcp = mcp
         self._storage = storage
+        self._mcp_config = mcp_config
         self._persist_queue: asyncio.Queue[tuple[ManagedConversation, Event, int]] = (
             asyncio.Queue()
         )
@@ -125,7 +128,8 @@ class ConversationService:
         for managed in self._manager.live():
             if managed.lock.locked() or managed.conversation.status == Status.RUNNING:
                 continue
-            await asyncio.to_thread(managed.sandbox.stop_if_idle, idle_s)
+            if await asyncio.to_thread(managed.sandbox.stop_if_idle, idle_s):
+                await asyncio.to_thread(managed.close_mcp)
 
     async def settle_interrupted_runs(self) -> None:
         for cid, last_seq in await self._repo.with_status(Status.RUNNING.value):
@@ -561,6 +565,7 @@ class ConversationService:
         managed = self._manager.remove(cid)
         if managed is not None:
             managed.conversation.set_finished()
+            await asyncio.to_thread(managed.close_mcp)
             await asyncio.to_thread(managed.sandbox.close)
         elif row is not None:
             await asyncio.to_thread(
@@ -886,8 +891,9 @@ class ConversationService:
                 )
             )
         managed.skills_skipped = skipped_ids
-        rows = await McpService(self._mcp).enabled(cid)
-        targets = {row.id: McpService.target(row) for row in rows}
+        targets = await McpService(self._mcp, self._mcp_config).targets(
+            cid, managed.host_workspace
+        )
         await asyncio.to_thread(
             managed.apply_extensions,
             render_skills(included),

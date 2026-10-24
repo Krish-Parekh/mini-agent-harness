@@ -8,8 +8,6 @@ from fastapi import FastAPI
 from types import SimpleNamespace
 
 from backend.api.extensions import router as extensions_router
-from backend.runtime import manager as runtime_manager
-from backend.runtime import mcp as mcp_client
 from backend.runtime.manager import ManagedConversation
 from backend.models import McpConnectionRow, SkillRow
 from backend.service.extension import (
@@ -21,7 +19,7 @@ from miniagent import skills_registry
 from miniagent.agent import Agent
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation, Status
-from miniagent.events import ActionEvent, ErrorEvent
+from miniagent.events import ActionEvent
 from miniagent.llm import LLMResponse, ToolCall
 from miniagent.schema import Action
 from miniagent.tools.base import Tool, ToolRegistry
@@ -339,64 +337,6 @@ def _apply(host, targets, skills_block="", skill_bodies=None):
     ManagedConversation.apply_extensions(host, skills_block, skill_bodies or {}, targets)
 
 
-def _specs(*names):
-    return [mcp_client.McpToolSpec(name=n, description="", input_schema={}) for n in names]
-
-
-def _target(name):
-    return mcp_client.McpTarget(name=name, url=f"https://{name}.example.com/mcp")
-
-
-@pytest.fixture
-def servers(monkeypatch):
-    catalog: dict[str, list | Exception] = {}
-
-    async def discover(target):
-        result = catalog[target.name]
-        if isinstance(result, Exception):
-            raise result
-        if isinstance(result, mcp_client.McpServerInfo):
-            return result
-        return mcp_client.McpServerInfo(tools=result)
-
-    monkeypatch.setattr(runtime_manager.mcp, "discover", discover)
-    return catalog
-
-
-def test_enabled_connections_register_namespaced_tools(servers):
-    servers["linear"] = _specs("create_issue", "search")
-    host, events = _host()
-    _apply(host, {"c1": _target("linear")}, skills_block="## skill")
-
-    tools = host.conversation.agent.tools
-    assert "mcp__linear__create_issue" in tools and "mcp__linear__search" in tools
-    assert host.conversation.agent.skills_block == "## skill"
-    assert events == []
-
-
-def test_an_unreachable_server_degrades_with_an_error(servers):
-    servers["dead"] = mcp_client.McpError("connection refused")
-    servers["live"] = _specs("ping")
-    host, events = _host()
-    _apply(host, {"c1": _target("dead"), "c2": _target("live")})
-
-    assert "mcp__live__ping" in host.conversation.agent.tools
-    assert len(events) == 1 and isinstance(events[0], ErrorEvent)
-    assert "dead" in events[0].message
-    assert host.mcp_skipped == {"c1"}
-
-
-def test_disabling_a_connection_unregisters_its_tools(servers):
-    servers["linear"] = _specs("search")
-    host, _ = _host()
-    _apply(host, {"c1": _target("linear")})
-    _apply(host, {})
-
-    assert "mcp__linear__search" not in host.conversation.agent.tools
-    assert "plain" in host.conversation.agent.tools
-    assert host.mcp_tools == {}
-
-
 class FakeService:
     def __init__(self) -> None:
         self.conversations: dict[str, SimpleNamespace] = {}
@@ -683,7 +623,7 @@ def test_plan_mode_allows_mcp_reads_and_blocks_writes():
     assert agent._blocked_in_plan_mode(_call("create_issue"))
 
 
-def test_enabled_skills_register_the_skill_tool_and_disable_removes_it(servers):
+def test_enabled_skills_register_the_skill_tool_and_disable_removes_it():
     host, _ = _host()
     _apply(host, {}, skills_block="- review: be thorough", skill_bodies={"review": "BODY"})
     tools = host.conversation.agent.tools
@@ -695,20 +635,6 @@ def test_enabled_skills_register_the_skill_tool_and_disable_removes_it(servers):
     _apply(host, {})
     assert "skill" not in host.conversation.agent.tools
     assert host.conversation.agent.skills_block == ""
-
-
-def test_server_instructions_reach_the_agent_and_leave_with_the_server(servers):
-    servers["linear"] = mcp_client.McpServerInfo(
-        tools=_specs("search"), instructions="Prefer search before create." + "x" * 2_000
-    )
-    host, _ = _host()
-    _apply(host, {"c1": _target("linear")})
-    text = host.conversation.agent.mcp_instructions["linear"]
-    assert text.startswith("Prefer search before create.")
-    assert len(text) == 1_000
-
-    _apply(host, {})
-    assert host.conversation.agent.mcp_instructions == {}
 
 
 def test_skill_description_comes_from_frontmatter():

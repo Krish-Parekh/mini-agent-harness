@@ -243,6 +243,7 @@ async def test_deleting_a_chat_removes_its_attachments():
             set_finished=lambda: None,
         ),
         sandbox=SimpleNamespace(close=lambda: None),
+        close_mcp=lambda: None,
     )
 
     async def none(*_):

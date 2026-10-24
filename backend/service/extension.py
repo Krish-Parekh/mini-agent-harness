@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
+from fastmcp.mcp_config import MCPConfig, RemoteMCPServer
 
 from backend.models import McpConnectionRow, SkillRow
 from backend.repository import (
@@ -228,16 +230,22 @@ def render_skills(skills: list[SkillRow]) -> str:
 
 class McpService:
 
-    def __init__(self, connections: McpConnectionRepository) -> None:
+    def __init__(
+        self, connections: McpConnectionRepository, config: MCPConfig | None = None
+    ) -> None:
         self._connections = connections
+        self._config = config or MCPConfig()
 
     @staticmethod
     def target(row: McpConnectionRow) -> mcp_client.McpTarget:
+        headers = (
+            {row.auth_header: row.auth_value}
+            if row.auth_header and row.auth_value
+            else {}
+        )
         return mcp_client.McpTarget(
             name=row.name,
-            url=row.url,
-            auth_header=row.auth_header,
-            auth_value=row.auth_value,
+            server=RemoteMCPServer(url=row.url, headers=headers, transport="http"),
         )
 
     async def test(self, row: McpConnectionRow) -> tuple[bool, list[str], str | None]:
@@ -247,5 +255,11 @@ class McpService:
             return False, [], str(exc)
         return True, [tool.name for tool in info.tools], None
 
-    async def enabled(self, cid: str) -> list[McpConnectionRow]:
-        return await self._connections.enabled_for_conversation(cid)
+    async def targets(
+        self, cid: str, workspace: Path | None
+    ) -> dict[str, mcp_client.McpTarget]:
+        rows = await self._connections.enabled_for_conversation(cid)
+        targets = {row.id: self.target(row) for row in rows}
+        if workspace is not None:
+            targets |= mcp_client.config_targets(self._config, workspace)
+        return targets

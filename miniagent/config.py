@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     max_tokens: int = 16_384
     temperature: float = 0.0
     workspace_dir: str = "./workspace"
+    mcp_config: str = "mcp.json"
 
     supabase_url: str = Field("", validation_alias=AliasChoices("SUPABASE_URL"))
     supabase_publishable_key: str = Field(

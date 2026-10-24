@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -217,6 +218,7 @@ class _Managed:
         self.queue: list = []
         self.applied_bodies: dict[str, str] = {}
         self.sandbox = SimpleNamespace(workspace_dir="/w", provider="local", sandbox_id=None)
+        self.host_workspace = Path(self.sandbox.workspace_dir)
         self.broker = SimpleNamespace(publish=lambda update: None)
         self.run = _Run(self)
         self.conversation = SimpleNamespace(

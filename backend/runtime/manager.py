@@ -53,9 +53,9 @@ _log = logging.getLogger(__name__)
 MCP_INSTRUCTIONS_MAX_CHARS = 1_000
 
 
-def _mcp_invoker(target: mcp.McpTarget):
+def _mcp_invoker(session: mcp.McpSession):
     def invoke(tool_name: str, arguments: dict) -> str:
-        return mcp.bridge.run(mcp.call(target, tool_name, arguments))
+        return mcp.bridge.run(session.call(tool_name, arguments))
 
     return invoke
 
@@ -215,6 +215,7 @@ class ManagedConversation:
         self.lock = asyncio.Lock()
         self.persist_hook: PersistHook = publish_committed
         self.mcp_tools: dict[str, list[str]] = {}
+        self.mcp_sessions: dict[str, mcp.McpSession] = {}
         self.mcp_skipped: set[str] = set()
         self.mcp_instructions: dict[str, tuple[str, str]] = {}
         self.skills_skipped: set[str] = set()
@@ -307,18 +308,17 @@ class ManagedConversation:
             registry.unregister(SkillTool.name)
         for connection_id in list(self.mcp_tools):
             if connection_id not in targets:
-                for name in self.mcp_tools.pop(connection_id):
-                    registry.unregister(name)
-                self.mcp_instructions.pop(connection_id, None)
+                self._drop_mcp(connection_id)
         self.mcp_skipped &= targets.keys()
 
         registered = sum(len(names) for names in self.mcp_tools.values())
         for connection_id, target in targets.items():
             if connection_id in self.mcp_tools or connection_id in self.mcp_skipped:
                 continue
+            session = mcp.McpSession(target)
             try:
-                with logfire.span("mcp.discover", connection=target.name) as span:
-                    info = mcp.bridge.run(mcp.discover(target))
+                with logfire.span("mcp.open", connection=target.name) as span:
+                    info = mcp.bridge.run(session.open())
                     specs = info.tools
                     span.set_attribute("tool_count", len(specs))
             except mcp.McpError as exc:
@@ -330,6 +330,7 @@ class ManagedConversation:
                 )
                 continue
             if registered + len(specs) > MAX_MCP_TOOLS:
+                mcp.bridge.run(session.close())
                 self.mcp_skipped.add(connection_id)
                 self.conversation.add_event(
                     ErrorEvent(
@@ -348,7 +349,7 @@ class ManagedConversation:
                     remote_name=spec.name,
                     description=spec.description,
                     input_schema=spec.input_schema,
-                    invoke=_mcp_invoker(target),
+                    invoke=_mcp_invoker(session),
                     read_only=spec.read_only,
                 )
                 if tool.name in registry:
@@ -359,6 +360,7 @@ class ManagedConversation:
                 registry.register(tool)
                 names.append(tool.name)
             self.mcp_tools[connection_id] = names
+            self.mcp_sessions[connection_id] = session
             registered += len(names)
             if info.instructions:
                 self.mcp_instructions[connection_id] = (
@@ -366,6 +368,24 @@ class ManagedConversation:
                     info.instructions[:MCP_INSTRUCTIONS_MAX_CHARS],
                 )
         agent.mcp_instructions = dict(self.mcp_instructions.values())
+
+    def _drop_mcp(self, connection_id: str) -> None:
+        for name in self.mcp_tools.pop(connection_id):
+            self.conversation.agent.tools.unregister(name)
+        self.mcp_instructions.pop(connection_id, None)
+        mcp.bridge.run(self.mcp_sessions.pop(connection_id).close())
+
+    def close_mcp(self) -> None:
+        for connection_id in list(self.mcp_tools):
+            self._drop_mcp(connection_id)
+        self.mcp_skipped.clear()
+        self.conversation.agent.mcp_instructions = {}
+
+    @property
+    def host_workspace(self) -> Path | None:
+        if not is_host_git(self.sandbox.provider):
+            return None
+        return Path(self.sandbox.workspace_dir)
 
     def bootstrap(self) -> None:
         if not self.repo:

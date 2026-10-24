@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-import httpx2
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
+from fastmcp import Client
+from fastmcp.mcp_config import MCPConfig, RemoteMCPServer, StdioMCPServer
 
-DISCOVER_TIMEOUT = 15.0
+OPEN_TIMEOUT = 30.0
 CALL_TIMEOUT = 120.0
 
 
@@ -34,71 +34,80 @@ class McpServerInfo:
 @dataclass(frozen=True)
 class McpTarget:
     name: str
-    url: str
-    auth_header: str | None = None
-    auth_value: str | None = None
+    server: StdioMCPServer | RemoteMCPServer
 
-    def headers(self) -> dict[str, str]:
-        if self.auth_header and self.auth_value:
-            return {self.auth_header: self.auth_value}
-        return {}
+    @property
+    def trusted_tools(self) -> frozenset[str]:
+        return frozenset((self.server.model_extra or {}).get("trustedTools", []))
+
+
+def load_config(path: Path) -> MCPConfig:
+    return MCPConfig.from_file(path) if path.is_file() else MCPConfig()
+
+
+def config_targets(config: MCPConfig, workspace: Path) -> dict[str, McpTarget]:
+    targets: dict[str, McpTarget] = {}
+    for name, server in config.mcpServers.items():
+        if isinstance(server, StdioMCPServer):
+            server = server.model_copy(
+                update={"cwd": str(workspace / (server.cwd or "."))}
+            )
+        targets[f"config:{name}"] = McpTarget(name=name, server=server)
+    return targets
+
+
+class McpSession:
+    def __init__(self, target: McpTarget) -> None:
+        self.target = target
+        self._client = Client(
+            target.server.to_transport(),
+            timeout=CALL_TIMEOUT,
+            init_timeout=OPEN_TIMEOUT,
+        )
+
+    async def open(self) -> McpServerInfo:
+        try:
+            await self._client.__aenter__()
+        except Exception as exc:
+            raise McpError(str(exc)) from exc
+        try:
+            tools = await self._client.list_tools()
+        except Exception as exc:
+            await self._client.close()
+            raise McpError(str(exc)) from exc
+        trusted = self.target.trusted_tools
+        return McpServerInfo(
+            tools=[
+                McpToolSpec(
+                    name=tool.name,
+                    description=tool.description or "",
+                    input_schema=dict(tool.input_schema or {}),
+                    read_only=bool(tool.annotations and tool.annotations.read_only_hint)
+                    or tool.name in trusted,
+                )
+                for tool in tools
+            ],
+            instructions=(self._client.instructions or "").strip(),
+        )
+
+    async def call(self, tool: str, arguments: dict[str, Any]) -> str:
+        try:
+            result = await self._client.call_tool(tool, arguments)
+        except Exception as exc:
+            raise McpError(str(exc)) from exc
+        return "\n".join(
+            getattr(item, "text", None) or f"[{item.type}]" for item in result.content
+        ).strip()
+
+    async def close(self) -> None:
+        await self._client.close()
 
 
 async def discover(target: McpTarget) -> McpServerInfo:
-    try:
-        async with asyncio.timeout(DISCOVER_TIMEOUT):
-            client = httpx2.AsyncClient(headers=target.headers())
-            async with client:
-                async with streamable_http_client(
-                    target.url, http_client=client
-                ) as (read, write):
-                    async with ClientSession(read, write) as session:
-                        init = await session.initialize()
-                        result = await session.list_tools()
-    except Exception as exc:
-        raise McpError(str(exc)) from exc
-
-    tools = [
-        McpToolSpec(
-            name=tool.name,
-            description=tool.description or "",
-            input_schema=dict(tool.input_schema or {}),
-            read_only=bool(tool.annotations and tool.annotations.read_only_hint),
-        )
-        for tool in result.tools
-    ]
-    return McpServerInfo(tools=tools, instructions=(init.instructions or "").strip())
-
-
-async def call(target: McpTarget, tool: str, arguments: dict[str, Any]) -> str:
-    try:
-        async with asyncio.timeout(CALL_TIMEOUT):
-            client = httpx2.AsyncClient(headers=target.headers())
-            async with client:
-                async with streamable_http_client(
-                    target.url, http_client=client
-                ) as (read, write):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        result = await session.call_tool(tool, arguments)
-    except Exception as exc:
-        raise McpError(str(exc)) from exc
-
-    return _render(result)
-
-
-def _render(result: Any) -> str:
-    parts: list[str] = []
-    for item in getattr(result, "content", []) or []:
-        text = getattr(item, "text", None)
-        if text is not None:
-            parts.append(text)
-            continue
-        parts.append(f"[{getattr(item, 'type', 'content')}]")
-    rendered = "\n".join(parts).strip()
-    if getattr(result, "is_error", False):
-        raise McpError(rendered or "tool reported an error")
-    return rendered
+    session = McpSession(target)
+    info = await session.open()
+    await session.close()
+    return info
 
 
 class McpBridge:
