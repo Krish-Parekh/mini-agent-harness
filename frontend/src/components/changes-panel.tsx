@@ -198,18 +198,24 @@ function FileDiffView({
   );
 }
 
+export type WorkerScope = { id: string; title: string };
+
 function ScopeSelect({
   scope,
   turns,
+  workers,
   onChange,
 }: {
   scope: string;
   turns: TurnInfo[];
+  workers: WorkerScope[];
   onChange: (scope: string) => void;
 }) {
   const label = (value: string) => {
     if (value === "all") return "All changes";
     if (value === "branch") return "Branch vs base";
+    const worker = workers.find((w) => w.id === value);
+    if (worker) return `Worker · ${worker.title}`;
     const index = turns.findIndex((t) => t.id === value);
     return `Turn ${index + 1}`;
   };
@@ -228,6 +234,11 @@ function ScopeSelect({
                 <span className="truncate">
                   Turn {i + 1} · {turn.text || "attachment"}
                 </span>
+              </SelectItem>
+            ))}
+            {workers.map((worker) => (
+              <SelectItem key={worker.id} value={worker.id}>
+                <span className="truncate">Worker · {worker.title}</span>
               </SelectItem>
             ))}
           </SelectGroup>
@@ -444,6 +455,9 @@ export const ChangesPanel = memo(function ChangesPanel({
   running,
   selectedPath,
   onSelectPath,
+  scope: pickedScope,
+  onScopeChange: setScope,
+  workers,
   onClose,
   onSynced,
   revision,
@@ -456,13 +470,15 @@ export const ChangesPanel = memo(function ChangesPanel({
   running: boolean;
   selectedPath: string | null;
   onSelectPath: (path: string | null) => void;
+  scope: string;
+  onScopeChange: (scope: string) => void;
+  workers: WorkerScope[];
   onClose: () => void;
   onSynced?: () => void;
   revision: number;
   prStep: PrStep | null;
 }) {
   const [tab, setTab] = useState<Tab>("changes");
-  const [pickedScope, setScope] = useState("all");
   const [turns, setTurns] = useState<TurnInfo[]>([]);
   const [scoped, setScoped] = useState<{ scope: string; files: ChangedFile[] } | null>(null);
   const [allFiles, setAllFiles] = useState<string[] | null>(null);
@@ -541,7 +557,10 @@ export const ChangesPanel = memo(function ChangesPanel({
   }, [tab, conversationId, revision]);
 
   const scope =
-    pickedScope === "all" || pickedScope === "branch" || turns.some((t) => t.id === pickedScope)
+    pickedScope === "all" ||
+    pickedScope === "branch" ||
+    turns.some((t) => t.id === pickedScope) ||
+    workers.some((w) => w.id === pickedScope)
       ? pickedScope
       : "all";
 
@@ -612,7 +631,7 @@ export const ChangesPanel = memo(function ChangesPanel({
       </div>
 
       {tab === "changes" && !selectedPath && (
-        <ScopeSelect scope={scope} turns={turns} onChange={setScope} />
+        <ScopeSelect scope={scope} turns={turns} workers={workers} onChange={setScope} />
       )}
 
       {selectedPath ? (

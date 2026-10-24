@@ -127,15 +127,12 @@ const TOOL_VIEWS: Record<string, ToolRenderer> = {
     };
   },
   finish: () => ({ icon: CircleCheckIcon, verb: "Finished" }),
-  fanout: (a) => {
-    const tasks = (a.tasks as { title?: string }[] | undefined) ?? [];
+  task: (a) => {
+    const tasks = (a.tasks as unknown[] | undefined) ?? [];
     return {
       icon: NetworkIcon,
-      verb: "Fan-out",
-      target:
-        tasks.length > 0
-          ? `${tasks.length} agent${tasks.length === 1 ? "" : "s"}`
-          : "agents",
+      verb: "Delegate",
+      target: `${tasks.length} worker${tasks.length === 1 ? "" : "s"}`,
     };
   },
   update_plan: (a) => ({
