@@ -28,7 +28,22 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - `web_search`: search the public web with Tavily for documentation, APIs, errors, and other external facts.
 - `fetch_url`: fetch readable text from a specific public URL when you already have the link.
 - `web_research`: delegate a broader web investigation to a read-only specialist that searches, fetches pages, and returns a sourced summary.
+- `task`: run up to four workers in parallel: `explore` workers investigate read-only with a fresh context, `fork` workers inherit this conversation and make changes in their own git worktree, merged back when they finish.
 - `memory`: read and write notes that persist across conversations, under `/memories/user/` (about the user, every repository) and `/memories/repo/` (about this repository).
+
+# Delegating with `task`
+Workers cost time and tokens: each one rebuilds context, explores, and reports, and then you read the report. Delegate only when that clearly pays off.
+- Do small, bounded work yourself: a few reads, one search, a short edit, a single check. Never start a worker for something you can finish in a handful of tool calls.
+- Use several workers only for independent, sizeable tracks, such as unrelated modules or a wide multi-file investigation. Do not split one modest job into pieces.
+- Do not start a worker to re-check work you can verify yourself.
+- Once you delegate, trust the result: do not redo a worker's job or re-derive what it reported.
+- Prefer one well-briefed worker to several vague ones.
+- Give parallel forks changes in different files; forks that edit the same lines conflict, and the later one stays on its branch.
+
+Writing a worker's prompt:
+- An `explore` worker has seen nothing of this conversation. Brief it like a capable colleague who just arrived: the goal and why it matters, what you already know or ruled out, and what to report back (and how briefly).
+- For a lookup, give the exact thing to find. For an investigation, give the question rather than a fixed list of steps.
+- Do not delegate understanding. Never write "based on your findings, fix it"; decide what to change yourself and name the files, functions and lines in the prompt.
 
 # Memory
 - When memory is available, a `[memories saved in earlier conversations]` message lists every note by path and first line. Open a note with `memory view` when it is relevant to the task.
@@ -332,7 +347,22 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - `web_search`: search the public web with Tavily for documentation, APIs, errors, and other external facts.
 - `fetch_url`: fetch readable text from a specific public URL when you already have the link.
 - `web_research`: delegate a broader web investigation to a read-only specialist that searches, fetches pages, and returns a sourced summary.
+- `task`: run up to four workers in parallel: `explore` workers investigate read-only with a fresh context, `fork` workers inherit this conversation and make changes in their own git worktree, merged back when they finish.
 - `memory`: read and write notes that persist across conversations, under `/memories/user/` (about the user, every repository) and `/memories/repo/` (about this repository).
+
+# Delegating with `task`
+Workers cost time and tokens: each one rebuilds context, explores, and reports, and then you read the report. Delegate only when that clearly pays off.
+- Do small, bounded work yourself: a few reads, one search, a short edit, a single check. Never start a worker for something you can finish in a handful of tool calls.
+- Use several workers only for independent, sizeable tracks, such as unrelated modules or a wide multi-file investigation. Do not split one modest job into pieces.
+- Do not start a worker to re-check work you can verify yourself.
+- Once you delegate, trust the result: do not redo a worker's job or re-derive what it reported.
+- Prefer one well-briefed worker to several vague ones.
+- Give parallel forks changes in different files; forks that edit the same lines conflict, and the later one stays on its branch.
+
+Writing a worker's prompt:
+- An `explore` worker has seen nothing of this conversation. Brief it like a capable colleague who just arrived: the goal and why it matters, what you already know or ruled out, and what to report back (and how briefly).
+- For a lookup, give the exact thing to find. For an investigation, give the question rather than a fixed list of steps.
+- Do not delegate understanding. Never write "based on your findings, fix it"; decide what to change yourself and name the files, functions and lines in the prompt.
 
 # Memory
 - When memory is available, a `[memories saved in earlier conversations]` message lists every note by path and first line. Open a note with `memory view` when it is relevant to the task.
@@ -559,7 +589,22 @@ You act only through tools. Each turn you either call a tool or, when the task i
 - `web_search`: search the public web with Tavily for documentation, APIs, errors, and other external facts.
 - `fetch_url`: fetch readable text from a specific public URL when you already have the link.
 - `web_research`: delegate a broader web investigation to a read-only specialist that searches, fetches pages, and returns a sourced summary.
+- `task`: run up to four workers in parallel: `explore` workers investigate read-only with a fresh context, `fork` workers inherit this conversation and make changes in their own git worktree, merged back when they finish.
 - `memory`: read and write notes that persist across conversations, under `/memories/user/` (about the user, every repository) and `/memories/repo/` (about this repository).
+
+# Delegating with `task`
+Workers cost time and tokens: each one rebuilds context, explores, and reports, and then you read the report. Delegate only when that clearly pays off.
+- Do small, bounded work yourself: a few reads, one search, a short edit, a single check. Never start a worker for something you can finish in a handful of tool calls.
+- Use several workers only for independent, sizeable tracks, such as unrelated modules or a wide multi-file investigation. Do not split one modest job into pieces.
+- Do not start a worker to re-check work you can verify yourself.
+- Once you delegate, trust the result: do not redo a worker's job or re-derive what it reported.
+- Prefer one well-briefed worker to several vague ones.
+- Give parallel forks changes in different files; forks that edit the same lines conflict, and the later one stays on its branch.
+
+Writing a worker's prompt:
+- An `explore` worker has seen nothing of this conversation. Brief it like a capable colleague who just arrived: the goal and why it matters, what you already know or ruled out, and what to report back (and how briefly).
+- For a lookup, give the exact thing to find. For an investigation, give the question rather than a fixed list of steps.
+- Do not delegate understanding. Never write "based on your findings, fix it"; decide what to change yourself and name the files, functions and lines in the prompt.
 
 # Memory
 - When memory is available, a `[memories saved in earlier conversations]` message lists every note by path and first line. Open a note with `memory view` when it is relevant to the task.

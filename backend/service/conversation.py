@@ -69,10 +69,21 @@ from miniagent.events import (
     LLMUsageEvent,
     MessageEvent,
     RepoInstructionsEvent,
+    WorkerEvent,
+    WorkerStatusEvent,
     WorkspaceSketchEvent,
 )
 
 _EVENT_ADAPTER: TypeAdapter[Event] = TypeAdapter(Events)
+
+
+def _add_usage(usage: ContextUsage, event: LLMUsageEvent) -> None:
+    usage.prompt_tokens += event.prompt_tokens
+    usage.completion_tokens += event.completion_tokens
+    usage.total_tokens += event.total_tokens
+    usage.cached_prompt_tokens += event.cached_prompt_tokens
+    usage.cost_usd += event.cost_usd
+
 _PERSIST_ATTEMPTS = 3
 _log = logging.getLogger(__name__)
 
@@ -684,11 +695,9 @@ class ConversationService:
 
         for event in events:
             if isinstance(event, LLMUsageEvent):
-                usage.prompt_tokens += event.prompt_tokens
-                usage.completion_tokens += event.completion_tokens
-                usage.total_tokens += event.total_tokens
-                usage.cached_prompt_tokens += event.cached_prompt_tokens
-                usage.cost_usd += event.cost_usd
+                _add_usage(usage, event)
+            elif isinstance(event, WorkerEvent) and isinstance(event.event, LLMUsageEvent):
+                _add_usage(usage, event.event)
             elif isinstance(event, RepoInstructionsEvent):
                 repo_instructions = event.paths
             elif isinstance(event, WorkspaceSketchEvent):
@@ -761,6 +770,13 @@ class ConversationService:
         if scope == "branch":
             base = f"origin/{managed.branch}" if managed.branch else "origin/HEAD"
             return changes.merge_base(managed.sandbox, base)
+        forks = {
+            e.worker_id: e
+            for e in managed.conversation.events
+            if isinstance(e, WorkerStatusEvent) and e.branch
+        }
+        if scope in forks:
+            return f"{forks[scope].base} {forks[scope].branch}"
         users = [e.id for e in self._user_messages(managed)]
         if scope not in users or not checkpoints.exists(managed.sandbox, scope):
             raise CheckpointError("no checkpoint was recorded for that turn")

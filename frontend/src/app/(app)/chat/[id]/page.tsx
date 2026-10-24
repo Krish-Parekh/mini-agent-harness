@@ -22,6 +22,7 @@ import { useConversationStream } from "@/hooks/use-conversation-stream";
 import { useDelayedFlag } from "@/hooks/use-delayed-flag";
 import { ConversationTimeline } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
+import { buildWorkers } from "@/lib/workers";
 import { QuestionCard, type Question } from "@/components/question-card";
 import {
   type ProposedSkill,
@@ -125,6 +126,15 @@ export default function ChatPage({
     null,
   );
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [changesScope, setChangesScope] = useState("all");
+  const workerScopes = useMemo(
+    () =>
+      Array.from(buildWorkers(events).values())
+        .flat()
+        .filter((w) => w.branch)
+        .map((w) => ({ id: w.worker_id, title: w.title })),
+    [events],
+  );
   const [panelOpen, setPanelOpen] = useState(true);
   const lastSentText = useRef("");
 
@@ -139,8 +149,9 @@ export default function ChatPage({
 
   const repo = conversation?.repo ?? null;
 
-  const openFile = useCallback((path: string) => {
+  const openFile = useCallback((path: string, scope?: string) => {
     setSelectedPath(path);
+    if (scope) setChangesScope(scope);
     setPanelOpen(true);
   }, []);
   const closePanel = useCallback(() => setPanelOpen(false), []);
@@ -482,6 +493,9 @@ export default function ChatPage({
           running={status === "running"}
           selectedPath={selectedPath}
           onSelectPath={setSelectedPath}
+          scope={changesScope}
+          onScopeChange={setChangesScope}
+          workers={workerScopes}
           onClose={closePanel}
           onSynced={refreshChanges}
           revision={changesRevision}

@@ -35,7 +35,7 @@ from miniagent.prompts import (
 )
 from miniagent.sandbox.base import SandboxError
 from miniagent.text import clip
-from miniagent.tools.base import ToolRegistry
+from miniagent.tools.base import ToolContext, ToolRegistry
 from miniagent.tracing import bind_context, tool_attributes, tool_result_attributes
 from miniagent.tools.mcp import NAME_PREFIX as MCP_PREFIX, McpTool
 from miniagent.tools.memory import MemoryStore, memory_index
@@ -765,7 +765,7 @@ class Agent:
             return False
         if self._needs_confirmation(action_event, conversation):
             return False
-        if conversation.plan_mode and self._mutates(action_event):
+        if self._refuses_write(action_event, conversation):
             return False
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") == "view"
@@ -841,12 +841,15 @@ class Agent:
             )
             return "ok"
 
-        if conversation.plan_mode and self._mutates(action_event):
+        if self._refuses_write(action_event, conversation):
             self._observe(
                 conversation,
                 call,
                 "Plan mode is active; this action would modify the workspace. "
-                "Explore read-only and call `present_plan` when ready.",
+                "Explore read-only and call `present_plan` when ready."
+                if conversation.plan_mode
+                else "This worker is read-only; this action would modify the "
+                "workspace. Investigate with read and search tools only.",
                 True,
             )
             return "ok"
@@ -989,27 +992,10 @@ class Agent:
                 True,
             )
 
-        # The plan lives on the conversation, which tools never see, so the
-        # step mutation happens here; the tool's observation reports it.
-        if call.name == "update_plan":
-            plan = conversation.plan
-            if plan is None or not (1 <= action.step <= len(plan.steps)):
-                return ToolResult(
-                    f"Invalid step: the approved plan has no step {action.step}.",
-                    True,
-                )
-            plan.steps[action.step - 1].status = action.status
-
         try:
-            if call.name in ("fanout", "web_research"):
-                observation = tool.execute(
-                    action,
-                    sandbox,
-                    conversation=conversation,
-                    tool_call_id=call.id,
-                )
-            else:
-                observation = tool.execute(action, sandbox)
+            observation = tool.execute(
+                action, sandbox, ToolContext(conversation, call.id)
+            )
         except SandboxError:
             # The model cannot fix an unreachable or expired sandbox; end the
             # turn instead of feeding it an error to retry.
@@ -1037,6 +1023,13 @@ class Agent:
         if not self._is_mcp(action_event) or name not in self.tools:
             return False
         return isinstance(tool := self.tools[name], McpTool) and tool.read_only
+
+    def _refuses_write(
+        self, action_event: ActionEvent, conversation: Conversation
+    ) -> bool:
+        return (conversation.plan_mode or conversation.read_only) and self._mutates(
+            action_event
+        )
 
     def _mutates(self, action_event: ActionEvent) -> bool:
         if self._is_mcp(action_event):

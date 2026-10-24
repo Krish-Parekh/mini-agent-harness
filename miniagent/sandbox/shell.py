@@ -99,11 +99,15 @@ class ShellSandbox(Sandbox):
                 self._open()
                 self._opened = True
 
-    def _abs(self, path: str) -> str:
-        return posixpath.normpath(posixpath.join(self.workspace_dir, path or "."))
+    def _abs(self, path: str, workdir: str | None = None) -> str:
+        return posixpath.normpath(posixpath.join(self.workspace_dir, workdir or "", path or "."))
 
     def run_command(
-        self, command: str, timeout: int = 30, env: dict[str, str] | None = None
+        self,
+        command: str,
+        timeout: int = 30,
+        env: dict[str, str] | None = None,
+        workdir: str | None = None,
     ) -> CommandResult:
         start = time.perf_counter()
         cmd_id = uuid.uuid4().hex
@@ -118,7 +122,7 @@ class ShellSandbox(Sandbox):
                 raw = RawResult(stdout="", stderr="Stopped before the command started", exit_code=0)
             else:
                 raw = self._exec(
-                    wrap_command(command, timeout, pidfile, self.workspace_dir),
+                    wrap_command(command, timeout, pidfile, self._abs(".", workdir)),
                     timeout + TRANSPORT_GRACE_S,
                     env,
                 )
@@ -160,9 +164,9 @@ class ShellSandbox(Sandbox):
         except SandboxError:
             pass
 
-    def write_file(self, path: str, content: str) -> None:
+    def write_file(self, path: str, content: str, workdir: str | None = None) -> None:
         self.ensure_open()
-        target = self._abs(path)
+        target = self._abs(path, workdir)
         tmp = f"{target}.miniagent-{uuid.uuid4().hex[:8]}"
         data = content.encode("utf-8")
         chunks = [data[i : i + _WRITE_CHUNK_BYTES] for i in range(0, len(data), _WRITE_CHUNK_BYTES)] or [b""]
@@ -176,9 +180,9 @@ class ShellSandbox(Sandbox):
             )
         self._check(f"mv -f {shlex.quote(tmp)} {shlex.quote(target)}", f"write {path}")
 
-    def read_file(self, path: str) -> str:
+    def read_file(self, path: str, workdir: str | None = None) -> str:
         self.ensure_open()
-        target = shlex.quote(self._abs(path))
+        target = shlex.quote(self._abs(path, workdir))
         raw = self._exec(
             f"[ -f {target} ] || exit {_MISSING_EXIT_CODE}\nbase64 < {target}", 120, None
         )
@@ -188,9 +192,9 @@ class ShellSandbox(Sandbox):
             raise OSError(f"read {path} failed: {raw.stderr.strip()}")
         return base64.b64decode("".join(raw.stdout.split())).decode("utf-8")
 
-    def list_files(self, path: str) -> list[str]:
+    def list_files(self, path: str, workdir: str | None = None) -> list[str]:
         self.ensure_open()
-        target = shlex.quote(self._abs(path))
+        target = shlex.quote(self._abs(path, workdir))
         raw = self._exec(f"[ -d {target} ] || exit 0\nls -1A {target}", 60, None)
         if raw.exit_code != 0:
             raise OSError(f"list {path} failed: {raw.stderr.strip()}")

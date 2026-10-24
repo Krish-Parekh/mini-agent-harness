@@ -188,7 +188,14 @@ def _mid_run(request, then: LLMResponse):
 
 async def test_plan_mode_rejects_writes_until_the_plan_is_approved(stack):
     plan = _call("present_plan", title="Add notes", steps=[{"title": "Write notes.md"}])
-    llm = ScriptLLM(_edit("notes.md"), plan, _edit("notes.md"), _call("finish", message="Wrote it."))
+    llm = ScriptLLM(
+        _edit("notes.md"),
+        plan,
+        _call("update_plan", step=9, status="done"),
+        _edit("notes.md"),
+        _call("update_plan", step=1, status="done"),
+        _call("finish", message="Wrote it."),
+    )
     cid = await _start(stack, llm)
 
     await _send(stack, cid, "add notes", plan_mode=True)
@@ -201,7 +208,14 @@ async def test_plan_mode_rejects_writes_until_the_plan_is_approved(stack):
     await _settle(stack.service)
     info = await _info(stack, cid)
     assert (info["status"], info["plan_mode"]) == ("finished", False)
+    assert info["plan"]["steps"][0]["status"] == "done"
     assert (stack.workspace / "notes.md").exists()
+    bad_step = next(
+        e
+        for e in stack.manager.get(cid).conversation.events
+        if getattr(e, "tool_name", None) == "update_plan" and e.kind == "observation"
+    )
+    assert bad_step.error
 
 
 async def test_full_access_is_refused_outside_a_container(stack):

@@ -27,11 +27,11 @@ def sandbox(tmp_path):
 
 
 def _grep(sandbox, **kwargs):
-    return GrepTool().execute(GrepAction(**kwargs), sandbox)
+    return GrepTool().execute(GrepAction(**kwargs), sandbox, None)
 
 
 def _glob(sandbox, **kwargs):
-    return GlobTool().execute(GlobAction(**kwargs), sandbox)
+    return GlobTool().execute(GlobAction(**kwargs), sandbox, None)
 
 
 def test_grep_groups_matching_lines_by_file(sandbox):

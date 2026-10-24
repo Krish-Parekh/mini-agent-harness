@@ -37,7 +37,7 @@ class FakeStore:
 
 
 def _run(store: FakeStore, **kwargs):
-    return MemoryTool(store).execute(MemoryAction(**kwargs), sandbox=None)
+    return MemoryTool(store).execute(MemoryAction(**kwargs), None, None)
 
 
 def test_viewing_an_empty_store_lists_both_scopes():

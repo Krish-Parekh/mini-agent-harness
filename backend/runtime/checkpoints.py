@@ -4,19 +4,10 @@ import shlex
 
 from miniagent.agent import SPILL_ROOT, exclude_from_git
 from miniagent.sandbox.base import Sandbox
-from miniagent.sandbox.workspace import COMMITTER
+from miniagent.sandbox.workspace import SNAPSHOT
 
 REF_PREFIX = "refs/miniagent/checkpoints"
 _KEEP = shlex.quote(f":(exclude){SPILL_ROOT}")
-_SNAPSHOT = (
-    'tmp="$(mktemp)" && trap \'rm -f "$tmp"\' EXIT && '
-    '{ cp -p "$(git rev-parse --git-path index)" "$tmp" 2>/dev/null || true; } && '
-    'GIT_INDEX_FILE="$tmp" git add -A && '
-    'tree="$(GIT_INDEX_FILE="$tmp" git write-tree)" && '
-    'if git rev-parse -q --verify HEAD >/dev/null; '
-    f'then git {COMMITTER} commit-tree "$tree" -p HEAD -m checkpoint; '
-    f'else git {COMMITTER} commit-tree "$tree" -m checkpoint; fi'
-)
 
 
 class CheckpointError(Exception):
@@ -40,12 +31,12 @@ def record(sandbox: Sandbox, name: str) -> None:
     _git(
         sandbox,
         f"git rev-parse -q --verify {target} >/dev/null || "
-        f'{{ oid="$({_SNAPSHOT})" && git update-ref {target} "$oid"; }}',
+        f'{{ oid="$({SNAPSHOT})" && git update-ref {target} "$oid"; }}',
     )
 
 
 def snapshot(sandbox: Sandbox) -> str:
-    return _git(sandbox, _SNAPSHOT)
+    return _git(sandbox, SNAPSHOT)
 
 
 def names(sandbox: Sandbox) -> set[str]:

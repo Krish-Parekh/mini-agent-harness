@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator
 
 import pytest
 
-from miniagent.sandbox.base import KILLED_EXIT_CODE, TIMEOUT_EXIT_CODE, Sandbox
+from miniagent.sandbox.base import KILLED_EXIT_CODE, TIMEOUT_EXIT_CODE, Sandbox, WorkdirView
 from miniagent.sandbox.local import LocalSandbox
 
 
@@ -225,3 +225,27 @@ def test_file_round_trip(sandbox: Sandbox) -> None:
     assert sandbox.read_file("nested/dir/file.txt") == content
     assert "file.txt" in sandbox.list_files("nested/dir")
     assert sandbox.list_files("does-not-exist") == []
+
+
+def test_workdir_scopes_commands_and_files(sandbox: Sandbox) -> None:
+    sandbox.write_file("marker.txt", "inner", workdir="sub/dir")
+    assert sandbox.read_file("sub/dir/marker.txt") == "inner"
+    assert sandbox.read_file("marker.txt", workdir="sub/dir") == "inner"
+    assert sandbox.list_files(".", workdir="sub/dir") == ["marker.txt"]
+    result = sandbox.run_command("pwd; cat marker.txt", workdir="sub/dir")
+    assert result.stdout.splitlines()[0].endswith("/sub/dir")
+    assert result.stdout.splitlines()[1] == "inner"
+
+
+def test_kill_running_reaches_a_workdir_view(sandbox: Sandbox) -> None:
+    sandbox.run_command("mkdir -p worker")
+    view = WorkdirView(sandbox, "worker")
+    view.write_file("only-here.txt", "x")
+    assert sandbox.read_file("worker/only-here.txt") == "x"
+    results: list = []
+    thread = threading.Thread(target=lambda: results.append(view.run_command("sleep 60", timeout=90)))
+    thread.start()
+    time.sleep(3)
+    sandbox.kill_running()
+    thread.join(timeout=30)
+    assert [r.exit_code for r in results] == [KILLED_EXIT_CODE]

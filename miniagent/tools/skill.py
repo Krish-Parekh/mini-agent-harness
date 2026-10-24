@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 
 class SkillAction(Action):
@@ -31,7 +31,7 @@ class SkillTool(Tool):
     def __init__(self, bodies: dict[str, str]) -> None:
         self.bodies = bodies
 
-    def execute(self, action: SkillAction, sandbox: Sandbox) -> SkillObservation:
+    def execute(self, action: SkillAction, sandbox: Sandbox, _context: ToolContext) -> SkillObservation:
         body = self.bodies.get(action.name)
         if body is None:
             available = ", ".join(sorted(self.bodies)) or "none"
