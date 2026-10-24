@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from miniagent.agent import Agent
+from miniagent.agent import Agent, TimeBudget
 from miniagent.config import Settings
 from miniagent.llm import LLM
 from miniagent.policy import PolicyClassifier
+from miniagent.prompts import FINISH_CHECKLIST_PROMPT, HEADLESS_SYSTEM_PROMPT
 from miniagent.tools.ask import AskUserTool
 from miniagent.tools.base import Tool, ToolRegistry
 from miniagent.tools.bash import BashTool
@@ -30,6 +31,7 @@ def build_agent(
     repo: str | None = None,
     branch: str | None = None,
     memory: MemoryStore | None = None,
+    time_budget: TimeBudget | None = None,
 ) -> Agent:
     llm = LLM(
         model=settings.model,
@@ -40,22 +42,40 @@ def build_agent(
     policy = PolicyClassifier(
         LLM(model=settings.policy_model, temperature=0.0, max_tokens=1024)
     )
-    tools: list[Tool] = [BashTool(), FileEditTool(), GrepTool(), GlobTool(), FinishTool()]
-    if preset == "interactive":
-        tools += [
-            PresentPlanTool(),
-            UpdatePlanTool(),
-            AskUserTool(),
-            FanoutTool(llm, repo, branch, policy),
-            FindSkillsTool(),
-            ProposeSkillsTool(),
+    if preset == "headless":
+        headless: list[Tool] = [
+            BashTool(),
+            FileEditTool(),
+            GrepTool(confined=False),
+            GlobTool(confined=False),
+            FinishTool(checklist=FINISH_CHECKLIST_PROMPT),
         ]
-        if settings.tavily_api_key:
-            web_search = WebSearchTool(settings.tavily_api_key)
-            fetch_url = FetchUrlTool()
-            tools += [web_search, fetch_url, WebResearchTool(llm, web_search, fetch_url)]
-        if memory is not None:
-            tools.append(MemoryTool(memory))
+        return Agent(
+            llm=llm,
+            tools=ToolRegistry(headless),
+            system_prompt=HEADLESS_SYSTEM_PROMPT,
+            policy=policy,
+            time_budget=time_budget,
+        )
+    tools: list[Tool] = [
+        BashTool(),
+        FileEditTool(),
+        GrepTool(),
+        GlobTool(),
+        FinishTool(),
+        PresentPlanTool(),
+        UpdatePlanTool(),
+        AskUserTool(),
+        FanoutTool(llm, repo, branch, policy),
+        FindSkillsTool(),
+        ProposeSkillsTool(),
+    ]
+    if settings.tavily_api_key:
+        web_search = WebSearchTool(settings.tavily_api_key)
+        fetch_url = FetchUrlTool()
+        tools += [web_search, fetch_url, WebResearchTool(llm, web_search, fetch_url)]
+    if memory is not None:
+        tools.append(MemoryTool(memory))
     return Agent(
         llm=llm,
         tools=ToolRegistry(tools),
@@ -63,4 +83,5 @@ def build_agent(
         branch=branch,
         policy=policy,
         memory=memory,
+        time_budget=time_budget,
     )

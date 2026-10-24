@@ -118,6 +118,7 @@ class FanoutTool(Tool):
     )
     action_type = FanoutAction
     observation_type = FanoutObservation
+    needs_conversation = True
 
     def __init__(
         self,

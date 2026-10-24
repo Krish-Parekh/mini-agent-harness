@@ -13,6 +13,7 @@ class Tool(ABC):
     action_type: type[Action]
     observation_type: type[Observation]
     parameters_schema: dict[str, Any] | None = None
+    needs_conversation: bool = False
 
     @abstractmethod
     def execute(self, action: Action, sandbox: Sandbox) -> Observation: ...

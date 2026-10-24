@@ -9,8 +9,8 @@
         "user"
       ],
       "response": {
-        "id": "chatcmpl-9fa6f6f1-b608-464a-a9c3-4e7ff8ee385e",
-        "created": 1792803039,
+        "id": "chatcmpl-b8ad356b-4811-43de-bd6d-f2982c970131",
+        "created": 1792805228,
         "model": "claude-haiku-5-5",
         "object": "chat.completion",
         "system_fingerprint": null,
@@ -28,10 +28,10 @@
                     "type": "direct"
                   },
                   "function": {
-                    "arguments": "{\"command\": \"seq 1 20000 | tail -n 1\", \"description\": \"Print last number from seq 1 20000\"}",
+                    "arguments": "{\"command\": \"seq 1 20000 | tail -n 1\", \"description\": \"Run seq 1 20000 and show last line\"}",
                     "name": "bash"
                   },
-                  "id": "toolu_011khaafvYcNYns43TtRyW6B",
+                  "id": "toolu_01H1k25ShidCGoybKz9cuNTt",
                   "type": "function"
                 }
               ],
@@ -44,29 +44,32 @@
           }
         ],
         "usage": {
-          "completion_tokens": 92,
-          "prompt_tokens": 5215,
-          "total_tokens": 5307,
+          "completion_tokens": 94,
+          "prompt_tokens": 3283,
+          "total_tokens": 3377,
           "completion_tokens_details": {
             "reasoning_tokens": 0,
-            "text_tokens": 92
+            "text_tokens": 94
           },
           "prompt_tokens_details": {
             "audio_tokens": null,
             "cached_tokens": 0,
-            "text_tokens": 5215,
+            "text_tokens": 62,
             "image_tokens": null,
             "video_tokens": null,
-            "cache_creation_tokens": 0,
+            "cache_write_tokens": 3221,
+            "cache_creation_tokens": 3221,
             "cache_creation_token_details": {
-              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 3221,
               "ephemeral_1h_input_tokens": 0
             }
           },
-          "cache_creation_input_tokens": 0,
+          "cache_creation_input_tokens": 3221,
           "cache_read_input_tokens": 0,
+          "iterations": null,
           "inference_geo": "global",
-          "speed": null
+          "speed": "standard",
+          "service_tier": "standard"
         }
       }
     },
@@ -77,8 +80,8 @@
         "user"
       ],
       "response": {
-        "id": "chatcmpl-7bd8cbd4-d384-4a60-9aed-bb3660f3b779",
-        "created": 1792803041,
+        "id": "chatcmpl-d283b8c3-1908-433a-a42d-a4725f116c30",
+        "created": 1792805231,
         "model": "claude-haiku-5-5",
         "object": "chat.completion",
         "system_fingerprint": null,
@@ -87,27 +90,32 @@
             "finish_reason": "stop",
             "index": 0,
             "message": {
-              "content": "{\"is_verification\": false, \"read_only\": true, \"reason\": \"Pipes seq 1 20000 into tail -n 1 to print the last number. Only generates and reads output; no files or state changed.\", \"risk\": \"safe\", \"verification_unavailable\": false}",
+              "content": "{\"risk\": \"safe\", \"read_only\": true, \"is_verification\": false, \"verification_unavailable\": false, \"reason\": \"Pipes seq output into tail to print the last line; only reads/computes output, no state changes.\"}",
               "role": "assistant",
               "tool_calls": null,
-              "function_call": null
+              "function_call": null,
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": null
+              }
             }
           }
         ],
         "usage": {
-          "completion_tokens": 171,
-          "prompt_tokens": 1099,
-          "total_tokens": 1270,
+          "completion_tokens": 72,
+          "prompt_tokens": 858,
+          "total_tokens": 930,
           "completion_tokens_details": {
             "reasoning_tokens": 0,
-            "text_tokens": 171
+            "text_tokens": 72
           },
           "prompt_tokens_details": {
             "audio_tokens": null,
             "cached_tokens": 0,
-            "text_tokens": 1099,
+            "text_tokens": 858,
             "image_tokens": null,
             "video_tokens": null,
+            "cache_write_tokens": 0,
             "cache_creation_tokens": 0,
             "cache_creation_token_details": {
               "ephemeral_5m_input_tokens": 0,
@@ -116,8 +124,10 @@
           },
           "cache_creation_input_tokens": 0,
           "cache_read_input_tokens": 0,
+          "iterations": null,
           "inference_geo": "global",
-          "speed": null
+          "speed": "standard",
+          "service_tier": "standard"
         }
       }
     },
@@ -132,8 +142,8 @@
         "user"
       ],
       "response": {
-        "id": "chatcmpl-d7677ea5-86d8-4ac4-b0d1-113b18ef3028",
-        "created": 1792803042,
+        "id": "chatcmpl-38ffc8ae-0d54-4d58-a405-fbb00557659d",
+        "created": 1792805232,
         "model": "claude-haiku-5-5",
         "object": "chat.completion",
         "system_fingerprint": null,
@@ -142,19 +152,19 @@
             "finish_reason": "tool_calls",
             "index": 0,
             "message": {
-              "content": null,
+              "content": "The last number `seq 1 20000` prints is **20000**. I ran it piped through `tail -n 1`, which returned exit code 0 and the value 20000.",
               "role": "assistant",
               "tool_calls": [
                 {
-                  "index": 1,
+                  "index": 2,
                   "caller": {
                     "type": "direct"
                   },
                   "function": {
-                    "arguments": "{\"message\": \"The last number printed by `seq 1 20000` is **20000**. I ran it through `tail -n 1` to pick out that final line, and the command exited with code 0. No files were changed.\"}",
+                    "arguments": "{\"message\": \"`seq 1 20000` ends with the number 20000. I confirmed it by piping the output through `tail -n 1`, which returned 20000 with exit code 0.\"}",
                     "name": "finish"
                   },
-                  "id": "toolu_01Bahy3PkKEAajKDV8tGkK1Y",
+                  "id": "toolu_01Tv1Zm4AShVPw4oa54m5mSr",
                   "type": "function"
                 }
               ],
@@ -164,7 +174,7 @@
                 {
                   "type": "thinking",
                   "thinking": "",
-                  "signature": "CAQSvgYKEAgTGAI4AUIIdGhpbmtpbmcSDHiA6AXIRTKhmgUjThoMAyotxRckVdLECzxpIjC0rEOdg/0XKUMeb0OM+5M9fbgol66iwu024oGqaWhgIL31c1yRQ5Y/O7XgpTgvU3kq2wV8A498ayspYRFIA+5d0tOQc1TjaHz2C7eTeVEkXvgbWBocCyZGLXqmBhSbFwlpF/cIdnvRuAR4I7kyBKttRLTWDUbvoa2joYN4EqeCcRhtcGUpjd1OjYa8LyHnvtTZVYoJ22zHRcHZhZY6ge9PTpTldRXZIgNqotcaFplNT3ohz4KRDqn4G6FOj4NWn4xO4mmpBkMGdXv/wARpYCCQP6277TPMWDJuI+lCGc+dmgSeY9eh9kN0p3sSluKIDe5G/TyfsA+trcILk3oyQ+RgKvslzEENGDKQmhmiYlR2d45LWEx587vLhBKPBVD1XUu+pcUje3T9NCtky0XpKSr2EZYkgS8nE1s9truftj0pHIeFrrqnhvBke+14C+AJINZ8IybqSwWleHf665OdvOIJymh6G2T10gPo7eW9YMhf7GceDUt0QI60iBNsujQiy6JgQfNE1V47Ydrfc5aA456LQqrNFgT7hJTron7yjrBKg9LdkMs6LFkFjCc1ycAI+SwTCo2JwwCJ3do9cd8mHR9YCrThldqjPhKW6HOFLzNAU4I175dZFoXk+p266R5lTHBT5kOXiSOZl39lS+aiyl3SkZOTSnsEKYfB9QBQSHyJ81/qqD1wJCm6/mzspG+j7+GTto6GlPWXJVnXx72XLRVyRJQZRFD5Bb2GAqoFDuwFbj+DJ6NC0pqXbaj3PAWJE9J2u/LAB6HhLShUyR8rGlCOZ3nhiBofjb3ut1Fzmd6r5UQSQsv6oeT9IeuAL+qNTLh4Wi3BiBgoZUxY/+1DIl3Dejg7wPm8k7q/io+SfgzEeroqIG8LLjntXmUUYe/k10HrX5iB5Mi7B+k7UkyQiYmF/MARFPzSZgwGJIdOv68xCahTC2TnG/T7U9XPo3nOKyIia0pdM0Wzm6cYpPgF4oM0AHNwcb+ZYG0MrQOKT15tCHC+NAzLMh/UHYuYpdaeDCdkk4WcaDGliZjudCi0CRgB"
+                  "signature": "CAQS8QYKEAgTGAI4AUIIdGhpbmtpbmcSDHB9BwCzinru1jEJIRoMiAMPM9fz7pdScDwrIjBpzYyuLDC8vTj66pOvcx0azsKVkRw2gpDfcm0Tu9f4GQxkYt1ckEPNk7tHubiO+s8qjgYcl9t/4ZDV6tD+jlDCwbYiQ87u6ko5jfr6eR4UG8AiR7xxQyy7wTi/jM/gq7Ntf4lVmrgXttgNJ3VKABds6UkIhXV32H6sHxVpN+6Gxuu4UMfSc+CHijNphg9/htZ13grdEews+zz9oDfWu5pFipefUmfL4ZcyoFSU10HYHxhCJqvW5zav4GF0UqkOKWK1we9SAtjKeiSgtEbcCUYVa+8UmjZ1HvSf+hedf0Vm+v4o6fNZVtkGV7pr6ir44wMTvULKhqAgfW/e9P15TMutBc0wlyO/cgJJDW2AmHEIb+CWf9NbCxD5LQamSpuxMfI6O1C4+rcpxJRczGIClGCZ14V512BA3zYeBc/7vGnJ+Xaitw016rS0JCz70SD0bdEej8agYpAyWvRoyo3dA2/lrqz+EKk760LiDu3DtqENg7whepa4yj/cFTJ8ZgH8aA6YKAJBBVvNxgJcLCGP7LzwY9/aPjQbp6dkpOQnR0TU8hWchJqWq4nns5F0/NMusTy+mIZIypaOcdVFwoqRTkyzcB4DZkBpYBm6d5eO9li8gsBanxRmx5HJI/K5wJkE0leSXviORdQZ4F0Fn6dVKbS6kctKCW4Lc2kpg1jOj1KYegZZFToWzqyH0I0KEctAIpDsrBjRc3naBomH7h6vVxZdkso08YRyeEYWXWrxSE9TNKMICWn1wuK9yMqVOR77c0kCI1uWgDCiAlu2eQpOKStTvPiydphF/y4URCNo7K7wDB9rCPxusJjPW9g5EbPMZRjs7peZtIFnh2LO5+s+pR9SHjW0i0JFO+ylt+dcvVJneK1gol1p6h85B0ufj88CBWLwu2oj1D9LKiAajC+LZSo4sAPSABNDut9N+yMn56eRy1EofxhOKRSyjVEaMnRLR7dK9TF8Lj8hEebOSOa4t9lwI1Pcl5Rr/F7fZDa8d+PCSy6S9VyMvbNmdvaSiA6De8RIrmVuR/ee9MKeIp8TRok+IItlqiU/G1btSfWkHEJ06MkfmQ7JSdr53mDzMaPxa8RpQqMbeHPa6lW9jT0LKZAkJhgB"
                 }
               ],
               "provider_specific_fields": {
@@ -173,7 +183,7 @@
                   {
                     "type": "thinking",
                     "thinking": "",
-                    "signature": "CAQSvgYKEAgTGAI4AUIIdGhpbmtpbmcSDHiA6AXIRTKhmgUjThoMAyotxRckVdLECzxpIjC0rEOdg/0XKUMeb0OM+5M9fbgol66iwu024oGqaWhgIL31c1yRQ5Y/O7XgpTgvU3kq2wV8A498ayspYRFIA+5d0tOQc1TjaHz2C7eTeVEkXvgbWBocCyZGLXqmBhSbFwlpF/cIdnvRuAR4I7kyBKttRLTWDUbvoa2joYN4EqeCcRhtcGUpjd1OjYa8LyHnvtTZVYoJ22zHRcHZhZY6ge9PTpTldRXZIgNqotcaFplNT3ohz4KRDqn4G6FOj4NWn4xO4mmpBkMGdXv/wARpYCCQP6277TPMWDJuI+lCGc+dmgSeY9eh9kN0p3sSluKIDe5G/TyfsA+trcILk3oyQ+RgKvslzEENGDKQmhmiYlR2d45LWEx587vLhBKPBVD1XUu+pcUje3T9NCtky0XpKSr2EZYkgS8nE1s9truftj0pHIeFrrqnhvBke+14C+AJINZ8IybqSwWleHf665OdvOIJymh6G2T10gPo7eW9YMhf7GceDUt0QI60iBNsujQiy6JgQfNE1V47Ydrfc5aA456LQqrNFgT7hJTron7yjrBKg9LdkMs6LFkFjCc1ycAI+SwTCo2JwwCJ3do9cd8mHR9YCrThldqjPhKW6HOFLzNAU4I175dZFoXk+p266R5lTHBT5kOXiSOZl39lS+aiyl3SkZOTSnsEKYfB9QBQSHyJ81/qqD1wJCm6/mzspG+j7+GTto6GlPWXJVnXx72XLRVyRJQZRFD5Bb2GAqoFDuwFbj+DJ6NC0pqXbaj3PAWJE9J2u/LAB6HhLShUyR8rGlCOZ3nhiBofjb3ut1Fzmd6r5UQSQsv6oeT9IeuAL+qNTLh4Wi3BiBgoZUxY/+1DIl3Dejg7wPm8k7q/io+SfgzEeroqIG8LLjntXmUUYe/k10HrX5iB5Mi7B+k7UkyQiYmF/MARFPzSZgwGJIdOv68xCahTC2TnG/T7U9XPo3nOKyIia0pdM0Wzm6cYpPgF4oM0AHNwcb+ZYG0MrQOKT15tCHC+NAzLMh/UHYuYpdaeDCdkk4WcaDGliZjudCi0CRgB"
+                    "signature": "CAQS8QYKEAgTGAI4AUIIdGhpbmtpbmcSDHB9BwCzinru1jEJIRoMiAMPM9fz7pdScDwrIjBpzYyuLDC8vTj66pOvcx0azsKVkRw2gpDfcm0Tu9f4GQxkYt1ckEPNk7tHubiO+s8qjgYcl9t/4ZDV6tD+jlDCwbYiQ87u6ko5jfr6eR4UG8AiR7xxQyy7wTi/jM/gq7Ntf4lVmrgXttgNJ3VKABds6UkIhXV32H6sHxVpN+6Gxuu4UMfSc+CHijNphg9/htZ13grdEews+zz9oDfWu5pFipefUmfL4ZcyoFSU10HYHxhCJqvW5zav4GF0UqkOKWK1we9SAtjKeiSgtEbcCUYVa+8UmjZ1HvSf+hedf0Vm+v4o6fNZVtkGV7pr6ir44wMTvULKhqAgfW/e9P15TMutBc0wlyO/cgJJDW2AmHEIb+CWf9NbCxD5LQamSpuxMfI6O1C4+rcpxJRczGIClGCZ14V512BA3zYeBc/7vGnJ+Xaitw016rS0JCz70SD0bdEej8agYpAyWvRoyo3dA2/lrqz+EKk760LiDu3DtqENg7whepa4yj/cFTJ8ZgH8aA6YKAJBBVvNxgJcLCGP7LzwY9/aPjQbp6dkpOQnR0TU8hWchJqWq4nns5F0/NMusTy+mIZIypaOcdVFwoqRTkyzcB4DZkBpYBm6d5eO9li8gsBanxRmx5HJI/K5wJkE0leSXviORdQZ4F0Fn6dVKbS6kctKCW4Lc2kpg1jOj1KYegZZFToWzqyH0I0KEctAIpDsrBjRc3naBomH7h6vVxZdkso08YRyeEYWXWrxSE9TNKMICWn1wuK9yMqVOR77c0kCI1uWgDCiAlu2eQpOKStTvPiydphF/y4URCNo7K7wDB9rCPxusJjPW9g5EbPMZRjs7peZtIFnh2LO5+s+pR9SHjW0i0JFO+ylt+dcvVJneK1gol1p6h85B0ufj88CBWLwu2oj1D9LKiAajC+LZSo4sAPSABNDut9N+yMn56eRy1EofxhOKRSyjVEaMnRLR7dK9TF8Lj8hEebOSOa4t9lwI1Pcl5Rr/F7fZDa8d+PCSy6S9VyMvbNmdvaSiA6De8RIrmVuR/ee9MKeIp8TRok+IItlqiU/G1btSfWkHEJ06MkfmQ7JSdr53mDzMaPxa8RpQqMbeHPa6lW9jT0LKZAkJhgB"
                   }
                 ]
               }
@@ -181,29 +191,123 @@
           }
         ],
         "usage": {
-          "completion_tokens": 186,
-          "prompt_tokens": 5332,
-          "total_tokens": 5518,
+          "completion_tokens": 244,
+          "prompt_tokens": 3402,
+          "total_tokens": 3646,
           "completion_tokens_details": {
-            "reasoning_tokens": 0,
-            "text_tokens": 186
+            "reasoning_tokens": 93,
+            "text_tokens": 151
           },
           "prompt_tokens_details": {
             "audio_tokens": null,
-            "cached_tokens": 0,
-            "text_tokens": 5332,
+            "cached_tokens": 3221,
+            "text_tokens": 64,
             "image_tokens": null,
             "video_tokens": null,
-            "cache_creation_tokens": 0,
+            "cache_write_tokens": 117,
+            "cache_creation_tokens": 117,
             "cache_creation_token_details": {
-              "ephemeral_5m_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 117,
               "ephemeral_1h_input_tokens": 0
             }
           },
-          "cache_creation_input_tokens": 0,
-          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 117,
+          "cache_read_input_tokens": 3221,
+          "iterations": null,
           "inference_geo": "global",
-          "speed": null
+          "speed": "standard",
+          "service_tier": "standard"
+        }
+      }
+    },
+    {
+      "model": "anthropic/claude-haiku-5-5",
+      "roles": [
+        "system",
+        "user",
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+        "tool",
+        "user"
+      ],
+      "response": {
+        "id": "chatcmpl-a1c8c621-61e2-4f50-b28e-120a3b1de9ad",
+        "created": 1792805235,
+        "model": "claude-haiku-5-5",
+        "object": "chat.completion",
+        "system_fingerprint": null,
+        "choices": [
+          {
+            "finish_reason": "tool_calls",
+            "index": 0,
+            "message": {
+              "content": "The checklist doesn't change anything. The task was only to run `seq 1 20000` and report the last number, and I created no files, so there is nothing to clean up and no service to start. I'm ending the run now.",
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "index": 2,
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "function": {
+                    "arguments": "{\"message\": \"`seq 1 20000` ends with the number 20000. I ran it through bash, piping the output to `tail -n 1`, which printed 20000 with exit code 0. I created no files and started no services, so there was nothing to clean up.\"}",
+                    "name": "finish"
+                  },
+                  "id": "toolu_018rFY1p3Ezrw5E8BYN4qyRJ",
+                  "type": "function"
+                }
+              ],
+              "function_call": null,
+              "reasoning_content": "",
+              "thinking_blocks": [
+                {
+                  "type": "thinking",
+                  "thinking": "",
+                  "signature": "CAQSzQgKEAgTGAI4AUIIdGhpbmtpbmcSDCygJMAJSIK8XpQFsRoMLzhZuMlNo+ELe/7YIjCesyyNZcJvsybJ0ZS6D5pAbS2arBxCArnr8QGlLu5pTHtTvaTPK1Cc89qiIZLxscoq6gc2/r3v54qLDqrFpKcED2hbguGvXs3KAZIwRHbBQOioBntU/45vEM6PQ/pfDtsnZhHk087QXP/QFD42fAfHyKT8pt83dc3lvQXa3j05AoabdGU2OovXBHVPMW1+BmeEX0ZfsgvRn19XZtR6iy5aYg1MLv+UE8GVWTTTi3Qma8zqJTfXMi6LlXGdogHKrNjy0ikDfI5aZEnkrfVaMYXH9ISr1sm3RB0cu3qLt4wozIAFACa6UYy+z0PvruYlyRbPc1g7RkZaWoZHBda+YVwkr2E/heV6h3nTzpSrqRalGJCSurXayV9ETGLX0Jf5ZU4Q3kfmKHuL9xtC3xk4fk2OcsU0pJC0iKl4YSLyydDjHO9pI7AwHEYEg1QYwAQACHqwJvEwGO4ZcNsftDh5OTp/5k5qRV9fOhBe/9rhjKOmHmtdVrkjff+rpeKtatHFDJEaefkoI9nu4c9Ib+LTHmbeVj90DPvAlAVEyWRASMeWwyq5emJgo+z87ANhLmGQlGW48xMgWXyngVo65bdUmcalBSRYU33Xb3opC1RWH+uNRGPpE0bU1QbosMi1Y8TqD1mZ4c2+BKOLsQhN2Ffn1BPfhyoRpwz9XJeQbYgQc23gT3XLoQxJPsv5gyyH7klN2hIqdc7EoSAHKZhc1Xglgbopke0qHhndUlU4LFk1QqP3OKpnhUGzF4JHbeG6QIvVatK2FE+t+EukGcPDTg1V6CJrHniZnrwS1Dnzyns9bIgcnhYtGOKd0G0S8JbggHzrtvVQ5opPdBeq47QC5yqmrmC2/eZxknFI71AC4q/p9QYgmh9BNSoFbUW4gW7plKs+PCMm6ZPteg5WF9uQqwmp90q6USP09fptBn6kGc+sh8rbnXkddIZVQWVpVWR2uLoSa7ClSFC5/CnKTHYDVqbDI5neZn06+OmTXKDMWNLdqDelgW7a/ZOJzOKR5sk/ujXvsdKBFtIqC2MdhhxPSKX1It4WbMngqhhosLxgFBk2D/oZCJ7GxCKOxa4lzDA+3k/O2epe/7tOG6UcyFO6A4q3Qbo7C2uFfWn/+R/8sBLFO6rxo7q5lxpiHzI+hR5wFl0ohkeVp5qRVCXSOV/0WpgnPh6yCXdJqJql3Xad/FEUfgV3rq9ShZIZnV7H8NzSajT0CpNrKo9gyosrugCCrDgeMcR5rqM67bZNML1G24fBxGDBbCJMN+9TjA4XIqMANRIC1ONMmCOhHBZSmG7Zuj7yEGyWHx30OnIO+VKC07s8VB9zrtx20BxXqJIONKzns2b5e2XxfaPzHzLB8noR+lVHXbNe+QAg780sDTnPCeNCJYOkG+wsaWjQlDyZOsuwdL0YAQ=="
+                }
+              ],
+              "provider_specific_fields": {
+                "citations": null,
+                "thinking_blocks": [
+                  {
+                    "type": "thinking",
+                    "thinking": "",
+                    "signature": "CAQSzQgKEAgTGAI4AUIIdGhpbmtpbmcSDCygJMAJSIK8XpQFsRoMLzhZuMlNo+ELe/7YIjCesyyNZcJvsybJ0ZS6D5pAbS2arBxCArnr8QGlLu5pTHtTvaTPK1Cc89qiIZLxscoq6gc2/r3v54qLDqrFpKcED2hbguGvXs3KAZIwRHbBQOioBntU/45vEM6PQ/pfDtsnZhHk087QXP/QFD42fAfHyKT8pt83dc3lvQXa3j05AoabdGU2OovXBHVPMW1+BmeEX0ZfsgvRn19XZtR6iy5aYg1MLv+UE8GVWTTTi3Qma8zqJTfXMi6LlXGdogHKrNjy0ikDfI5aZEnkrfVaMYXH9ISr1sm3RB0cu3qLt4wozIAFACa6UYy+z0PvruYlyRbPc1g7RkZaWoZHBda+YVwkr2E/heV6h3nTzpSrqRalGJCSurXayV9ETGLX0Jf5ZU4Q3kfmKHuL9xtC3xk4fk2OcsU0pJC0iKl4YSLyydDjHO9pI7AwHEYEg1QYwAQACHqwJvEwGO4ZcNsftDh5OTp/5k5qRV9fOhBe/9rhjKOmHmtdVrkjff+rpeKtatHFDJEaefkoI9nu4c9Ib+LTHmbeVj90DPvAlAVEyWRASMeWwyq5emJgo+z87ANhLmGQlGW48xMgWXyngVo65bdUmcalBSRYU33Xb3opC1RWH+uNRGPpE0bU1QbosMi1Y8TqD1mZ4c2+BKOLsQhN2Ffn1BPfhyoRpwz9XJeQbYgQc23gT3XLoQxJPsv5gyyH7klN2hIqdc7EoSAHKZhc1Xglgbopke0qHhndUlU4LFk1QqP3OKpnhUGzF4JHbeG6QIvVatK2FE+t+EukGcPDTg1V6CJrHniZnrwS1Dnzyns9bIgcnhYtGOKd0G0S8JbggHzrtvVQ5opPdBeq47QC5yqmrmC2/eZxknFI71AC4q/p9QYgmh9BNSoFbUW4gW7plKs+PCMm6ZPteg5WF9uQqwmp90q6USP09fptBn6kGc+sh8rbnXkddIZVQWVpVWR2uLoSa7ClSFC5/CnKTHYDVqbDI5neZn06+OmTXKDMWNLdqDelgW7a/ZOJzOKR5sk/ujXvsdKBFtIqC2MdhhxPSKX1It4WbMngqhhosLxgFBk2D/oZCJ7GxCKOxa4lzDA+3k/O2epe/7tOG6UcyFO6A4q3Qbo7C2uFfWn/+R/8sBLFO6rxo7q5lxpiHzI+hR5wFl0ohkeVp5qRVCXSOV/0WpgnPh6yCXdJqJql3Xad/FEUfgV3rq9ShZIZnV7H8NzSajT0CpNrKo9gyosrugCCrDgeMcR5rqM67bZNML1G24fBxGDBbCJMN+9TjA4XIqMANRIC1ONMmCOhHBZSmG7Zuj7yEGyWHx30OnIO+VKC07s8VB9zrtx20BxXqJIONKzns2b5e2XxfaPzHzLB8noR+lVHXbNe+QAg780sDTnPCeNCJYOkG+wsaWjQlDyZOsuwdL0YAQ=="
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "usage": {
+          "completion_tokens": 338,
+          "prompt_tokens": 3771,
+          "total_tokens": 4109,
+          "completion_tokens_details": {
+            "reasoning_tokens": 154,
+            "text_tokens": 184
+          },
+          "prompt_tokens_details": {
+            "audio_tokens": null,
+            "cached_tokens": 3338,
+            "text_tokens": 64,
+            "image_tokens": null,
+            "video_tokens": null,
+            "cache_write_tokens": 369,
+            "cache_creation_tokens": 369,
+            "cache_creation_token_details": {
+              "ephemeral_5m_input_tokens": 369,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "cache_creation_input_tokens": 369,
+          "cache_read_input_tokens": 3338,
+          "iterations": null,
+          "inference_geo": "global",
+          "speed": "standard",
+          "service_tier": "standard"
         }
       }
     }
