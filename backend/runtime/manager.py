@@ -23,6 +23,7 @@ from backend.repository.memory import MemoryRepository
 from backend.runtime import mcp
 from backend.runtime.memory import DbMemoryStore
 from backend.runtime.workspaces import BRANCH_PREFIX, WorkspaceManager
+from backend.schemas import StatusUpdate
 from miniagent.tools.mcp import MAX_TOOLS as MAX_MCP_TOOLS, McpTool
 from miniagent.tools.skill import SkillTool
 from miniagent.tools.plan import Plan
@@ -154,6 +155,9 @@ class ManagedConversation:
         self.mcp_instructions: dict[str, tuple[str, str]] = {}
         self.skills_skipped: set[str] = set()
         self.queue: list[QueuedMessage] = []
+
+    def on_status(self, status: Status) -> None:
+        self.broker.publish(StatusUpdate(status=status.value))
 
     def on_event(self, event: Event) -> None:
         self._seq += 1
@@ -532,6 +536,7 @@ class ConversationManager:
         )
         managed.persist_hook = self._persist_hook
         conversation.on_event = managed.on_event
+        conversation.on_status = managed.on_status
         self._conversations[cid] = managed
         return managed
 

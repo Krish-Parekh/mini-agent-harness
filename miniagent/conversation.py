@@ -70,11 +70,12 @@ class Conversation:
         self.agent = agent
         self.sandbox = sandbox
         self.on_event = on_event or (lambda event: None)
+        self.on_status: Callable[[Status], None] = lambda status: None
         self.max_iterations = max_iterations
         self.confirm_policy = confirm_policy or ConfirmPolicy()
         self.events: list[Event] = []
         self._events_lock = threading.Lock()
-        self.status = Status.IDLE
+        self._status = Status.IDLE
         # Set from another thread to ask the run loop to stop cooperatively; the
         # loop checks it between iterations. Cleared at the start of each run().
         self.cancel_event = threading.Event()
@@ -142,6 +143,17 @@ class Conversation:
             pending, self._steering = self._steering, []
         for message in pending:
             self.add_event(message)
+
+    @property
+    def status(self) -> Status:
+        return self._status
+
+    @status.setter
+    def status(self, status: Status) -> None:
+        changed = status != self._status
+        self._status = status
+        if changed:
+            self.on_status(status)
 
     def add_event(self, event: Event) -> None:
         with self._events_lock:
