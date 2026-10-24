@@ -7,7 +7,7 @@ from pydantic import Field
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 from miniagent.tools.bash import inside_workspace
 
 MAX_FILES = 100
@@ -50,7 +50,7 @@ class GrepTool(Tool):
     action_type = GrepAction
     observation_type = SearchObservation
 
-    def execute(self, action: GrepAction, sandbox: Sandbox) -> SearchObservation:
+    def execute(self, action: GrepAction, sandbox: Sandbox, _context: ToolContext) -> SearchObservation:
         args = ["--heading", "--line-number", "--max-columns=300", "--max-columns-preview"]
         if action.include:
             args.append(f"--glob={action.include}")
@@ -68,7 +68,7 @@ class GlobTool(Tool):
     action_type = GlobAction
     observation_type = SearchObservation
 
-    def execute(self, action: GlobAction, sandbox: Sandbox) -> SearchObservation:
+    def execute(self, action: GlobAction, sandbox: Sandbox, _context: ToolContext) -> SearchObservation:
         args = ["--files", f"--glob={action.pattern}", "--sortr=modified"]
         return _ripgrep(args, action.path, sandbox, MAX_FILES)
 

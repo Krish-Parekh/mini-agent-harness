@@ -11,6 +11,7 @@ def test_workdir_runs_the_command_in_that_directory(tmp_path):
     result = BashTool().execute(
         BashAction(command="pwd", workdir="pkg", description="Print dir"),
         LocalSandbox(str(tmp_path)),
+        None,
     )
     assert result.exit_code == 0
     assert result.stdout.strip().endswith("/pkg")
@@ -19,7 +20,7 @@ def test_workdir_runs_the_command_in_that_directory(tmp_path):
 @pytest.mark.parametrize("workdir", ["..", "../other", "/etc"])
 def test_workdir_outside_the_workspace_is_rejected(tmp_path, workdir):
     result = BashTool().execute(
-        BashAction(command="pwd", workdir=workdir), LocalSandbox(str(tmp_path))
+        BashAction(command="pwd", workdir=workdir), LocalSandbox(str(tmp_path)), None
     )
     assert result.exit_code == 2
     assert "outside the workspace" in result.stderr

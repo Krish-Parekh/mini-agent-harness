@@ -380,39 +380,49 @@ Ask the user one to four multiple-choice questions to clarify ambiguous requirem
 }
 ```
 
-## `fanout`
+## `task`
 
-Run 1-4 independent read-only worker agents for exploration tasks, then return their summaries. Use this for broad searches, locating relevant files, identifying tests, or getting focused review perspectives before the parent agent decides what to do.
+Run 1-4 worker agents in parallel and wait for all of them. kind='explore' starts a fresh read-only agent for a wide search or investigation; it has not seen this conversation, so its prompt must carry the context it needs. kind='fork' starts a copy of you that inherits this conversation and has your coding tools, working in its own git worktree. When the forks finish, each one's changes are merged into the workspace in order; a fork that conflicts stays on its branch and is reported. Give parallel forks independent changes in different files. Workers cannot ask the user anything or start workers of their own, and each returns its `finish` message as its report.
 
 ```json
 {
   "$defs": {
-    "FanoutTask": {
+    "TaskSpec": {
       "properties": {
+        "kind": {
+          "description": "`explore`: a fresh read-only agent that sees none of this conversation. `fork`: a copy of you that inherits this conversation and edits code in its own git worktree.",
+          "enum": [
+            "explore",
+            "fork"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
         "prompt": {
-          "description": "Focused read-only investigation for the worker.",
+          "description": "The worker's brief. For `explore`, include every piece of context it needs. For `fork`, state the one change to make and what to report.",
           "title": "Prompt",
           "type": "string"
         },
         "title": {
-          "description": "Short label for the worker task.",
+          "description": "Short label (3-5 words) shown to the user.",
           "title": "Title",
           "type": "string"
         }
       },
       "required": [
+        "kind",
         "title",
         "prompt"
       ],
-      "title": "FanoutTask",
+      "title": "TaskSpec",
       "type": "object"
     }
   },
   "properties": {
     "tasks": {
-      "description": "Independent read-only worker tasks to run and summarize.",
+      "description": "Independent workers to run in parallel.",
       "items": {
-        "$ref": "#/$defs/FanoutTask"
+        "$ref": "#/$defs/TaskSpec"
       },
       "maxItems": 4,
       "minItems": 1,
@@ -423,7 +433,7 @@ Run 1-4 independent read-only worker agents for exploration tasks, then return t
   "required": [
     "tasks"
   ],
-  "title": "FanoutAction",
+  "title": "TaskAction",
   "type": "object"
 }
 ```

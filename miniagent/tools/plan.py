@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 StepStatus = Literal["pending", "in_progress", "done"]
 
@@ -65,7 +65,7 @@ class PresentPlanTool(Tool):
     observation_type = PresentPlanObservation
 
     def execute(
-        self, action: PresentPlanAction, sandbox: Sandbox
+        self, action: PresentPlanAction, sandbox: Sandbox, _context: ToolContext
     ) -> PresentPlanObservation:
         return PresentPlanObservation(title=action.title)
 
@@ -94,7 +94,7 @@ class UpdatePlanTool(Tool):
     observation_type = UpdatePlanObservation
 
     def execute(
-        self, action: UpdatePlanAction, sandbox: Sandbox
+        self, action: UpdatePlanAction, sandbox: Sandbox, _context: ToolContext
     ) -> UpdatePlanObservation:
         # The plan itself lives on the conversation; the agent applies the
         # mutation when handling this tool, keeping tools conversation-agnostic.

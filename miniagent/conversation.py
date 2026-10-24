@@ -61,14 +61,19 @@ class Conversation:
         id: str | None = None,
         stuck_detection: bool = True,
         stuck_detection_thresholds: StuckDetectionThresholds | None = None,
+        parent: Conversation | None = None,
+        read_only: bool = False,
     ) -> None:
         self.id = id or _new_id()
+        self.parent = parent
+        self.read_only = read_only
         self.agent = agent
         self.sandbox = sandbox
         self.on_event = on_event or (lambda event: None)
         self.max_iterations = max_iterations
         self.confirm_policy = confirm_policy or ConfirmPolicy()
         self.events: list[Event] = []
+        self._events_lock = threading.Lock()
         self.status = Status.IDLE
         # Set from another thread to ask the run loop to stop cooperatively; the
         # loop checks it between iterations. Cleared at the start of each run().
@@ -147,8 +152,9 @@ class Conversation:
             self.add_event(message)
 
     def add_event(self, event: Event) -> None:
-        self.events.append(event)
-        self.on_event(event)
+        with self._events_lock:
+            self.events.append(event)
+            self.on_event(event)
 
     def set_finished(self) -> None:
         self.status = Status.FINISHED
@@ -355,10 +361,17 @@ class Conversation:
         self.run()
 
     def request_cancel(self) -> None:
-        """Ask the in-flight run loop to stop after its current step."""
+        """Ask the in-flight run loop, and every child conversation it spawned,
+        to stop after its current step."""
         self.cancel_event.set()
         with self._steering_lock:
             self._steering.clear()
+
+    @property
+    def cancelled(self) -> bool:
+        return self.cancel_event.is_set() or (
+            self.parent is not None and self.parent.cancelled
+        )
 
     def run(self) -> None:
         self.cancel_event.clear()
@@ -370,7 +383,7 @@ class Conversation:
         for _ in range(self.max_iterations):
             # Cooperative stop: a step runs to completion (the current LLM call
             # or tool can't be interrupted), then we bail before the next one.
-            if self.cancel_event.is_set():
+            if self.cancelled:
                 self.status = Status.IDLE
                 return
             self._take_steering()

@@ -7,7 +7,7 @@ from pydantic import Field
 
 from miniagent.sandbox.base import CommandResult, Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 
 class BashAction(Action):
@@ -63,7 +63,7 @@ class BashTool(Tool):
     action_type = BashAction
     observation_type = BashObservation
 
-    def execute(self, action: BashAction, sandbox: Sandbox) -> BashObservation:
+    def execute(self, action: BashAction, sandbox: Sandbox, _context: ToolContext) -> BashObservation:
         command = action.command
         if action.workdir:
             workdir = inside_workspace(action.workdir, sandbox.workspace_dir)

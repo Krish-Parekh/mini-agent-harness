@@ -6,7 +6,7 @@ from pydantic import ConfigDict
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 NAME_PREFIX = "mcp__"
 MAX_TOOLS = 40
@@ -54,7 +54,7 @@ class McpTool(Tool):
         self.read_only = read_only
         self._invoke = invoke
 
-    def execute(self, action: Action, sandbox: Sandbox) -> Observation:
+    def execute(self, action: Action, sandbox: Sandbox, _context: ToolContext) -> Observation:
         arguments = action.model_dump(exclude_none=True)
         return McpObservation(content=self._invoke(self.remote_name, arguments))
 

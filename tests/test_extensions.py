@@ -628,8 +628,8 @@ def test_enabled_skills_register_the_skill_tool_and_disable_removes_it():
     _apply(host, {}, skills_block="- review: be thorough", skill_bodies={"review": "BODY"})
     tools = host.conversation.agent.tools
     assert "skill" in tools
-    assert tools["skill"].execute(tools["skill"].action_type(name="review"), None).content == "BODY"
-    unknown = tools["skill"].execute(tools["skill"].action_type(name="nope"), None)
+    assert tools["skill"].execute(tools["skill"].action_type(name="review"), None, None).content == "BODY"
+    unknown = tools["skill"].execute(tools["skill"].action_type(name="nope"), None, None)
     assert unknown.error and "review" in unknown.content
 
     _apply(host, {})
@@ -649,7 +649,7 @@ def test_find_skills_lists_hits_and_reports_errors(monkeypatch):
         id="o/r/tdd", source="o/r", skill_id="tdd", name="tdd", installs=7, description="Test first"
     )
     monkeypatch.setattr(skills_registry, "search", lambda q: [hit])
-    observation = FindSkillsTool().execute(FindSkillsAction(query="tdd"), None)
+    observation = FindSkillsTool().execute(FindSkillsAction(query="tdd"), None, None)
     assert observation.to_llm_text() == "- o/r/tdd (7 installs): Test first"
     assert observation.ui_details()["hits"][0]["skill_id"] == "tdd"
 
@@ -657,7 +657,7 @@ def test_find_skills_lists_hits_and_reports_errors(monkeypatch):
         raise skills_registry.RegistryError("skills.sh search failed: boom")
 
     monkeypatch.setattr(skills_registry, "search", fail)
-    observation = FindSkillsTool().execute(FindSkillsAction(query="tdd"), None)
+    observation = FindSkillsTool().execute(FindSkillsAction(query="tdd"), None, None)
     assert observation.error and observation.to_llm_text().startswith("ERROR:")
 
 

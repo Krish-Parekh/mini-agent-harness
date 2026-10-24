@@ -33,27 +33,22 @@ class SteeringProbe(Tool):
     action_type = ProbeAction
     observation_type = ProbeObservation
 
-    def __init__(self) -> None:
-        self.conversation: Conversation | None = None
-
-    def execute(self, action, sandbox):
-        self.conversation.steer("also update the README")
+    def execute(self, action, sandbox, context):
+        context.conversation.steer("also update the README")
         return ProbeObservation()
 
 
 def test_a_steer_message_lands_after_the_tool_result_at_the_next_step(tmp_path):
-    probe = SteeringProbe()
     llm = QueueLLM(
         LLMResponse(tool_calls=[ToolCall(id="call_probe", name="probe", arguments={})]),
         LLMResponse(text="done"),
     )
     conversation = Conversation(
-        agent=Agent(llm=llm, tools=ToolRegistry([probe, FinishTool()]), policy=SafePolicy()),
+        agent=Agent(llm=llm, tools=ToolRegistry([SteeringProbe(), FinishTool()]), policy=SafePolicy()),
         sandbox=LocalSandbox(str(tmp_path)),
         confirm_policy=ConfirmPolicy("never"),
         stuck_detection=False,
     )
-    probe.conversation = conversation
     conversation.send_message("fix the bug")
     conversation.run()
 

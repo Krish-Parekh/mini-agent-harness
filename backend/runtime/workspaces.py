@@ -8,13 +8,12 @@ import threading
 from pathlib import Path
 
 from miniagent.sandbox.workspace import (
+    BRANCH_PREFIX,
     WorkspaceError,
     _redact,
     git_auth,
     git_url,
 )
-
-BRANCH_PREFIX = "miniagent"
 
 
 class WorkspaceManager:

@@ -139,7 +139,7 @@ async def test_a_conversation_registers_runs_and_drops_server_tools(tmp_path):
         "tracker": "Search before you create an issue."
     }
     search = tools["mcp__tracker__search"]
-    assert search.execute(McpAction(query="crash"), managed.sandbox).content == (
+    assert search.execute(McpAction(query="crash"), managed.sandbox, None).content == (
         "found 2 issues for crash"
     )
     call = ActionEvent(tool_name="mcp__tracker__search", arguments={}, tool_call_id="1")

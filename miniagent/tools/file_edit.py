@@ -6,7 +6,7 @@ from typing import Literal
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 from miniagent.tools.file_edit_match import (
     apply_str_replace,
     diagnose_multiple,
@@ -83,7 +83,7 @@ class FileEditTool(Tool):
     def __init__(self) -> None:
         self.observed = FileObservations()
 
-    def execute(self, action: FileEditAction, sandbox: Sandbox) -> FileEditObservation:
+    def execute(self, action: FileEditAction, sandbox: Sandbox, _context: ToolContext) -> FileEditObservation:
         if action.command == "view":
             return self._view(action, sandbox)
         if action.command == "create":

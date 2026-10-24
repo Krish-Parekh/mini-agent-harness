@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 
 class FinishAction(Action):
@@ -25,5 +25,5 @@ class FinishTool(Tool):
     action_type = FinishAction
     observation_type = FinishObservation
 
-    def execute(self, action: FinishAction, sandbox: Sandbox) -> FinishObservation:
+    def execute(self, action: FinishAction, sandbox: Sandbox, _context: ToolContext) -> FinishObservation:
         return FinishObservation(message=action.message)
