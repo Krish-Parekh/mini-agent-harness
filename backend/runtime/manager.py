@@ -23,12 +23,12 @@ from backend.repository.memory import MemoryRepository
 from backend.runtime import mcp
 from backend.runtime.memory import DbMemoryStore
 from backend.runtime.workspaces import BRANCH_PREFIX, WorkspaceManager
-from backend.schemas import StatusUpdate
 from miniagent.tools.mcp import MAX_TOOLS as MAX_MCP_TOOLS, McpTool
 from miniagent.tools.skill import SkillTool
 from miniagent.tools.plan import Plan
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
+StatusHook = Callable[["ManagedConversation", Status], None]
 
 
 def publish_committed(managed: ManagedConversation, event: Event, seq: int) -> None:
@@ -149,6 +149,7 @@ class ManagedConversation:
         self.run_generation = 0
         self.lock = asyncio.Lock()
         self.persist_hook: PersistHook = publish_committed
+        self.status_hook: StatusHook = lambda managed, status: None
         self.mcp_tools: dict[str, list[str]] = {}
         self.mcp_sessions: dict[str, mcp.McpSession] = {}
         self.mcp_skipped: set[str] = set()
@@ -157,7 +158,7 @@ class ManagedConversation:
         self.queue: list[QueuedMessage] = []
 
     def on_status(self, status: Status) -> None:
-        self.broker.publish(StatusUpdate(status=status.value))
+        self.status_hook(self, status)
 
     def on_event(self, event: Event) -> None:
         self._seq += 1
@@ -373,9 +374,13 @@ class ConversationManager:
         self._workspaces = WorkspaceManager(data_dir)
         self._conversations: dict[str, ManagedConversation] = {}
         self._persist_hook: PersistHook = publish_committed
+        self._status_hook: StatusHook = lambda managed, status: None
 
     def set_persist_hook(self, hook: PersistHook) -> None:
         self._persist_hook = hook
+
+    def set_status_hook(self, hook: StatusHook) -> None:
+        self._status_hook = hook
 
     def create(
         self,
@@ -535,6 +540,7 @@ class ConversationManager:
             token,
         )
         managed.persist_hook = self._persist_hook
+        managed.status_hook = self._status_hook
         conversation.on_event = managed.on_event
         conversation.on_status = managed.on_status
         self._conversations[cid] = managed

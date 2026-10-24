@@ -129,6 +129,7 @@ class ConversationService:
     def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._manager.set_persist_hook(self._enqueue_persist)
+        self._manager.set_status_hook(self._on_status)
         self._persist_task = asyncio.create_task(self._persistence_worker())
         self._spawn(self._idle_sweeper())
 
@@ -273,6 +274,9 @@ class ConversationService:
             seq=None,
         )
         self._emit_status(managed, Status.ERROR.value)
+
+    def _on_status(self, managed: ManagedConversation, status: Status) -> None:
+        self._emit_status(managed, status.value)
 
     def _emit_status(self, managed: ManagedConversation, status: str | None = None) -> None:
         managed.broker.publish(
