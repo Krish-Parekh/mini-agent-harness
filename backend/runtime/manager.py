@@ -29,6 +29,7 @@ from miniagent.tools.plan import Plan
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
 StatusHook = Callable[["ManagedConversation", Status], None]
+InboxHook = Callable[["ManagedConversation"], None]
 
 
 def publish_committed(managed: ManagedConversation, event: Event, seq: int) -> None:
@@ -150,6 +151,7 @@ class ManagedConversation:
         self.lock = asyncio.Lock()
         self.persist_hook: PersistHook = publish_committed
         self.status_hook: StatusHook = lambda managed, status: None
+        self.inbox_hook: InboxHook = lambda managed: None
         self.mcp_tools: dict[str, list[str]] = {}
         self.mcp_sessions: dict[str, mcp.McpSession] = {}
         self.mcp_skipped: set[str] = set()
@@ -159,6 +161,9 @@ class ManagedConversation:
 
     def on_status(self, status: Status) -> None:
         self.status_hook(self, status)
+
+    def on_inbox(self) -> None:
+        self.inbox_hook(self)
 
     def on_event(self, event: Event) -> None:
         self._seq += 1
@@ -375,12 +380,16 @@ class ConversationManager:
         self._conversations: dict[str, ManagedConversation] = {}
         self._persist_hook: PersistHook = publish_committed
         self._status_hook: StatusHook = lambda managed, status: None
+        self._inbox_hook: InboxHook = lambda managed: None
 
     def set_persist_hook(self, hook: PersistHook) -> None:
         self._persist_hook = hook
 
     def set_status_hook(self, hook: StatusHook) -> None:
         self._status_hook = hook
+
+    def set_inbox_hook(self, hook: InboxHook) -> None:
+        self._inbox_hook = hook
 
     def create(
         self,
@@ -541,8 +550,10 @@ class ConversationManager:
         )
         managed.persist_hook = self._persist_hook
         managed.status_hook = self._status_hook
+        managed.inbox_hook = self._inbox_hook
         conversation.on_event = managed.on_event
         conversation.on_status = managed.on_status
+        conversation.workers.on_inbox = managed.on_inbox
         self._conversations[cid] = managed
         return managed
 

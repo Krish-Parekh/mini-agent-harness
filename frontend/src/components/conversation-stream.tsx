@@ -9,12 +9,14 @@ import {
   type ActionEvent,
   type ErrorEvent,
   type MessageEvent,
+  type WorkerResultEvent,
   eventKey,
   isAction,
   isErrorEvent,
   isMessage,
   isObservation,
   isWorkerEvent,
+  isWorkerResult,
   isWorkerStatus,
 } from "@/lib/events";
 import { type WorkerView, buildWorkers } from "@/lib/workers";
@@ -51,7 +53,7 @@ import { Markdown } from "@/components/bui/markdown";
 import { TaskList, TaskRow, type TaskStatus } from "@/components/bui/task-rows";
 import { DiffChips, type DiffStat, ToolRow, ToolRun } from "@/components/bui/tool-chips";
 import { ValuePill } from "@/components/bui/value-pill";
-import { WorkerCards } from "@/components/workers";
+import { WorkerCards, WorkerResultRow } from "@/components/workers";
 
 type SelectFile = (path: string, scope?: string) => void;
 
@@ -179,7 +181,7 @@ const ChainStep = memo(function ChainStep({
   const observationDetail =
     obs && isObservation(obs) ? toolObservationDetail(action.tool_name, obs) : undefined;
   const hasWorkers = !!workers && workers.length > 0;
-  const workersLive = running || (live && !obs);
+  const workersLive = running || (live && !obs) || !!workers?.some((w) => w.status === "running");
 
   const hasDetail =
     isPending ||
@@ -470,6 +472,7 @@ function ErrorRow({ event }: { event: ErrorEvent }) {
 type Group =
   | { kind: "message"; event: MessageEvent }
   | { kind: "error"; event: ErrorEvent }
+  | { kind: "worker_result"; event: WorkerResultEvent }
   | { kind: "plan"; event: ActionEvent }
   | { kind: "questions"; event: ActionEvent }
   | { kind: "skills"; event: ActionEvent }
@@ -624,6 +627,11 @@ function groupEvents(events: AgentEvent[]): Group[] {
   for (const ev of events) {
     if (isObservation(ev)) continue;
     if (isWorkerEvent(ev) || isWorkerStatus(ev)) continue;
+    if (isWorkerResult(ev)) {
+      chain = null;
+      groups.push({ kind: "worker_result", event: ev });
+      continue;
+    }
     if (!isAction(ev) && !isErrorEvent(ev) && (ev as MessageEvent).role === "system") continue;
     if (isAction(ev) && ev.tool_name === "present_plan") {
       chain = null;
@@ -785,6 +793,9 @@ export const ConversationTimeline = memo(function ConversationTimeline({
     }
     if (group.kind === "error") {
       return <ErrorRow key={group.event.id} event={group.event} />;
+    }
+    if (group.kind === "worker_result") {
+      return <WorkerResultRow key={group.event.id} event={group.event} />;
     }
     const key = eventKey(group.event);
     return (

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     workspace_dir: str = "./workspace"
     mcp_config: str = "mcp.json"
     max_iterations: int = 50
+    explore_iterations: int = 50
+    fork_iterations: int = 150
     reasoning_effort: ReasoningEffort | None = None
 
     supabase_url: str = Field("", validation_alias=AliasChoices("SUPABASE_URL"))

@@ -117,6 +117,16 @@ def shell_command(arguments: dict[str, Any]) -> str | None:
     return str(arguments.get("command", "")).strip() or None
 
 
+def gated_text(arguments: dict[str, Any]) -> str | None:
+    """What a write or approval check must classify: the command, or text typed
+    into the pane. Text typed while nothing is running is executed by bash, so
+    only key presses (`C-c`, arrows) are exempt."""
+    if not arguments.get("is_input"):
+        return shell_command(arguments)
+    text = str(arguments.get("command", "")).strip()
+    return None if not text or _key_name(text) is not None else text
+
+
 def _key_name(text: str) -> str | None:
     upper = text.strip().upper()
     if upper in _KEYS:

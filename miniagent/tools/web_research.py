@@ -77,10 +77,10 @@ class WebResearchTool(Tool):
             max_iterations=self.max_iterations,
         )
         worker.publish()
-        status, report = worker.run(action.prompt)
-        worker.publish(status=status, report=report)
+        worker.run(action.prompt)
+        state = worker.state
         return WebResearchObservation(
-            summary=report or "The researcher ended without calling `finish` and left no report.",
-            status=status,
-            error=status != "done",
+            summary=state.report or "The researcher left no closing message.",
+            status=state.status,
+            error=state.status != "done",
         )

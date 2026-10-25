@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import threading
+import time
 import uuid
 from typing import TYPE_CHECKING, Callable
 
@@ -16,12 +17,17 @@ from miniagent.events import (
     ObservationEvent,
     RepoInstructionsEvent,
     RewindEvent,
+    WorkerEvent,
+    WorkerResultEvent,
+    WorkerState,
+    WorkerStatusEvent,
     WorkspaceSketchEvent,
 )
 from miniagent.failures import classify, redact
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 from miniagent.stuck_detector import StuckDetectionThresholds, StuckDetector
 from miniagent.tools.terminal import shell_command
+from miniagent.tools.workers import WorkerPool
 
 if TYPE_CHECKING:
     from miniagent.agent import Agent
@@ -65,11 +71,15 @@ class Conversation:
         parent: Conversation | None = None,
         read_only: bool = False,
         directive: str | None = None,
+        refuse_confirmations: bool = False,
     ) -> None:
         self.id = id or _new_id()
         self.parent = parent
         self.read_only = read_only
         self.directive = directive
+        self.refuse_confirmations = refuse_confirmations
+        self.workers = WorkerPool()
+        self.hit_step_limit = False
         self.agent = agent
         self.sandbox = sandbox
         self.on_event = on_event or (lambda event: None)
@@ -139,13 +149,17 @@ class Conversation:
 
     def has_steering(self) -> bool:
         with self._steering_lock:
-            return bool(self._steering)
+            if self._steering:
+                return True
+        return self.workers.has_results()
 
     def _take_steering(self) -> None:
         with self._steering_lock:
             pending, self._steering = self._steering, []
         for message in pending:
             self.add_event(message)
+        for worker in self.workers.take():
+            self.add_event(worker.deliver())
 
     @property
     def status(self) -> Status:
@@ -218,6 +232,41 @@ class Conversation:
             )
         )
         self.status = Status.IDLE
+
+    def settle_interrupted_workers(self) -> None:
+        """Close what a server restart left open in a reloaded history: workers
+        still marked running (their threads died with the process) and calls
+        that never got a result."""
+        last: dict[str, WorkerStatusEvent] = {}
+        replies: dict[str, str] = {}
+        for event in self.events:
+            if isinstance(event, WorkerStatusEvent):
+                last[event.worker_id] = event
+            elif (
+                isinstance(event, WorkerEvent)
+                and isinstance(event.event, MessageEvent)
+                and event.event.role == "assistant"
+                and event.event.text
+            ):
+                replies[event.worker_id] = event.event.text
+        for worker_id, status in last.items():
+            if status.status != "running" or self.workers.is_live(worker_id):
+                continue
+            ended = status.model_copy(
+                update={
+                    "id": _new_id(),
+                    "timestamp": time.time(),
+                    "status": "failed",
+                    "stop_reason": "interrupted",
+                    "report": replies.get(worker_id),
+                }
+            )
+            self.add_event(ended)
+            self.add_event(
+                WorkerResultEvent(**ended.model_dump(include=set(WorkerState.model_fields)))
+            )
+        if self.status != Status.WAITING_FOR_CONFIRMATION:
+            self.close_orphaned_actions("Not executed: the server restarted while this call ran.")
 
     def close_orphaned_actions(self, reason: str) -> None:
         for action in self.pending_actions():
@@ -373,6 +422,7 @@ class Conversation:
         self.cancel_event.set()
         with self._steering_lock:
             self._steering.clear()
+        self.workers.cancel_all()
 
     @property
     def cancelled(self) -> bool:
@@ -380,8 +430,20 @@ class Conversation:
             self.parent is not None and self.parent.cancelled
         )
 
+    def run_until_settled(self) -> None:
+        """Run, then keep taking turns while background workers report back.
+        For drivers with no event loop to wake an idle conversation (tests, CLI)."""
+        self.run()
+        while (
+            self.status in (Status.IDLE, Status.FINISHED)
+            and not self.cancel_event.is_set()
+            and self.workers.wait()
+        ):
+            self.run()
+
     def run(self) -> None:
         self.cancel_event.clear()
+        self.hit_step_limit = False
         if self.status != Status.WAITING_FOR_CONFIRMATION:
             self.close_orphaned_actions(
                 "Not executed: the previous run stopped before this call ran."
@@ -423,6 +485,7 @@ class Conversation:
         # Exhausted the loop while still running. Give the model one final
         # no-tools chance to synthesize the work so the user isn't left with
         # only a control-plane error.
+        self.hit_step_limit = True
         try:
             self.agent.early_stop(self, self.sandbox)
         except Exception as exc:

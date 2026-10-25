@@ -66,7 +66,11 @@ def build_agent(
         PresentPlanTool(),
         UpdatePlanTool(),
         AskUserTool(),
-        TaskTool(core_tools),
+        TaskTool(
+            core_tools,
+            fork_iterations=settings.fork_iterations,
+            explore_iterations=settings.explore_iterations,
+        ),
         FindSkillsTool(),
         ProposeSkillsTool(),
     ]

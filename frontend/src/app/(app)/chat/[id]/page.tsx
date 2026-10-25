@@ -22,7 +22,7 @@ import { useConversationStream } from "@/hooks/use-conversation-stream";
 import { useDelayedFlag } from "@/hooks/use-delayed-flag";
 import { ConversationTimeline } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
-import { buildWorkers } from "@/lib/workers";
+import { buildWorkers, uniqueWorkers } from "@/lib/workers";
 import { QuestionCard, type Question } from "@/components/question-card";
 import {
   type ProposedSkill,
@@ -127,14 +127,12 @@ export default function ChatPage({
   );
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [changesScope, setChangesScope] = useState("all");
+  const workers = useMemo(() => uniqueWorkers(buildWorkers(events)), [events]);
   const workerScopes = useMemo(
-    () =>
-      Array.from(buildWorkers(events).values())
-        .flat()
-        .filter((w) => w.branch)
-        .map((w) => ({ id: w.worker_id, title: w.title })),
-    [events],
+    () => workers.filter((w) => w.branch).map((w) => ({ id: w.worker_id, title: w.title })),
+    [workers],
   );
+  const runningWorkers = workers.filter((w) => w.status === "running").length;
   const [panelOpen, setPanelOpen] = useState(true);
   const lastSentText = useRef("");
 
@@ -322,6 +320,12 @@ export default function ChatPage({
               <span className="flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 <Spinner className="size-3" />
                 Reconnecting…
+              </span>
+            )}
+            {runningWorkers > 0 && (
+              <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground tabular-nums">
+                <Spinner className="size-3" />
+                {runningWorkers} worker{runningWorkers === 1 ? "" : "s"} running
               </span>
             )}
           </div>

@@ -5,7 +5,13 @@ import pytest
 from miniagent.agent import Agent
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation, Status
-from miniagent.events import ActionEvent, MessageEvent, ObservationEvent
+from miniagent.events import (
+    ActionEvent,
+    ErrorEvent,
+    MessageEvent,
+    ObservationEvent,
+    WorkerEvent,
+)
 from miniagent.llm import LLMResponse, ToolCall
 from miniagent.policy import CommandPolicy
 from miniagent.sandbox.base import CommandResult, Sandbox
@@ -160,3 +166,48 @@ def test_a_stale_approval_does_not_approve_the_next_pending_call(
 
     assert not (tmp_path / "deployed").exists()
     assert conversation.awaits("c2")
+
+
+def test_a_call_interrupted_by_a_restart_keeps_its_result_next_to_it(workspace_conversation):
+    llm = QueueLLM(LLMResponse(text="picking up again"))
+    conversation = workspace_conversation(llm)
+    conversation.add_event(MessageEvent(role="user", text="review the branch"))
+    conversation.add_event(
+        ActionEvent(tool_name="terminal", arguments={"command": "git diff"}, tool_call_id="c1")
+    )
+    conversation.add_event(ErrorEvent(message="The server restarted while this run was in progress."))
+    conversation.send_message("??")
+    conversation.run()
+
+    sent = llm.seen[-1]
+    call = next(i for i, m in enumerate(sent) if m.get("tool_calls"))
+    assert sent[call + 1] == {**sent[call + 1], "role": "tool", "tool_call_id": "c1"}
+    assert [m["role"] for m in sent].count("tool") == 1
+    assert sent[call + 2]["content"].startswith("[error]")
+
+
+def test_worker_relays_do_not_split_one_turns_parallel_calls(workspace_conversation):
+    llm = QueueLLM(LLMResponse(text="done"))
+    conversation = workspace_conversation(llm)
+    conversation.add_event(MessageEvent(role="user", text="look around"))
+    for call_id in ("c1", "c2"):
+        conversation.add_event(
+            ActionEvent(tool_name="terminal", arguments={"command": "ls"}, tool_call_id=call_id)
+        )
+        conversation.add_event(
+            WorkerEvent(
+                parent_tool_call_id="t1",
+                worker_id="w1",
+                event=MessageEvent(role="assistant", text="worker step"),
+            )
+        )
+    for call_id in ("c1", "c2"):
+        conversation.add_event(
+            ObservationEvent(tool_name="terminal", tool_call_id=call_id, content="ok")
+        )
+    conversation.run()
+
+    sent = llm.seen[-1]
+    turns = [m for m in sent if m.get("tool_calls")]
+    assert len(turns) == 1
+    assert [c["id"] for c in turns[0]["tool_calls"]] == ["c1", "c2"]

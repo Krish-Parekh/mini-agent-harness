@@ -193,7 +193,8 @@ class LLMUsageEvent(Event):
 
 
 WorkerKind: TypeAlias = Literal["explore", "fork", "research"]
-WorkerStatus: TypeAlias = Literal["running", "done", "failed", "cancelled"]
+WorkerStatus: TypeAlias = Literal["running", "done", "partial", "failed", "cancelled"]
+StopReason: TypeAlias = Literal["step_limit", "no_finish", "error", "cancelled", "interrupted"]
 
 
 class WorkerState(BaseModel):
@@ -203,6 +204,7 @@ class WorkerState(BaseModel):
     worker_kind: WorkerKind
     title: str
     status: WorkerStatus = "running"
+    stop_reason: StopReason | None = None
     report: str | None = None
     base: str | None = None
     branch: str | None = None
@@ -223,6 +225,42 @@ class WorkerEvent(Event):
     parent_tool_call_id: str
     worker_id: str
     event: Events
+
+
+STOP_REASONS: dict[StopReason, str] = {
+    "step_limit": "stopped at its step limit",
+    "no_finish": "ended without calling `finish`",
+    "error": "failed",
+    "cancelled": "was stopped",
+    "interrupted": "was interrupted by a server restart",
+}
+
+
+class WorkerResultEvent(Event, WorkerState):
+    kind: Literal["worker_result"] = "worker_result"
+    source: Source = "environment"
+
+    def to_chat_message(self) -> dict:
+        reason = f": it {STOP_REASONS[self.stop_reason]}" if self.stop_reason else ""
+        lines = [
+            f"[worker result] {self.title} ({self.worker_kind}, id {self.worker_id}, "
+            f"{self.status}{reason})",
+            self.report or "It left no closing message.",
+        ]
+        if self.merged:
+            lines.append(f"Merged into the workspace: {', '.join(self.files)}.")
+        elif self.conflict:
+            lines.append(
+                f"Not merged: it conflicts with the workspace. Its commit stays on "
+                f"branch {self.branch}.\n{self.conflict}"
+            )
+        elif self.files:
+            lines.append(
+                f"Not merged because it did not finish. Its changes to "
+                f"{', '.join(self.files)} stay on branch {self.branch}; resume it to "
+                "finish the work."
+            )
+        return {"role": "user", "content": "\n".join(lines)}
 
 
 class ErrorEvent(Event):
@@ -250,6 +288,7 @@ Events: TypeAlias = Annotated[
         MemoryIndexEvent,
         LLMUsageEvent,
         WorkerStatusEvent,
+        WorkerResultEvent,
         WorkerEvent,
         ErrorEvent,
     ],

@@ -39,13 +39,16 @@ export type ErrorEvent = AgentEvent & {
 
 export type WorkerKind = "explore" | "fork" | "research";
 
-export type WorkerStatus = "running" | "done" | "failed" | "cancelled";
+export type WorkerStatus = "running" | "done" | "partial" | "failed" | "cancelled";
+
+export type StopReason = "step_limit" | "no_finish" | "error" | "cancelled" | "interrupted";
 
 export type WorkerState = {
   worker_id: string;
   worker_kind: WorkerKind;
   title: string;
   status: WorkerStatus;
+  stop_reason: StopReason | null;
   report: string | null;
   base: string | null;
   branch: string | null;
@@ -58,6 +61,11 @@ export type WorkerStatusEvent = AgentEvent &
   WorkerState & {
     kind: "worker_status";
     parent_tool_call_id: string;
+  };
+
+export type WorkerResultEvent = AgentEvent &
+  WorkerState & {
+    kind: "worker_result";
   };
 
 export type WorkerEvent = AgentEvent & {
@@ -84,5 +92,8 @@ export const isWorkerStatus = (e: AgentEvent): e is WorkerStatusEvent =>
 
 export const isWorkerEvent = (e: AgentEvent): e is WorkerEvent =>
   e.kind === "worker";
+
+export const isWorkerResult = (e: AgentEvent): e is WorkerResultEvent =>
+  e.kind === "worker_result";
 
 export const eventKey = (e: AgentEvent) => e.client_event_id ?? e.id;
