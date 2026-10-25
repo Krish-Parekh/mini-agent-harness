@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeftIcon } from "lucide-react";
 
 import { useConversationStream } from "@/hooks/use-conversation-stream";
-import { buildWorkers } from "@/lib/workers";
+import { buildWorkers, uniqueWorkers } from "@/lib/workers";
 import { ConversationTimeline } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
 import {
@@ -40,9 +40,7 @@ export default function WorkerPage({
     useConversationStream(id);
   const worker = useMemo(
     () =>
-      Array.from(buildWorkers(events).values())
-        .flat()
-        .find((w) => w.worker_id === workerId),
+      uniqueWorkers(buildWorkers(events)).find((w) => w.worker_id === workerId),
     [events, workerId],
   );
 
