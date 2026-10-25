@@ -41,7 +41,7 @@ from miniagent.tracing import bind_context, tool_attributes, tool_result_attribu
 from miniagent.tools.mcp import NAME_PREFIX as MCP_PREFIX, McpTool
 from miniagent.tools.memory import MemoryStore, memory_index
 from miniagent.tools.plan import Plan
-from miniagent.tools.terminal import shell_command
+from miniagent.tools.terminal import gated_text
 
 if TYPE_CHECKING:
     from miniagent.conversation import Conversation
@@ -171,31 +171,31 @@ def exclude_from_git(sandbox: Sandbox) -> None:
 
 
 def _pair_tool_calls(messages: list[dict]) -> list[dict]:
+    """Place every tool result directly after the assistant turn that made the
+    call. Events recorded while a call was open (a restart error, a steering
+    message) land between the call and its result in history; providers reject
+    a result that does not immediately follow its call."""
+    results: dict[str, dict] = {}
+    for message in messages:
+        if message.get("role") == "tool":
+            results.setdefault(message.get("tool_call_id"), message)
     repaired: list[dict] = []
-    index = 0
-    while index < len(messages):
-        message = messages[index]
-        repaired.append(message)
-        index += 1
-        call_ids = [c["id"] for c in message.get("tool_calls") or []]
-        if message.get("role") != "assistant" or not call_ids:
+    for message in messages:
+        if message.get("role") == "tool":
             continue
-        answered: set[str] = set()
-        while index < len(messages) and messages[index].get("role") == "tool":
-            answered.add(messages[index].get("tool_call_id"))
-            repaired.append(messages[index])
-            index += 1
-        for call_id in call_ids:
-            if call_id in answered:
-                continue
-            _log.warning("tool call %s had no result; closing it", call_id)
-            repaired.append(
-                {
+        repaired.append(message)
+        if message.get("role") != "assistant":
+            continue
+        for call in message.get("tool_calls") or []:
+            result = results.get(call["id"])
+            if result is None:
+                _log.warning("tool call %s had no result; closing it", call["id"])
+                result = {
                     "role": "tool",
-                    "tool_call_id": call_id,
+                    "tool_call_id": call["id"],
                     "content": "Not executed. Re-issue the call if it is still needed.",
                 }
-            )
+            repaired.append(result)
     return repaired
 
 
@@ -295,7 +295,14 @@ class Agent:
             conversation.set_error()
             return
 
-        followup = self._nudge_finish(conversation, sandbox, response.text)
+        # With workers still running, a text reply correctly ends the turn: each
+        # worker's result starts a new one. Pushing for `finish` here makes the
+        # model poll (`sleep`) instead.
+        followup = (
+            None
+            if conversation.workers.live()
+            else self._nudge_finish(conversation, sandbox, response.text)
+        )
         if followup is not None and followup.tool_calls:
             self._act_on(followup, conversation, sandbox)
             return
@@ -588,12 +595,13 @@ class Agent:
                 )
                 continue
 
-            # Any other event ends the assistant turn; flush it first so order is
-            # preserved (assistant turn, then its tool observations).
-            flush()
+            # Any event the model sees ends the assistant turn; flush it first so
+            # order is preserved. Events it never sees (worker relays recorded from
+            # background threads) must not split one turn's parallel tool calls.
             message = event.to_chat_message()
             if message is None:
                 continue
+            flush()
             if event.id in elided and isinstance(event, ObservationEvent):
                 message = {**message, "content": _pruned_output(event)}
             # Clip oversized content so one giant observation can't exhaust the
@@ -872,6 +880,15 @@ class Agent:
             return "ok"
 
         if self._needs_confirmation(action_event, conversation):
+            if conversation.refuse_confirmations:
+                self._observe(
+                    conversation,
+                    call,
+                    "This action needs the user's approval, which workers cannot ask "
+                    "for. Do the task without it, or report that it needs approval.",
+                    True,
+                )
+                return "ok"
             conversation.set_waiting_for_confirmation()
             return "paused"
 
@@ -1058,7 +1075,7 @@ class Agent:
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") in ("create", "str_replace")
         if action_event.tool_name == "terminal":
-            command = shell_command(action_event.arguments)
+            command = gated_text(action_event.arguments)
             return command is not None and not self.policy.classify_bash(command).read_only
         return False
 
@@ -1071,7 +1088,7 @@ class Agent:
         if mode == "ask" and self._mutates(action_event):
             return True
         if action_event.tool_name == "terminal":
-            command = shell_command(action_event.arguments)
+            command = gated_text(action_event.arguments)
             return command is not None and self.policy.classify_bash(command).needs_confirmation
         if self._is_read_only_mcp(action_event):
             return False

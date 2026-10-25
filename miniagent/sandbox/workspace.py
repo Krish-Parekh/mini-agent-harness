@@ -7,15 +7,23 @@ from miniagent.sandbox.base import Sandbox
 GIT_TOKEN_ENV = "MINIAGENT_GIT_TOKEN"
 BRANCH_PREFIX = "miniagent"
 COMMITTER = "-c user.name=miniagent -c user.email=miniagent@users.noreply.github.com"
-SNAPSHOT = (
+_SNAPSHOT_TREE = (
     'tmp="$(mktemp)" && trap \'rm -f "$tmp"\' EXIT && '
     '{ cp -p "$(git rev-parse --git-path index)" "$tmp" 2>/dev/null || true; } && '
     'GIT_INDEX_FILE="$tmp" git add -A && '
-    'tree="$(GIT_INDEX_FILE="$tmp" git write-tree)" && '
+    'tree="$(GIT_INDEX_FILE="$tmp" git write-tree)"'
+)
+SNAPSHOT = (
+    f"{_SNAPSHOT_TREE} && "
     'if git rev-parse -q --verify HEAD >/dev/null; '
     f'then git {COMMITTER} commit-tree "$tree" -p HEAD -m checkpoint; '
     f'else git {COMMITTER} commit-tree "$tree" -m checkpoint; fi'
 )
+
+
+def snapshot_onto(parent: str) -> str:
+    """Commit the working tree, untracked files included, as a child of `parent`."""
+    return f'{_SNAPSHOT_TREE} && git {COMMITTER} commit-tree "$tree" -p {shlex.quote(parent)} -m snapshot'
 # The empty helper first clears any helper from git config (osxkeychain, a
 # store file), so the token only ever comes from this one command's env.
 _CREDENTIAL_HELPER = (

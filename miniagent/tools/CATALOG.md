@@ -416,7 +416,7 @@ Ask the user one to four multiple-choice questions to clarify ambiguous requirem
 
 ## `task`
 
-Run 1-4 worker agents in parallel and wait for all of them. kind='explore' starts a fresh read-only agent for a wide search or investigation; it has not seen this conversation, so its prompt must carry the context it needs. kind='fork' starts a copy of you that inherits this conversation and has your coding tools, working in its own git worktree. When the forks finish, each one's changes are merged into the workspace in order; a fork that conflicts stays on its branch and is reported. Give parallel forks independent changes in different files. Workers cannot ask the user anything or start workers of their own, and each returns its `finish` message as its report.
+Start 1-10 worker agents in the background and return at once; at most 10 run at a time. kind='explore' starts a fresh read-only agent for a wide search or investigation; it has not seen this conversation, so its prompt must carry the context it needs. kind='fork' starts a copy of you that inherits this conversation and has your tools, working in its own git worktree; forks are refused in plan mode. Each worker's result arrives later as a `[worker result]` message, and a fork's changes are merged into the workspace then; a fork that conflicts stays on its branch and is reported. Give parallel forks independent changes in different files. Every result carries the worker's report, even when it stopped early (`partial`); continue such a worker with `resume` set to its id. Workers run under your permission mode, cannot ask the user anything, and cannot start workers of their own.
 
 ```json
 {
@@ -424,28 +424,55 @@ Run 1-4 worker agents in parallel and wait for all of them. kind='explore' start
     "TaskSpec": {
       "properties": {
         "kind": {
-          "description": "`explore`: a fresh read-only agent that sees none of this conversation. `fork`: a copy of you that inherits this conversation and edits code in its own git worktree.",
-          "enum": [
-            "explore",
-            "fork"
+          "anyOf": [
+            {
+              "enum": [
+                "explore",
+                "fork"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Kind",
-          "type": "string"
+          "default": null,
+          "description": "`explore`: a fresh read-only agent that sees none of this conversation. `fork`: a copy of you that inherits this conversation and edits code in its own git worktree. Leave unset when resuming.",
+          "title": "Kind"
         },
         "prompt": {
-          "description": "The worker's brief. For `explore`, include every piece of context it needs. For `fork`, state the one change to make and what to report.",
+          "description": "The worker's brief. For `explore`, include every piece of context it needs. For `fork`, state the one change to make and what to report. When resuming, the follow-up instruction.",
           "title": "Prompt",
           "type": "string"
         },
+        "resume": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Id of a worker that stopped (partial, failed or cancelled) to continue with its own history; `prompt` is the follow-up.",
+          "title": "Resume"
+        },
         "title": {
-          "description": "Short label (3-5 words) shown to the user.",
-          "title": "Title",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short label (3-5 words) shown to the user. Leave unset when resuming.",
+          "title": "Title"
         }
       },
       "required": [
-        "kind",
-        "title",
         "prompt"
       ],
       "title": "TaskSpec",
@@ -454,11 +481,11 @@ Run 1-4 worker agents in parallel and wait for all of them. kind='explore' start
   },
   "properties": {
     "tasks": {
-      "description": "Independent workers to run in parallel.",
+      "description": "Independent workers to start in the background.",
       "items": {
         "$ref": "#/$defs/TaskSpec"
       },
-      "maxItems": 4,
+      "maxItems": 10,
       "minItems": 1,
       "title": "Tasks",
       "type": "array"

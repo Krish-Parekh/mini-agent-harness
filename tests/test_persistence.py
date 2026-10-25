@@ -165,5 +165,8 @@ class _HookSink:
     def set_status_hook(self, hook) -> None:
         self.status_hook = hook
 
+    def set_inbox_hook(self, hook) -> None:
+        self.inbox_hook = hook
+
     def live(self):
         return []

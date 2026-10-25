@@ -85,17 +85,26 @@ class WorkdirView(Sandbox):
     def _dir(self, workdir: str | None) -> str:
         return posixpath.join(self.workspace_dir, workdir or "")
 
+    def _confined(self, path: str, workdir: str | None) -> str:
+        target = posixpath.normpath(posixpath.join(self._dir(workdir), path))
+        if target != self.workspace_dir and not target.startswith(self.workspace_dir + "/"):
+            raise ValueError(
+                f"{path} is outside this worker's directory {self.workspace_dir}; "
+                "use a path inside it."
+            )
+        return self._dir(workdir)
+
     def run_command(self, command, timeout=30, env=None, workdir=None) -> CommandResult:
         return self.parent.run_command(command, timeout, env, self._dir(workdir))
 
     def write_file(self, path, content, workdir=None) -> None:
-        self.parent.write_file(path, content, self._dir(workdir))
+        self.parent.write_file(path, content, self._confined(path, workdir))
 
     def read_file(self, path, workdir=None) -> str:
-        return self.parent.read_file(path, self._dir(workdir))
+        return self.parent.read_file(path, self._confined(path, workdir))
 
     def list_files(self, path, workdir=None) -> list[str]:
-        return self.parent.list_files(path, self._dir(workdir))
+        return self.parent.list_files(path, self._confined(path, workdir))
 
     def kill_running(self) -> None:
         self.parent.kill_running()
