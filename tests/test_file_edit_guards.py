@@ -5,7 +5,7 @@ from miniagent.tools.file_edit import FileEditAction, FileEditTool
 
 
 def _act(tool, sandbox, command, path="a.py", **kwargs):
-    return tool.execute(FileEditAction(command=command, path=path, **kwargs), sandbox)
+    return tool.execute(FileEditAction(command=command, path=path, **kwargs), sandbox, None)
 
 
 def _setup(tmp_path):

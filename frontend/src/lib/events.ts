@@ -37,13 +37,42 @@ export type ErrorEvent = AgentEvent & {
   failure?: ProviderFailure | null;
 };
 
-export type FanoutWorkerEvent = AgentEvent & {
-  kind: "fanout_worker";
-  parent_tool_call_id: string;
-  worker_index: number;
+export type WorkerKind = "explore" | "fork" | "research";
+
+export type WorkerStatus = "running" | "done" | "partial" | "failed" | "cancelled";
+
+export type StopReason = "step_limit" | "no_finish" | "error" | "cancelled" | "interrupted";
+
+export type WorkerState = {
+  worker_id: string;
+  worker_kind: WorkerKind;
   title: string;
-  status: "running" | "done" | "error";
-  activity?: string;
+  status: WorkerStatus;
+  stop_reason: StopReason | null;
+  report: string | null;
+  base: string | null;
+  branch: string | null;
+  files: string[];
+  merged: boolean;
+  conflict: string | null;
+};
+
+export type WorkerStatusEvent = AgentEvent &
+  WorkerState & {
+    kind: "worker_status";
+    parent_tool_call_id: string;
+  };
+
+export type WorkerResultEvent = AgentEvent &
+  WorkerState & {
+    kind: "worker_result";
+  };
+
+export type WorkerEvent = AgentEvent & {
+  kind: "worker";
+  parent_tool_call_id: string;
+  worker_id: string;
+  event: AgentEvent;
 };
 
 export const isMessage = (e: AgentEvent): e is MessageEvent =>
@@ -58,7 +87,13 @@ export const isObservation = (e: AgentEvent): e is ObservationEvent =>
 export const isErrorEvent = (e: AgentEvent): e is ErrorEvent =>
   e.kind === "error";
 
-export const isFanoutWorker = (e: AgentEvent): e is FanoutWorkerEvent =>
-  e.kind === "fanout_worker";
+export const isWorkerStatus = (e: AgentEvent): e is WorkerStatusEvent =>
+  e.kind === "worker_status";
+
+export const isWorkerEvent = (e: AgentEvent): e is WorkerEvent =>
+  e.kind === "worker";
+
+export const isWorkerResult = (e: AgentEvent): e is WorkerResultEvent =>
+  e.kind === "worker_result";
 
 export const eventKey = (e: AgentEvent) => e.client_event_id ?? e.id;

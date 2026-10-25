@@ -37,7 +37,7 @@ class FakeStore:
 
 
 def _run(store: FakeStore, **kwargs):
-    return MemoryTool(store).execute(MemoryAction(**kwargs), sandbox=None)
+    return MemoryTool(store).execute(MemoryAction(**kwargs), None, None)
 
 
 def test_viewing_an_empty_store_lists_both_scopes():
@@ -128,7 +128,7 @@ def test_the_index_is_added_once_and_reaches_the_model(tmp_path):
     conversation = Conversation(
         agent=agent,
         sandbox=LocalSandbox(str(tmp_path)),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
     conversation.send_message("remember the test command")

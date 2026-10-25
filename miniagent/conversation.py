@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import threading
+import time
 import uuid
 from typing import TYPE_CHECKING, Callable
 
@@ -16,11 +17,17 @@ from miniagent.events import (
     ObservationEvent,
     RepoInstructionsEvent,
     RewindEvent,
+    WorkerEvent,
+    WorkerResultEvent,
+    WorkerState,
+    WorkerStatusEvent,
     WorkspaceSketchEvent,
 )
 from miniagent.failures import classify, redact
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 from miniagent.stuck_detector import StuckDetectionThresholds, StuckDetector
+from miniagent.tools.terminal import shell_command
+from miniagent.tools.workers import WorkerPool
 
 if TYPE_CHECKING:
     from miniagent.agent import Agent
@@ -61,25 +68,32 @@ class Conversation:
         id: str | None = None,
         stuck_detection: bool = True,
         stuck_detection_thresholds: StuckDetectionThresholds | None = None,
+        parent: Conversation | None = None,
+        read_only: bool = False,
+        directive: str | None = None,
+        refuse_confirmations: bool = False,
     ) -> None:
         self.id = id or _new_id()
+        self.parent = parent
+        self.read_only = read_only
+        self.directive = directive
+        self.refuse_confirmations = refuse_confirmations
+        self.workers = WorkerPool()
+        self.hit_step_limit = False
         self.agent = agent
         self.sandbox = sandbox
         self.on_event = on_event or (lambda event: None)
+        self.on_status: Callable[[Status], None] = lambda status: None
         self.max_iterations = max_iterations
         self.confirm_policy = confirm_policy or ConfirmPolicy()
         self.events: list[Event] = []
-        self.status = Status.IDLE
+        self._events_lock = threading.Lock()
+        self._status = Status.IDLE
         # Set from another thread to ask the run loop to stop cooperatively; the
         # loop checks it between iterations. Cleared at the start of each run().
         self.cancel_event = threading.Event()
         self._steering: list[MessageEvent] = []
         self._steering_lock = threading.Lock()
-        # When set, the agent plans (read-only) and pauses via `present_plan`
-        # instead of implementing. Sticky: it stays on across clarifying
-        # `ask_user` rounds and plan refinements, and only clears when the
-        # user approves the plan, so the whole planning conversation,
-        # including feedback after a presented plan, runs in plan mode.
         self.plan_mode = False
         self.plan: Plan | None = None
         self.implementing_plan = False
@@ -102,10 +116,7 @@ class Conversation:
         client_event_id: str | None = None,
         attachments: list[Attachment] | None = None,
     ) -> None:
-        # Only ever turn it on here; plan approval clears it. A plain reply
-        # (answering a question, refining the plan) keeps the existing mode.
-        if plan_mode:
-            self.plan_mode = True
+        self.plan_mode = plan_mode
         self.close_orphaned_actions(
             "Not executed: the user sent a new message instead of approving this call."
         )
@@ -138,17 +149,33 @@ class Conversation:
 
     def has_steering(self) -> bool:
         with self._steering_lock:
-            return bool(self._steering)
+            if self._steering:
+                return True
+        return self.workers.has_results()
 
     def _take_steering(self) -> None:
         with self._steering_lock:
             pending, self._steering = self._steering, []
         for message in pending:
             self.add_event(message)
+        for worker in self.workers.take():
+            self.add_event(worker.deliver())
+
+    @property
+    def status(self) -> Status:
+        return self._status
+
+    @status.setter
+    def status(self, status: Status) -> None:
+        changed = status != self._status
+        self._status = status
+        if changed:
+            self.on_status(status)
 
     def add_event(self, event: Event) -> None:
-        self.events.append(event)
-        self.on_event(event)
+        with self._events_lock:
+            self.events.append(event)
+            self.on_event(event)
 
     def set_finished(self) -> None:
         self.status = Status.FINISHED
@@ -205,6 +232,41 @@ class Conversation:
             )
         )
         self.status = Status.IDLE
+
+    def settle_interrupted_workers(self) -> None:
+        """Close what a server restart left open in a reloaded history: workers
+        still marked running (their threads died with the process) and calls
+        that never got a result."""
+        last: dict[str, WorkerStatusEvent] = {}
+        replies: dict[str, str] = {}
+        for event in self.events:
+            if isinstance(event, WorkerStatusEvent):
+                last[event.worker_id] = event
+            elif (
+                isinstance(event, WorkerEvent)
+                and isinstance(event.event, MessageEvent)
+                and event.event.role == "assistant"
+                and event.event.text
+            ):
+                replies[event.worker_id] = event.event.text
+        for worker_id, status in last.items():
+            if status.status != "running" or self.workers.is_live(worker_id):
+                continue
+            ended = status.model_copy(
+                update={
+                    "id": _new_id(),
+                    "timestamp": time.time(),
+                    "status": "failed",
+                    "stop_reason": "interrupted",
+                    "report": replies.get(worker_id),
+                }
+            )
+            self.add_event(ended)
+            self.add_event(
+                WorkerResultEvent(**ended.model_dump(include=set(WorkerState.model_fields)))
+            )
+        if self.status != Status.WAITING_FOR_CONFIRMATION:
+            self.close_orphaned_actions("Not executed: the server restarted while this call ran.")
 
     def close_orphaned_actions(self, reason: str) -> None:
         for action in self.pending_actions():
@@ -287,10 +349,10 @@ class Conversation:
     def has_unverified_changes(self, policy: PolicyProvider | None = None) -> bool:
         dirty = False
         for action, observation in self._observed_actions():
-            if action.tool_name == "bash":
-                if policy is None:
+            if action.tool_name == "terminal":
+                command = shell_command(action.arguments)
+                if policy is None or command is None:
                     continue
-                command = action.arguments.get("command", "")
                 command_policy = policy.classify_bash(command)
                 if command_policy.is_verification:
                     dirty = False
@@ -355,13 +417,33 @@ class Conversation:
         self.run()
 
     def request_cancel(self) -> None:
-        """Ask the in-flight run loop to stop after its current step."""
+        """Ask the in-flight run loop, and every child conversation it spawned,
+        to stop after its current step."""
         self.cancel_event.set()
         with self._steering_lock:
             self._steering.clear()
+        self.workers.cancel_all()
+
+    @property
+    def cancelled(self) -> bool:
+        return self.cancel_event.is_set() or (
+            self.parent is not None and self.parent.cancelled
+        )
+
+    def run_until_settled(self) -> None:
+        """Run, then keep taking turns while background workers report back.
+        For drivers with no event loop to wake an idle conversation (tests, CLI)."""
+        self.run()
+        while (
+            self.status in (Status.IDLE, Status.FINISHED)
+            and not self.cancel_event.is_set()
+            and self.workers.wait()
+        ):
+            self.run()
 
     def run(self) -> None:
         self.cancel_event.clear()
+        self.hit_step_limit = False
         if self.status != Status.WAITING_FOR_CONFIRMATION:
             self.close_orphaned_actions(
                 "Not executed: the previous run stopped before this call ran."
@@ -370,7 +452,7 @@ class Conversation:
         for _ in range(self.max_iterations):
             # Cooperative stop: a step runs to completion (the current LLM call
             # or tool can't be interrupted), then we bail before the next one.
-            if self.cancel_event.is_set():
+            if self.cancelled:
                 self.status = Status.IDLE
                 return
             self._take_steering()
@@ -403,6 +485,7 @@ class Conversation:
         # Exhausted the loop while still running. Give the model one final
         # no-tools chance to synthesize the work so the user isn't left with
         # only a control-plane error.
+        self.hit_step_limit = True
         try:
             self.agent.early_stop(self, self.sandbox)
         except Exception as exc:

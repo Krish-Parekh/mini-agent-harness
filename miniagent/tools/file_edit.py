@@ -6,7 +6,7 @@ from typing import Literal
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 from miniagent.tools.file_edit_match import (
     apply_str_replace,
     diagnose_multiple,
@@ -72,10 +72,10 @@ class FileEditTool(Tool):
         "must match the raw file bytes exactly (copy from view output, never "
         "include line-number prefixes) and appear exactly once, so include "
         "enough surrounding context to be unique. Edit only files you have viewed "
-        "with command='view' in this conversation; reading a file with bash "
+        "with command='view' in this conversation; reading a file in the terminal "
         "(cat, sed, head) does not count. If a file changed since your last view, "
         "view it again before editing. Change files only with this tool, never "
-        "with bash scripts, sed -i or redirects."
+        "with scripts, sed -i or redirects in the terminal."
     )
     action_type = FileEditAction
     observation_type = FileEditObservation
@@ -83,7 +83,7 @@ class FileEditTool(Tool):
     def __init__(self) -> None:
         self.observed = FileObservations()
 
-    def execute(self, action: FileEditAction, sandbox: Sandbox) -> FileEditObservation:
+    def execute(self, action: FileEditAction, sandbox: Sandbox, _context: ToolContext) -> FileEditObservation:
         if action.command == "view":
             return self._view(action, sandbox)
         if action.command == "create":

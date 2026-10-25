@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from miniagent.agent import Agent
+from miniagent.agent import SKETCH_COMMAND, Agent
 from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation
 from miniagent.events import CondensationEvent, ObservationEvent
 from miniagent.llm import LLMResponse, ToolCall
 from miniagent.sandbox.base import CommandResult, Sandbox
-from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
+from miniagent.tools.base import ToolContext, ToolRegistry
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.terminal import TerminalAction, TerminalObservation, TerminalTool
 from tests.test_sandbox_failures import SafePolicy
 
 SNAPSHOT_PATH = Path(__file__).parent / "fixtures" / "context.expected.md"
@@ -30,10 +30,8 @@ class SnapshotSandbox(Sandbox):
         self.workspace_dir = "/workspace/app"
 
     def run_command(self, command, timeout=30, env=None):
-        if command == "git ls-files":
+        if command == SKETCH_COMMAND:
             return CommandResult(stdout="AGENTS.md\nsrc/app.py\ntests/test_app.py\n", stderr="", exit_code=0)
-        if command == "uv run pytest -q":
-            return CommandResult(stdout=TEST_OUTPUT, stderr="", exit_code=1)
         return CommandResult(stdout="", stderr="", exit_code=0)
 
     def write_file(self, path, content): ...
@@ -46,6 +44,19 @@ class SnapshotSandbox(Sandbox):
     def list_files(self, path): return []
 
     def close(self): ...
+
+
+class ScriptedTerminal(TerminalTool):
+    def execute(
+        self, action: TerminalAction, sandbox: Sandbox, context: ToolContext
+    ) -> TerminalObservation:
+        return TerminalObservation(
+            command=action.command,
+            output=TEST_OUTPUT,
+            exit_code=1,
+            working_dir=sandbox.workspace_dir,
+            suffix="\n[The command completed with exit code 1.]",
+        )
 
 
 class ScriptedLLM:
@@ -79,7 +90,7 @@ def capture() -> dict[str, list[dict]]:
     llm = ScriptedLLM()
     agent = Agent(
         llm=llm,
-        tools=ToolRegistry([BashTool(), FinishTool()]),
+        tools=ToolRegistry([ScriptedTerminal(), FinishTool()]),
         repo="acme/app",
         branch="main",
         policy=SafePolicy(),
@@ -88,7 +99,7 @@ def capture() -> dict[str, list[dict]]:
     conversation = Conversation(
         agent=agent,
         sandbox=SnapshotSandbox(),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
 
@@ -96,7 +107,7 @@ def capture() -> dict[str, list[dict]]:
         conversation,
         llm,
         "Why is test_totals failing?",
-        LLMResponse(tool_calls=[ToolCall(id="call_1", name="bash", arguments={"command": "uv run pytest -q"})]),
+        LLMResponse(tool_calls=[ToolCall(id="call_1", name="terminal", arguments={"command": "uv run pytest -q"})]),
         LLMResponse(text="test_totals expects 42 but the sum is 41."),
     )
 

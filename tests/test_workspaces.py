@@ -60,3 +60,23 @@ def test_prepare_keeps_an_existing_checkout_dir_so_container_mounts_stay_valid(t
     assert mounted.stat().st_ino == inode
     assert not (mounted / "stale.txt").exists()
     assert _git(checkout, "rev-parse", "--abbrev-ref", "HEAD") == "miniagent/c1"
+
+
+def test_release_removes_worker_worktrees_and_their_branches(tmp_path, monkeypatch):
+    remote = tmp_path / "remote.git"
+    seed = tmp_path / "seed"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(remote))
+    _git(tmp_path, "init", "-q", "-b", "main", str(seed))
+    _commit(seed, "first")
+    _git(seed, "push", "-q", str(remote), "main")
+    monkeypatch.setattr(workspaces, "git_url", lambda repo: str(remote))
+    manager = WorkspaceManager(tmp_path / "data")
+    checkout = manager.prepare("c1", "octo/repo", None, None)
+    _git(checkout, "worktree", "add", "-q", "-b", "miniagent/c1-w-1", ".miniagent/workers/1")
+
+    manager.release("c1", "octo/repo")
+
+    assert not manager.checkout_dir("c1").exists()
+    clone = tmp_path / "data" / "repos" / "octo" / "repo"
+    assert "miniagent/c1-w-1" not in _git(clone, "branch", "--list")
+    assert len(_git(clone, "worktree", "list").splitlines()) == 1

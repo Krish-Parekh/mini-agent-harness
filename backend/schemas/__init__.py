@@ -2,6 +2,7 @@ from backend.schemas.auth import AuthState, GitHubConnection, SyncRequest, UserO
 from backend.schemas.conversation import (
     AttachmentIn,
     ChangedFile,
+    ChangeSide,
     ConfirmRequest,
     ContextChanges,
     ContextCounts,
@@ -21,6 +22,7 @@ from backend.schemas.conversation import (
     SendMessageRequest,
     StatusUpdate,
     TurnInfo,
+    UpdateConversationRequest,
 )
 from backend.schemas.github import ImportRepoRequest, RepoOut
 
@@ -28,6 +30,7 @@ __all__ = [
     "AttachmentIn",
     "AuthState",
     "ChangedFile",
+    "ChangeSide",
     "ConfirmRequest",
     "ContextChanges",
     "ContextCounts",
@@ -51,5 +54,6 @@ __all__ = [
     "StatusUpdate",
     "SyncRequest",
     "TurnInfo",
+    "UpdateConversationRequest",
     "UserOut",
 ]

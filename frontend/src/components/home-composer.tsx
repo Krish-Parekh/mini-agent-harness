@@ -2,7 +2,7 @@
 
 import { Github01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { useComposerText } from "@/hooks/use-composer-text";
 
@@ -23,6 +23,7 @@ import {
 } from "@/components/bui/prompt-bar";
 import { EnvironmentPicker } from "@/components/environment-picker";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
+import { cycleOnShiftTab, DEFAULT_MODES, ModePicker } from "@/components/mode-picker";
 import { RepoPicker } from "@/components/repo-picker";
 import { SkillSlashTextarea } from "@/components/skill-slash-menu";
 import {
@@ -30,6 +31,7 @@ import {
   useComposerFocusTick,
   useComposerSelection,
 } from "@/lib/composer-selection";
+import type { Modes } from "@/lib/api";
 import { useBranches, useSandboxProviders, useStartChat } from "@/lib/queries";
 
 export function HomeComposer() {
@@ -59,6 +61,13 @@ export function HomeComposer() {
   const environment =
     remembered?.id ?? providers?.find((p) => p.default)?.id ?? "local";
 
+  const [pickedModes, setModes] = useState<Modes>(DEFAULT_MODES);
+  const fullAccess = !!providers?.find((p) => p.id === environment)?.full_access;
+  const modes: Modes =
+    pickedModes.permission_mode === "full" && !fullAccess
+      ? { ...pickedModes, permission_mode: "auto" }
+      : pickedModes;
+
   useEffect(() => {
     wrapperRef.current?.querySelector("textarea")?.focus();
   }, [focusTick]);
@@ -80,6 +89,7 @@ export function HomeComposer() {
         model,
         initial_message: text.trim(),
         attachments: uploaded,
+        ...modes,
       },
       {
         onSuccess: () => {
@@ -88,6 +98,11 @@ export function HomeComposer() {
         },
       },
     );
+  }
+
+  function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (cycleOnShiftTab(event, modes, fullAccess, setModes)) return;
+    onKeyDown(event);
   }
 
   return (
@@ -123,7 +138,7 @@ export function HomeComposer() {
               autoFocus
               value={text}
               onValueChange={setText}
-              onKeyDown={onKeyDown}
+              onKeyDown={onComposerKeyDown}
               placeholder="Plan, build, / for commands"
               disabled={pending}
             />
@@ -131,6 +146,7 @@ export function HomeComposer() {
               <PromptBarTools>
                 <AttachButton attachments={attachments} disabled={pending} />
                 <ModelPicker value={model} onChange={setModel} />
+                <ModePicker value={modes} fullAccess={fullAccess} onChange={setModes} />
               </PromptBarTools>
               <PromptBarSubmit
                 status={pending ? "submitted" : undefined}

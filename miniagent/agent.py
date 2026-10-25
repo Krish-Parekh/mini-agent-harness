@@ -3,13 +3,13 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import logfire
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from miniagent.events import (
     ActionEvent,
@@ -30,22 +30,35 @@ from miniagent.prompts import (
     DEFAULT_SYSTEM_PROMPT,
     EARLY_STOP_PROMPT,
     FINISH_NUDGE_PROMPT,
+    FULL_ACCESS_NOTE,
     IMPLEMENT_PLAN_DIRECTIVE,
     PLAN_MODE_DIRECTIVE,
 )
 from miniagent.sandbox.base import SandboxError
 from miniagent.text import clip
-from miniagent.tools.base import ToolRegistry
+from miniagent.tools.base import ToolContext, ToolRegistry
 from miniagent.tracing import bind_context, tool_attributes, tool_result_attributes
 from miniagent.tools.mcp import NAME_PREFIX as MCP_PREFIX, McpTool
 from miniagent.tools.memory import MemoryStore, memory_index
 from miniagent.tools.plan import Plan
+from miniagent.tools.terminal import gated_text
 
 if TYPE_CHECKING:
     from miniagent.conversation import Conversation
     from miniagent.sandbox.base import Sandbox
 
 ToolOutcome: TypeAlias = Literal["ok", "finished", "paused"]
+
+
+class ContextCategory(BaseModel):
+    name: str
+    tokens: int
+
+
+class ContextWindow(BaseModel):
+    used: int
+    limit: int
+    categories: list[ContextCategory]
 
 # Per-message ceiling sent to the LLM; long tool output is head+tail clipped.
 _MAX_MESSAGE_CHARS = 12_000
@@ -56,6 +69,7 @@ _MAX_MESSAGE_CHARS = 12_000
 _NUDGE_AFTER_REPEATS = 2
 
 _MAX_FILE_SKETCH_CHARS = 2_000
+SKETCH_COMMAND = "rg --files --hidden --glob '!.git' --sort path"
 
 COMPACT_AT = 0.8
 PRUNE_TARGET = 0.6
@@ -75,7 +89,22 @@ REPO_INSTRUCTIONS_MAX_CHARS = 8_000
 SPILL_THRESHOLD_CHARS = 12_000
 SPILL_PREVIEW_CHARS = 6_000
 SPILL_ROOT = ".miniagent"
-SPILL_DIR = f"{SPILL_ROOT}/outputs"
+SPILL_DIR = "/tmp/miniagent"
+
+
+@dataclass(frozen=True)
+class TimeBudget:
+    seconds: int
+    started: float = dataclasses.field(default_factory=time.monotonic)
+
+    def status(self) -> str:
+        elapsed = round(time.monotonic() - self.started)
+        remaining = max(self.seconds - elapsed, 0)
+        return f"Time budget: {_clock(elapsed)} elapsed / {_clock(remaining)} remaining."
+
+
+def _clock(seconds: int) -> str:
+    return f"{seconds // 60}m{seconds % 60:02d}s"
 
 
 @dataclass(frozen=True)
@@ -87,31 +116,11 @@ class ToolResult:
 
 
 def _file_sketch(sandbox: Sandbox) -> str:
-    """Tracked-files listing so the model can orient before exploring."""
-    result = sandbox.run_command("git ls-files", timeout=10)
+    result = sandbox.run_command(SKETCH_COMMAND, timeout=10)
     files = result.stdout.strip()
-    if result.exit_code == 0 and files:
-        return "\n\n## Tracked files (git ls-files)\n" + clip(
-            files, _MAX_FILE_SKETCH_CHARS
-        )
-    try:
-        has_git_dir = ".git" in sandbox.list_files(".")
-    except Exception:
-        has_git_dir = False
-    if not has_git_dir:
+    if result.exit_code != 0 or not files:
         return ""
-    workspace = Path(sandbox.workspace_dir)
-    fallback = sorted(
-        str(path.relative_to(workspace))
-        for path in workspace.rglob("*")
-        if path.is_file()
-        and not any(part.startswith(".") for part in path.relative_to(workspace).parts)
-    )
-    if not fallback:
-        return ""
-    return "\n\n## Tracked files (git ls-files)\n" + clip(
-        "\n".join(fallback), _MAX_FILE_SKETCH_CHARS
-    )
+    return "\n\n## Workspace files\n" + clip(files, _MAX_FILE_SKETCH_CHARS)
 
 
 def _pruned_output(event: ObservationEvent) -> str:
@@ -126,14 +135,15 @@ def _pruned_output(event: ObservationEvent) -> str:
     )
 
 
-def _spill_oversized(call: ToolCall, result: ToolResult, sandbox: Sandbox) -> ToolResult:
+def _spill_oversized(
+    call: ToolCall, result: ToolResult, sandbox: Sandbox, conversation_id: str
+) -> ToolResult:
     content = result.content
     if len(content) <= SPILL_THRESHOLD_CHARS:
         return result
-    path = f"{SPILL_DIR}/{call.id}.txt"
+    path = f"{SPILL_DIR}/{conversation_id}/outputs/{call.id}.txt"
     try:
         with logfire.span("tool.spill", path=path, chars=len(content)):
-            exclude_from_git(sandbox)
             sandbox.write_file(path, content)
     except Exception as exc:
         _log.warning("could not spill %s output: %s", call.name, exc)
@@ -143,7 +153,7 @@ def _spill_oversized(call: ToolCall, result: ToolResult, sandbox: Sandbox) -> To
         )
     note = (
         f"\n[output truncated: {len(content):,} chars total. Full output: {path}. "
-        "Use file_edit view with view_range, or bash grep/sed, to read the rest]"
+        "Read the rest with the terminal, e.g. sed -n or grep]"
     )
     details = {**(result.details or {}), "spill_path": path, "full_chars": len(content)}
     return dataclasses.replace(
@@ -161,31 +171,31 @@ def exclude_from_git(sandbox: Sandbox) -> None:
 
 
 def _pair_tool_calls(messages: list[dict]) -> list[dict]:
+    """Place every tool result directly after the assistant turn that made the
+    call. Events recorded while a call was open (a restart error, a steering
+    message) land between the call and its result in history; providers reject
+    a result that does not immediately follow its call."""
+    results: dict[str, dict] = {}
+    for message in messages:
+        if message.get("role") == "tool":
+            results.setdefault(message.get("tool_call_id"), message)
     repaired: list[dict] = []
-    index = 0
-    while index < len(messages):
-        message = messages[index]
-        repaired.append(message)
-        index += 1
-        call_ids = [c["id"] for c in message.get("tool_calls") or []]
-        if message.get("role") != "assistant" or not call_ids:
+    for message in messages:
+        if message.get("role") == "tool":
             continue
-        answered: set[str] = set()
-        while index < len(messages) and messages[index].get("role") == "tool":
-            answered.add(messages[index].get("tool_call_id"))
-            repaired.append(messages[index])
-            index += 1
-        for call_id in call_ids:
-            if call_id in answered:
-                continue
-            _log.warning("tool call %s had no result; closing it", call_id)
-            repaired.append(
-                {
+        repaired.append(message)
+        if message.get("role") != "assistant":
+            continue
+        for call in message.get("tool_calls") or []:
+            result = results.get(call["id"])
+            if result is None:
+                _log.warning("tool call %s had no result; closing it", call["id"])
+                result = {
                     "role": "tool",
-                    "tool_call_id": call_id,
+                    "tool_call_id": call["id"],
                     "content": "Not executed. Re-issue the call if it is still needed.",
                 }
-            )
+            repaired.append(result)
     return repaired
 
 
@@ -199,6 +209,7 @@ class Agent:
         branch: str | None = None,
         policy: PolicyProvider | None = None,
         memory: MemoryStore | None = None,
+        time_budget: TimeBudget | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -207,6 +218,7 @@ class Agent:
         self.branch = branch
         self.policy = policy or PolicyClassifier(llm)
         self.memory = memory
+        self.time_budget = time_budget
         self.skills_block = ""
         self.mcp_instructions: dict[str, str] = {}
 
@@ -283,7 +295,14 @@ class Agent:
             conversation.set_error()
             return
 
-        followup = self._nudge_finish(conversation, sandbox, response.text)
+        # With workers still running, a text reply correctly ends the turn: each
+        # worker's result starts a new one. Pushing for `finish` here makes the
+        # model poll (`sleep`) instead.
+        followup = (
+            None
+            if conversation.workers.live()
+            else self._nudge_finish(conversation, sandbox, response.text)
+        )
         if followup is not None and followup.tool_calls:
             self._act_on(followup, conversation, sandbox)
             return
@@ -576,12 +595,13 @@ class Agent:
                 )
                 continue
 
-            # Any other event ends the assistant turn; flush it first so order is
-            # preserved (assistant turn, then its tool observations).
-            flush()
+            # Any event the model sees ends the assistant turn; flush it first so
+            # order is preserved. Events it never sees (worker relays recorded from
+            # background threads) must not split one turn's parallel tool calls.
             message = event.to_chat_message()
             if message is None:
                 continue
+            flush()
             if event.id in elided and isinstance(event, ObservationEvent):
                 message = {**message, "content": _pruned_output(event)}
             # Clip oversized content so one giant observation can't exhaust the
@@ -600,6 +620,17 @@ class Agent:
         return messages
 
     def _runtime_context(self, conversation: Conversation) -> str:
+        sections = self._mode_sections(conversation)
+        if self.time_budget is not None:
+            sections.append(self.time_budget.status())
+        if skills := self._skills_section():
+            sections.append(skills)
+        sections.extend(self._mcp_sections())
+        body = "\n\n".join(sections)
+        return f"<runtime-context>\n{body}\n</runtime-context>"
+
+    @staticmethod
+    def _mode_sections(conversation: Conversation) -> list[str]:
         sections = [
             "Runtime context for this step, set by MiniAgent rather than typed by "
             "the user. It reflects the current mode and enabled extensions."
@@ -608,16 +639,74 @@ class Agent:
             sections.append(PLAN_MODE_DIRECTIVE.strip())
         elif conversation.implementing_plan:
             sections.append(IMPLEMENT_PLAN_DIRECTIVE.strip())
-        if self.skills_block:
-            sections.append(
-                "# Skills\nPlaybooks the user enabled for this project. "
-                "Before a task one applies to, load it with the `skill` tool and "
-                "follow it.\n" + self.skills_block
+        if conversation.confirm_policy.mode == "full":
+            sections.append(FULL_ACCESS_NOTE.strip())
+        if conversation.directive:
+            sections.append(conversation.directive.strip())
+        return sections
+
+    def _skills_section(self) -> str:
+        if not self.skills_block:
+            return ""
+        return (
+            "# Skills\nPlaybooks the user enabled for this project. "
+            "Before a task one applies to, load it with the `skill` tool and "
+            "follow it.\n" + self.skills_block
+        )
+
+    def _mcp_sections(self) -> list[str]:
+        return [
+            f"# MCP server: {server}\n{instructions}"
+            for server, instructions in sorted(self.mcp_instructions.items())
+        ]
+
+    def context_window(
+        self, conversation: Conversation, sandbox: Sandbox
+    ) -> ContextWindow:
+        tools = self.tools.all()
+        builtin = [tool for tool in tools if not isinstance(tool, McpTool)]
+        remote = [tool for tool in tools if isinstance(tool, McpTool)]
+        compacted = conversation.compacted_event_ids()
+
+        def text(*parts: str) -> int:
+            return sum(self.llm.count_text(part) for part in parts if part)
+
+        def schemas(selected: list) -> int:
+            return self.llm.count_tokens([], selected) if selected else 0
+
+        def history(kind: type[Event]) -> int:
+            return text(
+                *(
+                    message["content"]
+                    for event in conversation.events
+                    if isinstance(event, kind) and event.id not in compacted
+                    if (message := event.to_chat_message()) is not None
+                )
             )
-        for server, instructions in sorted(self.mcp_instructions.items()):
-            sections.append(f"# MCP server: {server}\n{instructions}")
-        body = "\n\n".join(sections)
-        return f"<runtime-context>\n{body}\n</runtime-context>"
+
+        measured = {
+            "System prompt": text(
+                self.system_prompt,
+                self._context_block(conversation, sandbox),
+                *self._mode_sections(conversation),
+            ),
+            "Tool definitions": schemas(builtin),
+            "Rules": history(RepoInstructionsEvent),
+            "Memory": history(MemoryIndexEvent),
+            "Skills": text(self._skills_section()),
+            "MCP tools": schemas(remote) + text(*self._mcp_sections()),
+            "Workspace": history(WorkspaceSketchEvent),
+        }
+        used = self.llm.count_tokens(self._build_messages(conversation, sandbox), tools)
+        measured["Conversation"] = used - sum(measured.values())
+        return ContextWindow(
+            used=used,
+            limit=self.llm.context_window(),
+            categories=[
+                ContextCategory(name=name, tokens=tokens)
+                for name, tokens in measured.items()
+            ],
+        )
 
     def _record_llm_usage(
         self, conversation: Conversation, response: LLMResponse, phase: str
@@ -707,17 +796,11 @@ class Agent:
             return False
         if self._needs_confirmation(action_event, conversation):
             return False
-        if conversation.plan_mode and self._blocked_in_plan_mode(action_event):
+        if self._refuses_write(action_event, conversation):
             return False
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") == "view"
-        if action_event.tool_name in ("web_search", "fetch_url", "grep", "glob"):
-            return True
-        if action_event.tool_name == "bash":
-            return self.policy.classify_bash(
-                action_event.arguments.get("command", "")
-            ).read_only
-        return False
+        return action_event.tool_name in ("web_search", "fetch_url", "grep", "glob")
 
     def _execute_parallel_group(
         self,
@@ -737,7 +820,12 @@ class Agent:
         ]
         with ThreadPoolExecutor(max_workers=len(calls)) as executor:
             futures = [
-                executor.submit(bind_context(self._run_tool_for_observation), call, sandbox)
+                executor.submit(
+                    bind_context(self._run_tool_for_observation),
+                    call,
+                    sandbox,
+                    conversation,
+                )
                 for call in calls
             ]
             results = [future.result() for future in futures]
@@ -778,17 +866,29 @@ class Agent:
             )
             return "ok"
 
-        if conversation.plan_mode and self._blocked_in_plan_mode(action_event):
+        if self._refuses_write(action_event, conversation):
             self._observe(
                 conversation,
                 call,
                 "Plan mode is active; this action would modify the workspace. "
-                "Explore read-only and call `present_plan` when ready.",
+                "Explore read-only and call `present_plan` when ready."
+                if conversation.plan_mode
+                else "This worker is read-only; this action would modify the "
+                "workspace. Investigate with read and search tools only.",
                 True,
             )
             return "ok"
 
         if self._needs_confirmation(action_event, conversation):
+            if conversation.refuse_confirmations:
+                self._observe(
+                    conversation,
+                    call,
+                    "This action needs the user's approval, which workers cannot ask "
+                    "for. Do the task without it, or report that it needs approval.",
+                    True,
+                )
+                return "ok"
             conversation.set_waiting_for_confirmation()
             return "paused"
 
@@ -872,7 +972,7 @@ class Agent:
         self,
         call: ToolCall,
         sandbox: Sandbox,
-        conversation: Conversation | None = None,
+        conversation: Conversation,
     ) -> ToolResult:
         with logfire.span(
             "tool.execute {tool}",
@@ -882,7 +982,10 @@ class Agent:
         ) as span:
             span.set_attributes(tool_attributes(name=call.name, arguments=call.arguments))
             result = _spill_oversized(
-                call, self._execute_tool_call(call, sandbox, conversation), sandbox
+                call,
+                self._execute_tool_call(call, sandbox, conversation),
+                sandbox,
+                conversation.id,
             )
             span.set_attributes(
                 tool_result_attributes(
@@ -893,11 +996,15 @@ class Agent:
                 span.set_attribute("tool.duration_ms", result.duration_ms)
         return result
 
+    def close(self) -> None:
+        for tool in self.tools.all():
+            tool.close()
+
     def _execute_tool_call(
         self,
         call: ToolCall,
         sandbox: Sandbox,
-        conversation: Conversation | None = None,
+        conversation: Conversation,
     ) -> ToolResult:
         if call.name not in self.tools:
             available = ", ".join(t.name for t in self.tools.all())
@@ -911,7 +1018,6 @@ class Agent:
 
         if (
             call.name == "finish"
-            and conversation is not None
             and conversation.has_unverified_changes(self.policy)
             and not self.policy.classify_finish_message(
                 getattr(action, "message", "")
@@ -924,29 +1030,10 @@ class Agent:
                 True,
             )
 
-        # The plan lives on the conversation, which tools never see, so the
-        # step mutation happens here; the tool's observation reports it.
-        if call.name == "update_plan":
-            if conversation is None:
-                return ToolResult("update_plan requires a live conversation.", True)
-            plan = conversation.plan
-            if plan is None or not (1 <= action.step <= len(plan.steps)):
-                return ToolResult(
-                    f"Invalid step: the approved plan has no step {action.step}.",
-                    True,
-                )
-            plan.steps[action.step - 1].status = action.status
-
         try:
-            if call.name in ("fanout", "web_research") and conversation is not None:
-                observation = tool.execute(
-                    action,
-                    sandbox,
-                    conversation=conversation,
-                    tool_call_id=call.id,
-                )
-            else:
-                observation = tool.execute(action, sandbox)
+            observation = tool.execute(
+                action, sandbox, ToolContext(conversation, call.id)
+            )
         except SandboxError:
             # The model cannot fix an unreachable or expired sandbox; end the
             # turn instead of feeding it an error to retry.
@@ -975,29 +1062,34 @@ class Agent:
             return False
         return isinstance(tool := self.tools[name], McpTool) and tool.read_only
 
-    def _blocked_in_plan_mode(self, action_event: ActionEvent) -> bool:
+    def _refuses_write(
+        self, action_event: ActionEvent, conversation: Conversation
+    ) -> bool:
+        return (conversation.plan_mode or conversation.read_only) and self._mutates(
+            action_event
+        )
+
+    def _mutates(self, action_event: ActionEvent) -> bool:
         if self._is_mcp(action_event):
             return not self._is_read_only_mcp(action_event)
         if action_event.tool_name == "file_edit":
             return action_event.arguments.get("command") in ("create", "str_replace")
-        if action_event.tool_name == "bash":
-            return not self.policy.classify_bash(
-                action_event.arguments.get("command", "")
-            ).read_only
+        if action_event.tool_name == "terminal":
+            command = gated_text(action_event.arguments)
+            return command is not None and not self.policy.classify_bash(command).read_only
         return False
 
     def _needs_confirmation(
         self, action_event: ActionEvent, conversation: Conversation
     ) -> bool:
         mode = conversation.confirm_policy.mode
-        if mode == "never":
+        if mode == "full":
             return False
-        if mode == "always":
+        if mode == "ask" and self._mutates(action_event):
             return True
-        if action_event.tool_name == "bash":
-            return self.policy.classify_bash(
-                action_event.arguments.get("command", "")
-            ).needs_confirmation
+        if action_event.tool_name == "terminal":
+            command = gated_text(action_event.arguments)
+            return command is not None and self.policy.classify_bash(command).needs_confirmation
         if self._is_read_only_mcp(action_event):
             return False
         return conversation.needs_confirmation(action_event)

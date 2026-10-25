@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
+
+if TYPE_CHECKING:
+    from miniagent.conversation import Conversation
+
+
+@dataclass(frozen=True)
+class ToolContext:
+    conversation: Conversation
+    tool_call_id: str
 
 
 class Tool(ABC):
@@ -15,7 +25,12 @@ class Tool(ABC):
     parameters_schema: dict[str, Any] | None = None
 
     @abstractmethod
-    def execute(self, action: Action, sandbox: Sandbox) -> Observation: ...
+    def execute(
+        self, action: Action, sandbox: Sandbox, context: ToolContext
+    ) -> Observation: ...
+
+    def close(self) -> None:
+        pass
 
 
 def to_openai_schema(tool: Tool) -> dict[str, Any]:

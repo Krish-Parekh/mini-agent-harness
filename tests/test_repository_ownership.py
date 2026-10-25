@@ -66,6 +66,8 @@ async def _make_conversation(repo: ConversationRepository, cid: str, owner: uuid
         workspace_dir="/tmp/ws",
         plan=None,
         implementing_plan=False,
+        plan_mode=False,
+        permission_mode="auto",
     )
 
 
@@ -82,6 +84,8 @@ async def test_ownership_survives_an_event_upsert(repos):
         workspace_dir="/tmp/ws",
         plan=None,
         implementing_plan=False,
+        plan_mode=False,
+        permission_mode="auto",
         event_id="e1",
         seq=1,
         source="user",

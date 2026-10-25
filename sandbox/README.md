@@ -38,7 +38,7 @@ The server creates a remote sandbox the first time a Conversation needs it, whic
 docker build -t miniagent-sandbox:latest sandbox
 ```
 
-The image adds `git`, `setsid` and GNU `timeout` to `python:3.12-slim`. Commands run as your own user, so files in the mounted worktree stay yours.
+The image adds `git`, `setsid`, GNU `timeout` and `tmux` to `python:3.12-slim`. The `terminal` tool runs its bash session in tmux, so the `local` provider needs `tmux` on the host. Commands run as your own user, so files in the mounted worktree stay yours.
 
 ## SPACE
 

@@ -40,6 +40,8 @@ class ConversationRow(Base):
     pr_url: Mapped[str | None] = mapped_column(Text)
     plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     implementing_plan: Mapped[bool] = mapped_column(server_default=text("false"))
+    plan_mode: Mapped[bool] = mapped_column(server_default=text("false"))
+    permission_mode: Mapped[str] = mapped_column(Text, server_default="auto")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now()

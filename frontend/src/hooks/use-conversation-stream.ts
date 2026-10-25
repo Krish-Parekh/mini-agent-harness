@@ -133,6 +133,12 @@ export function useConversationStream(id: string) {
     return map;
   }, [events]);
 
+  const workerResults = useMemo(
+    () => events.filter((e) => e.kind === "worker_result").length,
+    [events],
+  );
+  const changesRevision = observationByCall.size + workerResults;
+
   const refreshChanges = useCallback(() => {
     api
       .changes(id)
@@ -146,13 +152,17 @@ export function useConversationStream(id: string) {
 
   useEffect(() => {
     refreshChanges();
-  }, [refreshChanges, observationByCall.size]);
+  }, [refreshChanges, changesRevision]);
 
   // Context is a snapshot, so it only refreshes when a turn crosses a
   // boundary, deliberately not polled.
   useEffect(() => {
     queryClient.invalidateQueries({ queryKey: queryKeys.context(id) });
   }, [queryClient, id, status]);
+
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.contextWindow(id) });
+  }, [queryClient, id, status, observationByCall.size]);
 
   const lastUnresolvedAction = useMemo(() => {
     for (let i = events.length - 1; i >= 0; i--) {
@@ -247,7 +257,7 @@ export function useConversationStream(id: string) {
     busy,
     waiting,
     changes,
-    changesRevision: observationByCall.size,
+    changesRevision,
     refreshChanges,
     observationByCall,
     lastUnresolvedAction,

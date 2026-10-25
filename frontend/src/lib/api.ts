@@ -35,8 +35,13 @@ export type SandboxProvider = {
   label: string;
   available: boolean;
   default: boolean;
+  full_access: boolean;
   reason: string | null;
 };
+
+export type PermissionMode = "ask" | "auto" | "full";
+
+export type Modes = { plan_mode: boolean; permission_mode: PermissionMode };
 
 export type AttachmentRef = {
   path: string;
@@ -53,7 +58,7 @@ export type CreateConversationBody = {
   model?: string | null;
   initial_message?: string | null;
   attachments?: AttachmentRef[];
-};
+} & Modes;
 
 export type ConversationStatus =
   | "idle"
@@ -89,6 +94,8 @@ export type ConversationInfo = {
   title: string | null;
   plan: PlanData | null;
   implementing_plan: boolean;
+  plan_mode: boolean;
+  permission_mode: PermissionMode;
   pr_number: number | null;
   pr_url: string | null;
   sandbox_provider: string;
@@ -153,6 +160,22 @@ export type ConversationContext = {
   counts: { events: number; user_turns: number };
 };
 
+export type ContextCategoryName =
+  | "System prompt"
+  | "Tool definitions"
+  | "Rules"
+  | "Memory"
+  | "Skills"
+  | "MCP tools"
+  | "Workspace"
+  | "Conversation";
+
+export type ContextWindow = {
+  used: number;
+  limit: number;
+  categories: { name: ContextCategoryName; tokens: number }[];
+};
+
 export type Skill = {
   id: string;
   name: string;
@@ -201,6 +224,8 @@ export type EnabledItem = {
 
 export type FileDiff = { path: string; patch: string; truncated?: boolean };
 
+export type ChangeSide = "before" | "after";
+
 export type TurnInfo = { id: string; text: string };
 
 export type FileContent = { path: string; content: string };
@@ -229,11 +254,21 @@ export class ApiError extends Error {
 
 const jsonHeaders = { "content-type": "application/json" };
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const token = await accessToken();
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  return json<T>(await fetch(`${API}${path}`, { ...init, headers }));
+  return fetch(`${API}${path}`, { ...init, headers });
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return json<T>(await authedFetch(path, init));
+}
+
+async function requestBlob(path: string): Promise<Blob> {
+  const res = await authedFetch(path);
+  if (!res.ok) throw new ApiError(res.status, await readDetail(res));
+  return res.blob();
 }
 
 const post = <T>(path: string, body?: unknown) =>
@@ -328,9 +363,17 @@ export const api = {
 
   events: (id: string) => request<AgentEvent[]>(`/conversations/${id}/events`),
 
+  updateModes: (id: string, modes: Modes) =>
+    request<ConversationInfo>(`/conversations/${id}`, {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: JSON.stringify(modes),
+    }),
+
   sendMessage: (
     id: string,
     text: string,
+    modes: Modes,
     model?: string,
     clientEventId?: string,
     attachments: AttachmentRef[] = [],
@@ -340,6 +383,7 @@ export const api = {
       text,
       attachments,
       mode,
+      ...modes,
       ...(model ? { model } : {}),
       ...(clientEventId ? { client_event_id: clientEventId } : {}),
     }),
@@ -366,6 +410,9 @@ export const api = {
 
   context: (id: string) =>
     request<ConversationContext>(`/conversations/${id}/context`),
+
+  contextWindow: (id: string) =>
+    request<ContextWindow>(`/conversations/${id}/context/window`),
 
   skills: () => request<Skill[]>("/skills"),
 
@@ -432,6 +479,11 @@ export const api = {
       `/conversations/${id}/changes/diff?path=${encodeURIComponent(path)}&scope=${encodeURIComponent(scope)}`,
     ),
 
+  changeBlob: (id: string, path: string, scope: string, side: ChangeSide) =>
+    requestBlob(
+      `/conversations/${id}/changes/raw?path=${encodeURIComponent(path)}&scope=${encodeURIComponent(scope)}&side=${side}`,
+    ),
+
   turns: (id: string) => request<TurnInfo[]>(`/conversations/${id}/turns`),
 
   files: (id: string) => request<string[]>(`/conversations/${id}/files`),
@@ -440,6 +492,9 @@ export const api = {
     request<FileContent>(
       `/conversations/${id}/files/content?path=${encodeURIComponent(path)}`,
     ),
+
+  fileBlob: (id: string, path: string) =>
+    requestBlob(`/conversations/${id}/files/raw?path=${encodeURIComponent(path)}`),
 
   eventStream: (id: string, lastEventId: string | null, signal: AbortSignal) =>
     readEventStream(`/conversations/${id}/events/stream`, lastEventId, signal),

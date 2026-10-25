@@ -10,13 +10,11 @@ from typing import Any, Callable
 import logfire
 from pydantic import BaseModel
 
-from miniagent.agent import Agent
 from miniagent.config import Settings
-from miniagent.confirm import ConfirmMode, ConfirmPolicy
+from miniagent.factory import build_agent
+from miniagent.confirm import ConfirmPolicy, PermissionMode
 from miniagent.conversation import Conversation, Status
 from miniagent.events import Attachment, ErrorEvent, Event, MessageEvent
-from miniagent.llm import LLM
-from miniagent.policy import PolicyClassifier
 from miniagent.sandbox.base import Sandbox, SandboxError
 from miniagent.sandbox import docker as docker_sandbox
 from miniagent.sandbox.factory import build_sandbox, default_provider, is_host_git
@@ -26,22 +24,12 @@ from backend.runtime import mcp
 from backend.runtime.memory import DbMemoryStore
 from backend.runtime.workspaces import BRANCH_PREFIX, WorkspaceManager
 from miniagent.tools.mcp import MAX_TOOLS as MAX_MCP_TOOLS, McpTool
-from miniagent.tools.memory import MemoryStore, MemoryTool
 from miniagent.tools.skill import SkillTool
-from miniagent.tools.bash import BashTool
-from miniagent.tools.base import ToolRegistry
-from miniagent.tools.file_edit import FileEditTool
-from miniagent.tools.search import GlobTool, GrepTool
-from miniagent.tools.finish import FinishTool
-from miniagent.tools.ask import AskUserTool
-from miniagent.tools.fanout import FanoutTool
-from miniagent.tools.find_skills import FindSkillsTool, ProposeSkillsTool
-from miniagent.tools.plan import Plan, PresentPlanTool, UpdatePlanTool
-from miniagent.tools.fetch_url import FetchUrlTool
-from miniagent.tools.web_research import WebResearchTool
-from miniagent.tools.web_search import WebSearchTool
+from miniagent.tools.plan import Plan
 
 PersistHook = Callable[["ManagedConversation", Event, int], None]
+StatusHook = Callable[["ManagedConversation", Status], None]
+InboxHook = Callable[["ManagedConversation"], None]
 
 
 def publish_committed(managed: ManagedConversation, event: Event, seq: int) -> None:
@@ -53,9 +41,9 @@ _log = logging.getLogger(__name__)
 MCP_INSTRUCTIONS_MAX_CHARS = 1_000
 
 
-def _mcp_invoker(target: mcp.McpTarget):
+def _mcp_invoker(session: mcp.McpSession):
     def invoke(tool_name: str, arguments: dict) -> str:
-        return mcp.bridge.run(mcp.call(target, tool_name, arguments))
+        return mcp.bridge.run(session.call(tool_name, arguments))
 
     return invoke
 
@@ -94,60 +82,6 @@ def title_snippet(text: str, limit: int = TITLE_SNIPPET_CHARS) -> str:
     return cut.rstrip(" ,.;:-") + "…"
 
 
-def _build_agent(
-    settings: Settings,
-    repo: str | None,
-    branch: str | None,
-    memory: MemoryStore | None,
-) -> Agent:
-    llm = LLM(
-        model=settings.model,
-        temperature=settings.temperature,
-        max_tokens=settings.max_tokens,
-    )
-    policy = PolicyClassifier(
-        LLM(
-            model=settings.policy_model,
-            temperature=0.0,
-            max_tokens=1024,
-        )
-    )
-    tool_list: list = [
-        BashTool(),
-        FileEditTool(),
-        GrepTool(),
-        GlobTool(),
-        FinishTool(),
-        PresentPlanTool(),
-        UpdatePlanTool(),
-        AskUserTool(),
-        FanoutTool(llm, repo, branch, policy),
-        FindSkillsTool(),
-        ProposeSkillsTool(),
-    ]
-    if settings.tavily_api_key:
-        web_search = WebSearchTool(settings.tavily_api_key)
-        fetch_url = FetchUrlTool()
-        tool_list.extend(
-            [
-                web_search,
-                fetch_url,
-                WebResearchTool(llm, web_search, fetch_url),
-            ]
-        )
-    if memory is not None:
-        tool_list.append(MemoryTool(memory))
-    tools = ToolRegistry(tool_list)
-    return Agent(
-        llm=llm,
-        tools=tools,
-        repo=repo,
-        branch=branch,
-        policy=policy,
-        memory=memory,
-    )
-
-
 @dataclass(frozen=True)
 class StreamFrame:
     event: Event
@@ -161,6 +95,8 @@ class QueuedMessage:
     attachments: list[Attachment]
     model: str | None
     client_event_id: str | None
+    plan_mode: bool
+    permission_mode: PermissionMode | None
 
 
 class EventBroker:
@@ -214,11 +150,20 @@ class ManagedConversation:
         self.run_generation = 0
         self.lock = asyncio.Lock()
         self.persist_hook: PersistHook = publish_committed
+        self.status_hook: StatusHook = lambda managed, status: None
+        self.inbox_hook: InboxHook = lambda managed: None
         self.mcp_tools: dict[str, list[str]] = {}
+        self.mcp_sessions: dict[str, mcp.McpSession] = {}
         self.mcp_skipped: set[str] = set()
         self.mcp_instructions: dict[str, tuple[str, str]] = {}
         self.skills_skipped: set[str] = set()
         self.queue: list[QueuedMessage] = []
+
+    def on_status(self, status: Status) -> None:
+        self.status_hook(self, status)
+
+    def on_inbox(self) -> None:
+        self.inbox_hook(self)
 
     def on_event(self, event: Event) -> None:
         self._seq += 1
@@ -307,18 +252,17 @@ class ManagedConversation:
             registry.unregister(SkillTool.name)
         for connection_id in list(self.mcp_tools):
             if connection_id not in targets:
-                for name in self.mcp_tools.pop(connection_id):
-                    registry.unregister(name)
-                self.mcp_instructions.pop(connection_id, None)
+                self._drop_mcp(connection_id)
         self.mcp_skipped &= targets.keys()
 
         registered = sum(len(names) for names in self.mcp_tools.values())
         for connection_id, target in targets.items():
             if connection_id in self.mcp_tools or connection_id in self.mcp_skipped:
                 continue
+            session = mcp.McpSession(target)
             try:
-                with logfire.span("mcp.discover", connection=target.name) as span:
-                    info = mcp.bridge.run(mcp.discover(target))
+                with logfire.span("mcp.open", connection=target.name) as span:
+                    info = mcp.bridge.run(session.open())
                     specs = info.tools
                     span.set_attribute("tool_count", len(specs))
             except mcp.McpError as exc:
@@ -330,6 +274,7 @@ class ManagedConversation:
                 )
                 continue
             if registered + len(specs) > MAX_MCP_TOOLS:
+                mcp.bridge.run(session.close())
                 self.mcp_skipped.add(connection_id)
                 self.conversation.add_event(
                     ErrorEvent(
@@ -348,7 +293,7 @@ class ManagedConversation:
                     remote_name=spec.name,
                     description=spec.description,
                     input_schema=spec.input_schema,
-                    invoke=_mcp_invoker(target),
+                    invoke=_mcp_invoker(session),
                     read_only=spec.read_only,
                 )
                 if tool.name in registry:
@@ -359,6 +304,7 @@ class ManagedConversation:
                 registry.register(tool)
                 names.append(tool.name)
             self.mcp_tools[connection_id] = names
+            self.mcp_sessions[connection_id] = session
             registered += len(names)
             if info.instructions:
                 self.mcp_instructions[connection_id] = (
@@ -366,6 +312,24 @@ class ManagedConversation:
                     info.instructions[:MCP_INSTRUCTIONS_MAX_CHARS],
                 )
         agent.mcp_instructions = dict(self.mcp_instructions.values())
+
+    def _drop_mcp(self, connection_id: str) -> None:
+        for name in self.mcp_tools.pop(connection_id):
+            self.conversation.agent.tools.unregister(name)
+        self.mcp_instructions.pop(connection_id, None)
+        mcp.bridge.run(self.mcp_sessions.pop(connection_id).close())
+
+    def close_mcp(self) -> None:
+        for connection_id in list(self.mcp_tools):
+            self._drop_mcp(connection_id)
+        self.mcp_skipped.clear()
+        self.conversation.agent.mcp_instructions = {}
+
+    @property
+    def host_workspace(self) -> Path | None:
+        if not is_host_git(self.sandbox.provider):
+            return None
+        return Path(self.sandbox.workspace_dir)
 
     def bootstrap(self) -> None:
         if not self.repo:
@@ -415,9 +379,17 @@ class ConversationManager:
         self._workspaces = WorkspaceManager(data_dir)
         self._conversations: dict[str, ManagedConversation] = {}
         self._persist_hook: PersistHook = publish_committed
+        self._status_hook: StatusHook = lambda managed, status: None
+        self._inbox_hook: InboxHook = lambda managed: None
 
     def set_persist_hook(self, hook: PersistHook) -> None:
         self._persist_hook = hook
+
+    def set_status_hook(self, hook: StatusHook) -> None:
+        self._status_hook = hook
+
+    def set_inbox_hook(self, hook: InboxHook) -> None:
+        self._inbox_hook = hook
 
     def create(
         self,
@@ -426,7 +398,8 @@ class ConversationManager:
         repo: str | None = None,
         branch: str | None = None,
         workspace_dir: str | None = None,
-        confirm_mode: ConfirmMode = "risky",
+        permission_mode: PermissionMode = "auto",
+        plan_mode: bool = False,
         token: str | None = None,
         provider: str | None = None,
     ) -> ManagedConversation:
@@ -441,7 +414,9 @@ class ConversationManager:
         else:
             ws = workspace_dir or self._settings.workspace_dir
         sandbox = self._sandbox(cid, provider, ws, None, repo)
-        return self._build(cid, sandbox, confirm_mode, user_id, repo, branch, token)
+        managed = self._build(cid, sandbox, permission_mode, user_id, repo, branch, token)
+        managed.conversation.plan_mode = plan_mode
+        return managed
 
     def _sandbox(
         self,
@@ -504,6 +479,8 @@ class ConversationManager:
         events: list[Event],
         plan: dict | None = None,
         implementing_plan: bool = False,
+        plan_mode: bool = False,
+        permission_mode: PermissionMode = "auto",
         pr_number: int | None = None,
         pr_url: str | None = None,
         token: str | None = None,
@@ -515,10 +492,11 @@ class ConversationManager:
         else:
             ws = workspace_dir or None
         sandbox = self._sandbox(cid, sandbox_provider, ws, sandbox_id, repo)
-        managed = self._build(cid, sandbox, "risky", user_id, repo, branch, token)
+        managed = self._build(cid, sandbox, permission_mode, user_id, repo, branch, token)
         managed.conversation.events = events
         managed.conversation.plan = Plan.model_validate(plan) if plan else None
         managed.conversation.implementing_plan = implementing_plan
+        managed.conversation.plan_mode = plan_mode
         managed.title = title
         managed._ai_titled = managed.user_turns() >= AI_TITLE_AFTER_TURNS
         managed.pr_number = pr_number
@@ -535,7 +513,7 @@ class ConversationManager:
         self,
         cid: str,
         sandbox: Sandbox,
-        confirm_mode: ConfirmMode,
+        permission_mode: PermissionMode,
         user_id: uuid.UUID,
         repo: str | None,
         branch: str | None,
@@ -548,9 +526,16 @@ class ConversationManager:
             else None
         )
         conversation = Conversation(
-            agent=_build_agent(self._settings, repo, branch, memory),
+            agent=build_agent(
+                self._settings,
+                preset="interactive",
+                repo=repo,
+                branch=branch,
+                memory=memory,
+            ),
             sandbox=sandbox,
-            confirm_policy=ConfirmPolicy(confirm_mode),
+            max_iterations=self._settings.max_iterations,
+            confirm_policy=ConfirmPolicy(permission_mode),
             id=cid,
         )
         managed = ManagedConversation(
@@ -564,7 +549,11 @@ class ConversationManager:
             token,
         )
         managed.persist_hook = self._persist_hook
+        managed.status_hook = self._status_hook
+        managed.inbox_hook = self._inbox_hook
         conversation.on_event = managed.on_event
+        conversation.on_status = managed.on_status
+        conversation.workers.on_inbox = managed.on_inbox
         self._conversations[cid] = managed
         return managed
 

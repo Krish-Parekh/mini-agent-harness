@@ -6,15 +6,23 @@ import { toast } from "sonner";
 
 import Link from "next/link";
 
-import { api, type AttachmentRef } from "@/lib/api";
+import { api, type AttachmentRef, type Modes } from "@/lib/api";
 import { sendMessage } from "@/lib/collections";
 import { messageFor } from "@/lib/errors";
-import { queryKeys, useConversationContext, useTurns } from "@/lib/queries";
+import {
+  queryKeys,
+  useContextWindow,
+  useConversationContext,
+  useSandboxProviders,
+  useTurns,
+  useUpdateModes,
+} from "@/lib/queries";
 import { useComposerText } from "@/hooks/use-composer-text";
 import { useConversationStream } from "@/hooks/use-conversation-stream";
 import { useDelayedFlag } from "@/hooks/use-delayed-flag";
 import { ConversationTimeline } from "@/components/conversation-stream";
 import { ChangesPanel } from "@/components/changes-panel";
+import { buildWorkers, uniqueWorkers } from "@/lib/workers";
 import { QuestionCard, type Question } from "@/components/question-card";
 import {
   type ProposedSkill,
@@ -42,7 +50,9 @@ import {
   AttachmentDropZone,
   useComposerAttachments,
 } from "@/components/composer-attachments";
+import { ContextWindowMeter } from "@/components/context-window-meter";
 import { DEFAULT_MODEL, ModelPicker } from "@/components/model-picker";
+import { cycleOnShiftTab, DEFAULT_MODES, ModePicker } from "@/components/mode-picker";
 import { SkillSlashTextarea } from "@/components/skill-slash-menu";
 import { AlertTriangleIcon, XIcon } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -94,16 +104,35 @@ export default function ChatPage({
   const attachments = useComposerAttachments();
   const [model, setModel] = useState<string | null>(null);
   const { data: context } = useConversationContext(id, exists);
+  const { data: contextWindow } = useContextWindow(id, exists);
   const [modelFor, setModelFor] = useState(id);
   if (modelFor !== id) {
     setModelFor(id);
     setModel(null);
   }
   const queryClient = useQueryClient();
+  const { data: providers } = useSandboxProviders();
+  const fullAccess = !!providers?.find((p) => p.id === conversation?.sandbox_provider)
+    ?.full_access;
+  const modes = useMemo<Modes>(
+    () =>
+      conversation
+        ? { plan_mode: conversation.plan_mode, permission_mode: conversation.permission_mode }
+        : DEFAULT_MODES,
+    [conversation],
+  );
+  const updateModes = useUpdateModes(id);
   const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
     null,
   );
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [changesScope, setChangesScope] = useState("all");
+  const workers = useMemo(() => uniqueWorkers(buildWorkers(events)), [events]);
+  const workerScopes = useMemo(
+    () => workers.filter((w) => w.branch).map((w) => ({ id: w.worker_id, title: w.title })),
+    [workers],
+  );
+  const runningWorkers = workers.filter((w) => w.status === "running").length;
   const [panelOpen, setPanelOpen] = useState(true);
   const lastSentText = useRef("");
 
@@ -118,8 +147,9 @@ export default function ChatPage({
 
   const repo = conversation?.repo ?? null;
 
-  const openFile = useCallback((path: string) => {
+  const openFile = useCallback((path: string, scope?: string) => {
     setSelectedPath(path);
+    if (scope) setChangesScope(scope);
     setPanelOpen(true);
   }, []);
   const closePanel = useCallback(() => setPanelOpen(false), []);
@@ -139,8 +169,13 @@ export default function ChatPage({
     [status, setStatus],
   );
   const approvePlan = useCallback(
-    () => optimisticRun(() => api.approvePlan(id)),
-    [optimisticRun, id],
+    () =>
+      optimisticRun(() =>
+        api
+          .approvePlan(id)
+          .then((info) => queryClient.setQueryData(queryKeys.conversation(id), info)),
+      ),
+    [optimisticRun, id, queryClient],
   );
   const pendingCallId = lastUnresolvedAction?.tool_call_id;
   const approveAction = useCallback(() => {
@@ -161,6 +196,7 @@ export default function ChatPage({
           clientEventId: crypto.randomUUID(),
           text,
           model: model ?? undefined,
+          modes,
           attachments,
         }).isPersisted.promise;
         return true;
@@ -171,7 +207,7 @@ export default function ChatPage({
         return false;
       }
     },
-    [id, model, status, setStatus, setInput],
+    [id, model, modes, status, setStatus, setInput],
   );
 
   const restoreAttachments = attachments.restore;
@@ -233,7 +269,7 @@ export default function ChatPage({
     setInput("");
     if (busy && mode === "queue") {
       try {
-        await api.sendMessage(id, text, model ?? undefined, undefined, uploaded, "queue");
+        await api.sendMessage(id, text, modes, model ?? undefined, undefined, uploaded, "queue");
         attachments.clear();
       } catch (e) {
         setInput(text);
@@ -245,6 +281,7 @@ export default function ChatPage({
   }
 
   function onComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (cycleOnShiftTab(event, modes, fullAccess, updateModes.mutate)) return;
     if (busy && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       void send({ text: input }, "queue");
@@ -283,6 +320,12 @@ export default function ChatPage({
               <span className="flex items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 <Spinner className="size-3" />
                 Reconnecting…
+              </span>
+            )}
+            {runningWorkers > 0 && (
+              <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground tabular-nums">
+                <Spinner className="size-3" />
+                {runningWorkers} worker{runningWorkers === 1 ? "" : "s"} running
               </span>
             )}
           </div>
@@ -422,15 +465,23 @@ export default function ChatPage({
                     value={model ?? context?.model ?? DEFAULT_MODEL}
                     onChange={setModel}
                   />
+                  <ModePicker
+                    value={modes}
+                    fullAccess={fullAccess}
+                    onChange={updateModes.mutate}
+                  />
                 </PromptBarTools>
-                <PromptBarSubmit
-                  status={busy ? "streaming" : status === "error" ? "error" : undefined}
-                  onStop={stop}
-                  disabled={
-                    attachments.uploading ||
-                    (!busy && !input.trim() && attachments.items.length === 0)
-                  }
-                />
+                <div className="flex items-center gap-1">
+                  {contextWindow && <ContextWindowMeter usage={contextWindow} />}
+                  <PromptBarSubmit
+                    status={busy ? "streaming" : status === "error" ? "error" : undefined}
+                    onStop={stop}
+                    disabled={
+                      attachments.uploading ||
+                      (!busy && !input.trim() && attachments.items.length === 0)
+                    }
+                  />
+                </div>
               </PromptBarFooter>
             </PromptBar>
           </AttachmentDropZone>
@@ -446,6 +497,9 @@ export default function ChatPage({
           running={status === "running"}
           selectedPath={selectedPath}
           onSelectPath={setSelectedPath}
+          scope={changesScope}
+          onScopeChange={setChangesScope}
+          workers={workerScopes}
           onClose={closePanel}
           onSynced={refreshChanges}
           revision={changesRevision}

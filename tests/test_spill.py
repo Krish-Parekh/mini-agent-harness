@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
+from pathlib import Path
 
 from miniagent.agent import SPILL_DIR, SPILL_PREVIEW_CHARS, Agent
 from miniagent.confirm import ConfirmPolicy
@@ -9,8 +11,8 @@ from miniagent.events import ObservationEvent
 from miniagent.llm import LLMResponse, ToolCall
 from miniagent.sandbox.local import LocalSandbox
 from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.terminal import TerminalTool
 from tests.test_agent_history import QueueLLM
 from tests.test_sandbox_failures import SafePolicy
 
@@ -18,24 +20,27 @@ from tests.test_sandbox_failures import SafePolicy
 def _run(workspace, command: str) -> tuple[Conversation, LocalSandbox]:
     llm = QueueLLM(
         LLMResponse(
-            tool_calls=[ToolCall(id="call_big", name="bash", arguments={"command": command})]
+            tool_calls=[ToolCall(id="call_big", name="terminal", arguments={"command": command})]
         ),
         LLMResponse(text="done"),
     )
     agent = Agent(
         llm=llm,
-        tools=ToolRegistry([BashTool(), FinishTool()]),
+        tools=ToolRegistry([TerminalTool(), FinishTool()]),
         policy=SafePolicy(),
     )
     sandbox = LocalSandbox(str(workspace))
     conversation = Conversation(
         agent=agent,
         sandbox=sandbox,
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
     conversation.send_message("print a lot")
-    conversation.run()
+    try:
+        conversation.run()
+    finally:
+        agent.close()
     return conversation, sandbox
 
 
@@ -48,17 +53,16 @@ def _git_repo(path):
     return path
 
 
-def test_large_output_is_spilled_and_kept_out_of_git(tmp_path):
+def test_large_output_is_spilled_outside_the_workspace(tmp_path):
     repo = _git_repo(tmp_path / "repo")
     conversation, sandbox = _run(repo, "seq 1 20000")
-
-    observation = _observation(conversation)
-    path = f"{SPILL_DIR}/call_big.txt"
-    assert observation.details["spill_path"] == path
-    assert path in observation.content
-    assert len(observation.content) < SPILL_PREVIEW_CHARS + 1_000
-    assert "20000" in sandbox.read_file(path)
-    status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True
-    ).stdout
-    assert ".miniagent" not in status
+    spill = Path(SPILL_DIR) / conversation.id / "outputs" / "call_big.txt"
+    try:
+        observation = _observation(conversation)
+        assert observation.details["spill_path"] == str(spill)
+        assert str(spill) in observation.content
+        assert len(observation.content) < SPILL_PREVIEW_CHARS + 1_000
+        assert "\n20000\n[The command completed with exit code 0.]" in spill.read_text()
+        assert sorted(p.name for p in repo.iterdir()) == [".git"]
+    finally:
+        shutil.rmtree(spill.parents[1], ignore_errors=True)

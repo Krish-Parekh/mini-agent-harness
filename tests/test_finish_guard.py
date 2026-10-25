@@ -5,10 +5,12 @@ from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Conversation, Status
 from miniagent.events import ObservationEvent
 from miniagent.llm import LLMResponse, ToolCall
+from miniagent.prompts import FINISH_CHECKLIST_PROMPT
+from miniagent.sandbox.local import LocalSandbox
 from miniagent.tools.base import ToolRegistry
-from miniagent.tools.bash import BashTool
 from miniagent.tools.file_edit import FileEditTool
 from miniagent.tools.finish import FinishTool
+from miniagent.tools.terminal import TerminalTool
 from tests.test_agent_history import EchoSandbox, QueueLLM
 from tests.test_sandbox_failures import SafePolicy
 
@@ -34,13 +36,13 @@ def _finish(call_id: str) -> LLMResponse:
 def _run(*responses: LLMResponse) -> Conversation:
     agent = Agent(
         llm=QueueLLM(*responses),
-        tools=ToolRegistry([BashTool(), FileEditTool(), FinishTool()]),
+        tools=ToolRegistry([TerminalTool(), FileEditTool(), FinishTool()]),
         policy=SafePolicy(),
     )
     conversation = Conversation(
         agent=agent,
         sandbox=EchoSandbox(),
-        confirm_policy=ConfirmPolicy("never"),
+        confirm_policy=ConfirmPolicy("full"),
         stuck_detection=False,
     )
     conversation.send_message("go")
@@ -69,3 +71,39 @@ def test_a_code_change_still_needs_verification_before_finishing():
     assert conversation.status == Status.IDLE
     [error] = _finish_errors(conversation)
     assert error.startswith("Verification required before finishing")
+
+
+def test_the_headless_finish_ends_the_run_only_when_called_right_after_its_checklist(tmp_path):
+    agent = Agent(
+        llm=QueueLLM(
+            _finish("f1"),
+            LLMResponse(
+                tool_calls=[ToolCall(id="b1", name="terminal", arguments={"command": "ls"})]
+            ),
+            _finish("f2"),
+            LLMResponse(
+                tool_calls=[ToolCall(id="f3", name="finish", arguments={"message": "Checked."})]
+            ),
+        ),
+        tools=ToolRegistry([TerminalTool(), FinishTool(checklist=FINISH_CHECKLIST_PROMPT)]),
+        policy=SafePolicy(),
+    )
+    conversation = Conversation(
+        agent=agent,
+        sandbox=LocalSandbox(str(tmp_path)),
+        confirm_policy=ConfirmPolicy("full"),
+        stuck_detection=False,
+    )
+    conversation.send_message("go")
+    try:
+        conversation.run()
+    finally:
+        agent.close()
+
+    finishes = [
+        e.content
+        for e in conversation.events
+        if isinstance(e, ObservationEvent) and e.tool_name == "finish"
+    ]
+    assert conversation.status == Status.FINISHED
+    assert finishes == [FINISH_CHECKLIST_PROMPT, FINISH_CHECKLIST_PROMPT, "Checked."]

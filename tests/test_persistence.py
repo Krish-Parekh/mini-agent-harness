@@ -8,6 +8,7 @@ import pytest
 from backend.runtime.manager import EventBroker, StreamFrame
 from backend.schemas import StatusUpdate
 from backend.service.conversation import ConversationService
+from miniagent.confirm import ConfirmPolicy
 from miniagent.conversation import Status
 from miniagent.events import ErrorEvent, MessageEvent
 
@@ -38,6 +39,8 @@ class FakeConversationState:
         self.status = Status.RUNNING
         self.plan = None
         self.implementing_plan = False
+        self.plan_mode = False
+        self.confirm_policy = ConfirmPolicy()
 
     def live_events(self) -> list:
         return self.events
@@ -158,6 +161,12 @@ class _HookSink:
 
     def set_persist_hook(self, hook) -> None:
         self.hook = hook
+
+    def set_status_hook(self, hook) -> None:
+        self.status_hook = hook
+
+    def set_inbox_hook(self, hook) -> None:
+        self.inbox_hook = hook
 
     def live(self):
         return []

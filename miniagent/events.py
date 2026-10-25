@@ -107,7 +107,7 @@ class ObservationEvent(Event):
     tool_call_id: str
     content: str
     error: bool = False
-    # Wall-clock the tool took to run, when the tool measures it (e.g. bash).
+    # Wall-clock the tool took to run, when the tool measures it (e.g. terminal).
     # Surfaced structurally so the UI can show timing without parsing `content`.
     duration_ms: int | None = None
     # Structured payload for the UI (endpoints, result URLs, etc.).
@@ -192,14 +192,75 @@ class LLMUsageEvent(Event):
     cost_usd: float = 0.0
 
 
-class FanoutWorkerEvent(Event):
-    kind: Literal["fanout_worker"] = "fanout_worker"
+WorkerKind: TypeAlias = Literal["explore", "fork", "research"]
+WorkerStatus: TypeAlias = Literal["running", "done", "partial", "failed", "cancelled"]
+StopReason: TypeAlias = Literal["step_limit", "no_finish", "error", "cancelled", "interrupted"]
+
+
+class WorkerState(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    worker_id: str = Field(default_factory=_new_id)
+    worker_kind: WorkerKind
+    title: str
+    status: WorkerStatus = "running"
+    stop_reason: StopReason | None = None
+    report: str | None = None
+    base: str | None = None
+    branch: str | None = None
+    files: list[str] = Field(default_factory=list)
+    merged: bool = False
+    conflict: str | None = None
+
+
+class WorkerStatusEvent(Event, WorkerState):
+    kind: Literal["worker_status"] = "worker_status"
     source: Source = "agent"
     parent_tool_call_id: str
-    worker_index: int
-    title: str
-    status: Literal["running", "done", "error"]
-    activity: str | None = None
+
+
+class WorkerEvent(Event):
+    kind: Literal["worker"] = "worker"
+    source: Source = "agent"
+    parent_tool_call_id: str
+    worker_id: str
+    event: Events
+
+
+STOP_REASONS: dict[StopReason, str] = {
+    "step_limit": "stopped at its step limit",
+    "no_finish": "ended without calling `finish`",
+    "error": "failed",
+    "cancelled": "was stopped",
+    "interrupted": "was interrupted by a server restart",
+}
+
+
+class WorkerResultEvent(Event, WorkerState):
+    kind: Literal["worker_result"] = "worker_result"
+    source: Source = "environment"
+
+    def to_chat_message(self) -> dict:
+        reason = f": it {STOP_REASONS[self.stop_reason]}" if self.stop_reason else ""
+        lines = [
+            f"[worker result] {self.title} ({self.worker_kind}, id {self.worker_id}, "
+            f"{self.status}{reason})",
+            self.report or "It left no closing message.",
+        ]
+        if self.merged:
+            lines.append(f"Merged into the workspace: {', '.join(self.files)}.")
+        elif self.conflict:
+            lines.append(
+                f"Not merged: it conflicts with the workspace. Its commit stays on "
+                f"branch {self.branch}.\n{self.conflict}"
+            )
+        elif self.files:
+            lines.append(
+                f"Not merged because it did not finish. Its changes to "
+                f"{', '.join(self.files)} stay on branch {self.branch}; resume it to "
+                "finish the work."
+            )
+        return {"role": "user", "content": "\n".join(lines)}
 
 
 class ErrorEvent(Event):
@@ -226,8 +287,13 @@ Events: TypeAlias = Annotated[
         RepoInstructionsEvent,
         MemoryIndexEvent,
         LLMUsageEvent,
-        FanoutWorkerEvent,
+        WorkerStatusEvent,
+        WorkerResultEvent,
+        WorkerEvent,
         ErrorEvent,
     ],
     Field(discriminator="kind"),
 ]
+
+
+WorkerEvent.model_rebuild()

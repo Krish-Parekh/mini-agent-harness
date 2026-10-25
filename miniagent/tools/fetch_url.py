@@ -9,7 +9,7 @@ from pydantic import Field
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 
 _DEFAULT_TIMEOUT = 20.0
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -59,7 +59,7 @@ class FetchUrlTool(Tool):
     action_type = FetchUrlAction
     observation_type = FetchUrlObservation
 
-    def execute(self, action: FetchUrlAction, _sandbox: Sandbox) -> FetchUrlObservation:
+    def execute(self, action: FetchUrlAction, _sandbox: Sandbox, _context: ToolContext) -> FetchUrlObservation:
         started = time.perf_counter()
         url = action.url.strip()
         if not url.startswith(("http://", "https://")):

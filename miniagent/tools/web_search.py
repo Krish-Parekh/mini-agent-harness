@@ -7,7 +7,7 @@ from pydantic import Field
 
 from miniagent.sandbox.base import Sandbox
 from miniagent.schema import Action, Observation
-from miniagent.tools.base import Tool
+from miniagent.tools.base import Tool, ToolContext
 from miniagent.web.tavily import TAVILY_SEARCH_URL, TavilySearchResult, tavily_search
 
 
@@ -76,7 +76,7 @@ class WebSearchTool(Tool):
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
 
-    def execute(self, action: WebSearchAction, _sandbox: Sandbox) -> WebSearchObservation:
+    def execute(self, action: WebSearchAction, _sandbox: Sandbox, _context: ToolContext) -> WebSearchObservation:
         started = time.perf_counter()
         try:
             response = tavily_search(

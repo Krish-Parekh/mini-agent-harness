@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-export type TaskStatus = "pending" | "running" | "done" | "failed";
+export type TaskStatus = "pending" | "running" | "done" | "partial" | "failed";
 
 const EASE = "var(--ease-out-strong)";
 
@@ -34,13 +34,12 @@ function SpinnerRing({ active, size = 24, children }: { active?: boolean; size?:
   );
 }
 
-function Badge({ tone, size = 22, children }: { tone: "red" | "green"; size?: number; children: ReactNode }) {
+const BADGE_TONE = { red: "bg-red", green: "bg-green", orange: "bg-orange" } as const;
+
+function Badge({ tone, size = 22, children }: { tone: keyof typeof BADGE_TONE; size?: number; children: ReactNode }) {
   return (
     <span
-      className={cn(
-        "flex shrink-0 items-center justify-center rounded-full text-white",
-        tone === "red" ? "bg-red" : "bg-green",
-      )}
+      className={cn("flex shrink-0 items-center justify-center rounded-full text-white", BADGE_TONE[tone])}
       style={{ width: size, height: size, animation: `pop-in 300ms ${EASE} both` }}
     >
       {children}
@@ -55,6 +54,15 @@ export function TaskBadge({ status, step, compact }: { status: TaskStatus; step?
       <Badge tone="green" size={size}>
         <svg width={compact ? 10 : 13} height={compact ? 10 : 13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M20 6L9 17l-5-5" />
+        </svg>
+      </Badge>
+    );
+  }
+  if (status === "partial") {
+    return (
+      <Badge tone="orange" size={size}>
+        <svg width={compact ? 9 : 12} height={compact ? 9 : 12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" aria-hidden>
+          <path d="M9 6v12M15 6v12" />
         </svg>
       </Badge>
     );
@@ -80,6 +88,13 @@ export function StatusPill({ status }: { status: TaskStatus }) {
     return (
       <span className="inline-flex h-5.5 shrink-0 items-center rounded-full bg-green-tint px-2 text-[11.5px] font-medium text-green" style={{ animation: "fade-in 200ms ease-out both" }}>
         Completed
+      </span>
+    );
+  }
+  if (status === "partial") {
+    return (
+      <span className="inline-flex h-5.5 shrink-0 items-center rounded-full bg-orange-tint px-2 text-[11.5px] font-medium text-orange" style={{ animation: "fade-in 200ms ease-out both" }}>
+        Partial
       </span>
     );
   }

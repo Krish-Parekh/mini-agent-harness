@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import mimetypes
 from collections.abc import AsyncIterable, Callable
 from typing import Annotated, TypeVar
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from backend.api.deps import (
@@ -19,10 +20,12 @@ from backend.api.deps import (
 )
 from backend.api.streaming import stream_conversation
 from backend.runtime.attachments import AttachmentError
+from backend.runtime.changes import MAX_PREVIEW_BYTES, PreviewTooLarge
 from backend.runtime.checkpoints import CheckpointError
 from backend.schemas import (
     AttachmentIn,
     ChangedFile,
+    ChangeSide,
     ConfirmRequest,
     ConversationContext,
     ConversationInfo,
@@ -33,9 +36,12 @@ from backend.schemas import (
     RewindResult,
     SendMessageRequest,
     TurnInfo,
+    UpdateConversationRequest,
 )
+from miniagent.agent import ContextWindow
+from miniagent.confirm import PermissionMode
 from miniagent.conversation import Status
-from miniagent.sandbox.factory import default_provider, provider_problem
+from miniagent.sandbox.factory import allows_full_access, default_provider, provider_problem
 from miniagent.sandbox.base import SandboxError, SandboxExpired
 
 router = APIRouter()
@@ -53,6 +59,31 @@ async def _in_sandbox(fn: Callable[..., T], *args) -> T:
         raise HTTPException(status_code=503, detail="sandbox_unavailable") from exc
     except CheckpointError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _check_permission(mode: PermissionMode | None, provider: str) -> None:
+    if mode == "full" and not allows_full_access(provider):
+        raise HTTPException(
+            status_code=422,
+            detail=f"full access needs a container sandbox, not {provider!r}",
+        )
+
+
+async def _raw(path: str, fn: Callable[..., bytes], *args) -> Response:
+    try:
+        content = await _in_sandbox(fn, *args)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="file not found") from exc
+    except PreviewTooLarge as exc:
+        raise HTTPException(
+            status_code=413,
+            detail=f"This file is over {MAX_PREVIEW_BYTES // (1024 * 1024)} MB, too large to preview.",
+        ) from exc
+    return Response(
+        content,
+        media_type=mimetypes.guess_type(path)[0] or "application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+    )
 
 
 @router.post("/conversations", response_model=ConversationInfo)
@@ -76,6 +107,7 @@ async def create_conversation(
         if problem:
             raise HTTPException(status_code=400, detail=problem)
     provider = body.sandbox_provider or await asyncio.to_thread(default_provider, settings)
+    _check_permission(body.permission_mode, provider)
     for skill_id in body.skill_ids:
         if await skills.get(skill_id, user.id) is None:
             raise HTTPException(status_code=404, detail="skill not found")
@@ -84,7 +116,8 @@ async def create_conversation(
         repo=body.repo,
         branch=body.branch,
         workspace_dir=body.workspace_dir,
-        confirm_mode=body.confirm_mode,
+        permission_mode=body.permission_mode,
+        plan_mode=body.plan_mode,
         token=token,
         initial_message=body.initial_message,
         model=body.model,
@@ -118,6 +151,15 @@ async def get_conversation(managed: ManagedDep, service: ServiceDep):
     return service.info(managed)
 
 
+@router.patch("/conversations/{cid}", response_model=ConversationInfo)
+async def update_conversation(
+    managed: ManagedDep, body: UpdateConversationRequest, service: ServiceDep
+):
+    _check_permission(body.permission_mode, managed.sandbox.provider)
+    await service.update_modes(managed, body.permission_mode, body.plan_mode)
+    return service.info(managed)
+
+
 @router.get("/conversations/{cid}/events")
 async def get_events(managed: ManagedDep):
     return [
@@ -131,6 +173,11 @@ async def get_context(managed: ManagedDep, service: ServiceDep):
     return await _in_sandbox(service.context, managed)
 
 
+@router.get("/conversations/{cid}/context/window", response_model=ContextWindow)
+async def get_context_window(managed: ManagedDep, service: ServiceDep):
+    return await asyncio.to_thread(service.context_window, managed)
+
+
 @router.get("/conversations/{cid}/changes", response_model=list[ChangedFile])
 async def get_changes(managed: ManagedDep, service: ServiceDep, scope: str = "all"):
     return await _in_sandbox(service.list_changes, managed, scope)
@@ -141,6 +188,17 @@ async def get_file_diff(
     managed: ManagedDep, path: str, service: ServiceDep, scope: str = "all"
 ):
     return await _in_sandbox(service.file_diff, managed, path, scope)
+
+
+@router.get("/conversations/{cid}/changes/raw", response_class=Response)
+async def get_change_raw(
+    managed: ManagedDep,
+    path: str,
+    side: ChangeSide,
+    service: ServiceDep,
+    scope: str = "all",
+):
+    return await _raw(path, service.change_bytes, managed, path, scope, side)
 
 
 @router.get("/conversations/{cid}/turns", response_model=list[TurnInfo])
@@ -158,6 +216,11 @@ async def get_file_content(managed: ManagedDep, path: str, service: ServiceDep):
     return await _in_sandbox(service.file_content, managed, path)
 
 
+@router.get("/conversations/{cid}/files/raw", response_class=Response)
+async def get_file_raw(managed: ManagedDep, path: str, service: ServiceDep):
+    return await _raw(path, service.file_bytes, managed, path)
+
+
 @router.post("/conversations/{cid}/messages", response_model=ConversationInfo)
 async def send_message(
     managed: ManagedDep,
@@ -170,6 +233,7 @@ async def send_message(
             status_code=409,
             detail="conversation is waiting for confirmation; use /confirm",
         )
+    _check_permission(body.permission_mode, managed.sandbox.provider)
     try:
         attachments = await service.stage_attachments(
             managed.user_id, caller_token, body.attachments
@@ -182,6 +246,7 @@ async def send_message(
             body.text,
             body.model,
             body.plan_mode,
+            body.permission_mode,
             body.client_event_id,
             attachments,
             caller_token,
