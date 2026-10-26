@@ -72,7 +72,7 @@ class ScriptedLLM:
     def count_tokens(self, messages, tools=None) -> int:
         return 0
 
-    def complete(self, messages, tools=None, phase="agent"):
+    def complete(self, messages, tools=None, phase="agent", tool_choice="auto"):
         if phase == "finish_nudge":
             return LLMResponse()
         self.seen.append(messages)

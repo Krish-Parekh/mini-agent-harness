@@ -62,6 +62,13 @@ class ContextWindow(BaseModel):
 
 # Per-message ceiling sent to the LLM; long tool output is head+tail clipped.
 _MAX_MESSAGE_CHARS = 12_000
+_SUMMARY_OUTPUT_LIMITS = (_MAX_MESSAGE_CHARS, 2_000, 200)
+_MAX_OUTPUT_LIMIT_STREAK = 2
+OUTPUT_LIMIT_NOTICE = (
+    "Your last response hit the output token limit and was cut off. Do not "
+    "apologize, recap, or repeat yourself. Break the remaining work into smaller "
+    "pieces, such as one file per call or a shorter command."
+)
 
 # A weak model can get wedged re-issuing one identical call. Nudge it in the
 # observation so the model course-corrects before the conversation-level
@@ -285,9 +292,34 @@ class Agent:
                 conversation.set_error()
                 return
         self._record_llm_usage(conversation, response, "step")
+        if not response.text and not response.tool_calls:
+            response = self._complete_step(conversation, sandbox)
+            self._record_llm_usage(conversation, response, "step")
+
+        if response.truncated:
+            conversation.output_limit_streak += 1
+            if conversation.output_limit_streak > _MAX_OUTPUT_LIMIT_STREAK:
+                conversation.add_event(
+                    ErrorEvent(
+                        message="The model's replies were cut off at the output token "
+                        f"limit {conversation.output_limit_streak} times in a row."
+                    )
+                )
+                conversation.set_error()
+                return
+        else:
+            conversation.output_limit_streak = 0
 
         if response.tool_calls:
             self._act_on(response, conversation, sandbox)
+            if response.truncated:
+                conversation.add_event(ErrorEvent(message=OUTPUT_LIMIT_NOTICE))
+            return
+
+        if response.truncated:
+            if response.text:
+                conversation.add_event(MessageEvent(role="assistant", text=response.text))
+            conversation.add_event(ErrorEvent(message=OUTPUT_LIMIT_NOTICE))
             return
 
         if not response.text:
@@ -343,7 +375,9 @@ class Agent:
         self._maybe_condense(conversation, sandbox)
         messages = self._build_messages(conversation, sandbox)
         messages.append({"role": "user", "content": EARLY_STOP_PROMPT})
-        response = self.llm.complete(messages, phase="early_stop")
+        response = self.llm.complete(
+            messages, self.tools.all(), phase="early_stop", tool_choice="none"
+        )
         self._record_llm_usage(conversation, response, "early_stop")
         text = (response.text or "").strip()
         if not text:
@@ -511,9 +545,9 @@ class Agent:
         )
         if len(candidates) < _MIN_CONDENSE_EVENTS:
             return False
-        messages = self._build_messages(conversation, sandbox)
-        messages.append({"role": "user", "content": CONDENSE_SYSTEM_PROMPT})
-        response = self.llm.complete(messages, self.tools.all(), phase="condense")
+        response = self._summary(conversation, sandbox, candidates)
+        if response is None:
+            return False
         self._record_llm_usage(conversation, response, "condense")
         summary = (response.text or "").strip()
         if not summary:
@@ -529,6 +563,33 @@ class Agent:
             )
         )
         return True
+
+    def _summary(
+        self, conversation: Conversation, sandbox: Sandbox, candidates: list[Event]
+    ) -> LLMResponse | None:
+        """Summarize only the events being replaced; the retained tail stays
+        verbatim. When even that overflows (an overflow-triggered compaction),
+        shrink the request in stages: clip tool outputs, then drop the oldest
+        half. The failure-evidence appendix still covers dropped errors."""
+        elided = conversation.elided_event_ids()
+        shrinks = [(candidates, limit) for limit in _SUMMARY_OUTPUT_LIMITS] + [
+            (candidates[len(candidates) // 2 :], _SUMMARY_OUTPUT_LIMITS[-1]),
+            (candidates[3 * len(candidates) // 4 :], _SUMMARY_OUTPUT_LIMITS[-1]),
+        ]
+        for events, limit in shrinks:
+            messages = [
+                self._system_message(conversation, sandbox),
+                *self._summaries(conversation),
+                *self._render(events, elided=elided, output_limit=limit),
+                {"role": "user", "content": CONDENSE_SYSTEM_PROMPT},
+            ]
+            try:
+                return self.llm.complete(
+                    messages, self.tools.all(), phase="condense", tool_choice="none"
+                )
+            except ContextOverflow:
+                continue
+        return None
 
     @staticmethod
     def _failure_evidence(events: list[Event]) -> str:
@@ -548,15 +609,40 @@ class Agent:
     def _build_messages(
         self, conversation: Conversation, sandbox: Sandbox
     ) -> list[dict]:
-        system_prompt = self.system_prompt + self._context_block(conversation, sandbox)
-        messages: list[dict] = [{"role": "system", "content": system_prompt}]
-        compacted = conversation.compacted_event_ids()
-        elided = conversation.elided_event_ids()
-        for event in conversation.live_events():
-            if isinstance(event, CondensationEvent):
-                summary = event.to_chat_message()
-                if summary is not None:
-                    messages.append(summary)
+        return [
+            self._system_message(conversation, sandbox),
+            *self._summaries(conversation),
+            *self._render(
+                conversation.events,
+                compacted=conversation.compacted_event_ids(),
+                elided=conversation.elided_event_ids(),
+            ),
+            {"role": "user", "content": self._runtime_context(conversation)},
+        ]
+
+    def _system_message(self, conversation: Conversation, sandbox: Sandbox) -> dict:
+        return {
+            "role": "system",
+            "content": self.system_prompt + self._context_block(conversation, sandbox),
+        }
+
+    @staticmethod
+    def _summaries(conversation: Conversation) -> list[dict]:
+        return [
+            summary
+            for event in conversation.live_events()
+            if isinstance(event, CondensationEvent)
+            and (summary := event.to_chat_message()) is not None
+        ]
+
+    @staticmethod
+    def _render(
+        events: list[Event],
+        compacted: set[str] = frozenset(),
+        elided: set[str] = frozenset(),
+        output_limit: int = _MAX_MESSAGE_CHARS,
+    ) -> list[dict]:
+        messages: list[dict] = []
         pending: dict | None = None  # assistant turn being assembled
 
         def flush() -> None:
@@ -565,7 +651,7 @@ class Agent:
                 messages.append(pending)
                 pending = None
 
-        for event in conversation.events:
+        for event in events:
             if isinstance(event, CondensationEvent) or event.id in compacted:
                 continue
             # An assistant turn's text and its tool calls arrive as separate
@@ -608,16 +694,14 @@ class Agent:
             # context window; truncating (not dropping events) keeps tool_call
             # pairing intact, and clipping at send-time also rescues stored events.
             content = message.get("content")
-            if isinstance(content, str):
-                message = {**message, "content": clip(content, _MAX_MESSAGE_CHARS)}
+            if isinstance(content, str) and not (
+                isinstance(event, MessageEvent) and event.role == "user"
+            ):
+                message = {**message, "content": clip(content, output_limit)}
             messages.append(message)
 
         flush()
-        messages = _pair_tool_calls(messages)
-        messages.append(
-            {"role": "user", "content": self._runtime_context(conversation)}
-        )
-        return messages
+        return _pair_tool_calls(messages)
 
     def _runtime_context(self, conversation: Conversation) -> str:
         sections = self._mode_sections(conversation)

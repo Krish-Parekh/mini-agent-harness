@@ -34,7 +34,7 @@ class WindowLLM:
     def count_tokens(self, messages, tools=None) -> int:
         return sum(len(str(m.get("content") or "")) for m in messages) // 4
 
-    def complete(self, messages, tools=None, phase="agent"):
+    def complete(self, messages, tools=None, phase="agent", tool_choice="auto"):
         if phase == "finish_nudge":
             return LLMResponse()
         self.seen.append((phase, messages))
@@ -222,3 +222,60 @@ def test_a_second_overflow_ends_the_step_with_an_error():
     assert conversation.status == Status.ERROR
     errors = [e for e in conversation.events if isinstance(e, ErrorEvent)]
     assert errors[-1].message == "Context window exceeded after compaction"
+
+
+def test_an_overflowing_summary_request_is_shrunk_instead_of_failing_the_step():
+    llm = WindowLLM(
+        1_000_000,
+        [
+            ContextOverflow("prompt is too long"),
+            ContextOverflow("summary request is too long too"),
+            LLMResponse(text="## Primary request\nsummary"),
+            LLMResponse(text="recovered"),
+        ],
+    )
+    conversation = _conversation(llm)
+    _history(conversation, 14, 5_000)
+    conversation.send_message("the newest request stays verbatim")
+    conversation.run()
+
+    assert conversation.status == Status.IDLE
+    assert [p for p, _ in llm.seen] == ["step", "condense", "condense", "step"]
+    first, shrunk = (messages for phase, messages in llm.seen if phase == "condense")
+    longest = lambda messages: max(len(str(m.get("content") or "")) for m in messages[1:-1])
+    assert longest(first) > 4_000 and longest(shrunk) < 2_200
+    assert all("the newest request stays verbatim" not in str(m.get("content")) for m in first)
+    retried = llm.seen[-1][1]
+    assert any(m.get("content") == "the newest request stays verbatim" for m in retried)
+
+
+def test_a_reply_cut_off_at_the_output_limit_is_not_taken_as_the_answer():
+    llm = WindowLLM(
+        1_000_000,
+        [
+            LLMResponse(text="Here is the full rewrite of the fi", truncated=True),
+            LLMResponse(text="Done in smaller pieces."),
+        ],
+    )
+    conversation = _conversation(llm)
+    conversation.send_message("rewrite the file")
+    conversation.run()
+
+    assert conversation.status == Status.IDLE
+    assert [p for p, _ in llm.seen] == ["step", "step"]
+    retried = llm.seen[-1][1]
+    assert any("hit the output token limit" in str(m.get("content")) for m in retried)
+    assert conversation.events[-1].text == "Done in smaller pieces."
+
+
+def test_three_cut_off_replies_in_a_row_end_the_run():
+    llm = WindowLLM(
+        1_000_000,
+        [LLMResponse(text="partial", truncated=True) for _ in range(3)],
+    )
+    conversation = _conversation(llm)
+    conversation.send_message("rewrite everything")
+    conversation.run()
+
+    assert conversation.status == Status.ERROR
+    assert "cut off at the output token limit 3 times" in conversation.events[-1].message
