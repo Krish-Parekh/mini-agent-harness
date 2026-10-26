@@ -242,7 +242,9 @@ def test_an_overflowing_summary_request_is_shrunk_instead_of_failing_the_step():
     assert conversation.status == Status.IDLE
     assert [p for p, _ in llm.seen] == ["step", "condense", "condense", "step"]
     first, shrunk = (messages for phase, messages in llm.seen if phase == "condense")
-    longest = lambda messages: max(len(str(m.get("content") or "")) for m in messages[1:-1])
+    def longest(messages):
+        return max(len(str(m.get("content") or "")) for m in messages[1:-1])
+
     assert longest(first) > 4_000 and longest(shrunk) < 2_200
     assert all("the newest request stays verbatim" not in str(m.get("content")) for m in first)
     retried = llm.seen[-1][1]
