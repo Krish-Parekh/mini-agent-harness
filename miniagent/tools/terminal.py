@@ -283,8 +283,21 @@ class TerminalSession:
 
     def close(self) -> None:
         if self.started:
-            self._run(f"{TMUX} kill-session -t {self._session_target}")
+            self._run(self._end_session)
             self.started = False
+
+    @property
+    def _end_session(self) -> str:
+        """Kill every process still attached to the pane's terminal, then the
+        tmux session. Closing the pane only sends SIGHUP, which apt, dpkg and
+        nohup'd jobs survive; orphaned, they keep locks and ports. Processes the
+        agent detached with setsid have no terminal and are left alone."""
+        return (
+            f"tty=$({TMUX} display-message -p -t {self._pane_target} '#{{pane_tty}}' 2>/dev/null); "
+            'pids=$([ -n "$tty" ] && ps -o pid= -t "${tty#/dev/}"); '
+            '[ -n "$pids" ] && kill -KILL $pids; '
+            f"{TMUX} kill-session -t {self._session_target} 2>/dev/null; true"
+        )
 
     def _ensure_started(self, reset: bool) -> str:
         if self.started and not reset and self._alive():
@@ -298,7 +311,7 @@ class TerminalSession:
 
     def _start(self) -> None:
         self._check(
-            f"{TMUX} kill-session -t {self._session_target} 2>/dev/null; "
+            f"{self._end_session}; "
             f"{TMUX} -f /dev/null start-server \\; "
             f"set-option -g history-limit {HISTORY_LIMIT} \\; "
             f"new-session -d -s {self._buffer} -x {_WIDTH} -y {_HEIGHT} "

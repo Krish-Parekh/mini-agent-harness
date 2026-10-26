@@ -24,7 +24,7 @@ class ScriptedLLM:
     def count_tokens(self, messages, tools=None) -> int:
         return 0
 
-    def complete(self, messages, tools=None, phase="agent"):
+    def complete(self, messages, tools=None, phase="agent", tool_choice="auto"):
         self.calls += 1
         return LLMResponse(
             tool_calls=[ToolCall(id=f"c{self.calls}", name="terminal", arguments={"command": "echo hi"})]

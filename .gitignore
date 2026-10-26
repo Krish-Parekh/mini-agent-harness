@@ -1,6 +1,7 @@
 docs/*
 !docs/architecture/
 !docs/media/
+!docs/terminal-bench.md
 codebase/
 .venv/
 __pycache__/
@@ -20,4 +21,3 @@ CONTEXT.md
 
 evals/results/
 .deepeval/
-variably_evals/

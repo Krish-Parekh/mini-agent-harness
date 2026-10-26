@@ -150,3 +150,40 @@ def test_close_kills_the_tmux_session(session):
     session.close()
     alive = session.sandbox.run_command(f"{TMUX} has-session -t ={session.name}")
     assert alive.exit_code != 0
+
+
+def test_reset_ends_what_the_shell_started_but_keeps_detached_services(session):
+    stubborn, background, detached = (f"m{uuid.uuid4().hex[:8]}" for _ in range(3))
+    detach = (
+        "import os; os.fork() and os._exit(0); os.setsid(); "
+        f"os.execvp('sh', ['sh', '-c', 'sleep 300; : {detached}'])"
+    )
+    run(session, f'python3 -c "{detach}" >/dev/null 2>&1 &')
+    run(session, f"nohup sh -c 'sleep 300; : {background}' >/dev/null 2>&1 &")
+    still_running = run(session, f"sh -c 'trap \"\" HUP INT; sleep 300; : {stubborn}'")
+    assert still_running.exit_code == -1
+    run(session, "C-c", is_input=True)
+
+    run(session, "echo fresh", reset=True)
+
+    try:
+        assert not alive(session, stubborn)
+        assert not alive(session, background)
+        assert alive(session, detached)
+    finally:
+        session.sandbox.run_command(f"pkill -f {_pattern(detached)}")
+
+
+def test_close_ends_what_the_shell_started(session):
+    marker = f"m{uuid.uuid4().hex[:8]}"
+    run(session, f"nohup sh -c 'sleep 300; : {marker}' >/dev/null 2>&1 &")
+    session.close()
+    assert not alive(session, marker)
+
+
+def _pattern(marker: str) -> str:
+    return f"'[{marker[0]}]{marker[1:]}'"
+
+
+def alive(session: TerminalSession, marker: str) -> bool:
+    return session.sandbox.run_command(f"pgrep -f {_pattern(marker)}").exit_code == 0

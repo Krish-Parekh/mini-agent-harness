@@ -17,6 +17,7 @@ from harbor.models.trial.config import (
 from harbor.models.trial.paths import TrialPaths
 from harbor.trial.trial import Trial
 
+from miniagent.harbor.agent import _task_timeout
 from miniagent.harbor.sandbox import HarborSandbox
 from miniagent.prompts import FINISH_CHECKLIST_PROMPT
 from miniagent.sandbox.base import TIMEOUT_EXIT_CODE
@@ -68,13 +69,16 @@ async def test_the_sandbox_runs_commands_and_moves_files_through_the_environment
     assert listing == ["notes.txt"]
 
 
+def test_the_time_budget_comes_from_the_tasks_agent_timeout(environment):
+    assert _task_timeout(environment) == 600.0
+
+
 async def test_harbor_runs_miniagent_on_a_task_and_grades_it(tmp_path, cassette):  # noqa: F811
     config = TrialConfig(
         task=TaskConfig(path=TASK),
         agent=AgentConfig(
             import_path="miniagent.harbor:MiniAgent",
             model_name="anthropic/claude-haiku-5-5",
-            kwargs={"timeout_sec": 600},
         ),
         environment=EnvironmentConfig(type=EnvironmentType.DOCKER, delete=True),
         trials_dir=tmp_path / "trials",

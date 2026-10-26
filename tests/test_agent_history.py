@@ -35,7 +35,7 @@ class QueueLLM:
     def count_tokens(self, messages, tools=None) -> int:
         return 0
 
-    def complete(self, messages, tools=None, phase="agent"):
+    def complete(self, messages, tools=None, phase="agent", tool_choice="auto"):
         if phase == "finish_nudge":
             return LLMResponse()
         self.seen.append(messages)
@@ -211,3 +211,48 @@ def test_worker_relays_do_not_split_one_turns_parallel_calls(workspace_conversat
     turns = [m for m in sent if m.get("tool_calls")]
     assert len(turns) == 1
     assert [c["id"] for c in turns[0]["tool_calls"]] == ["c1", "c2"]
+
+
+def test_a_long_user_message_reaches_the_model_whole(workspace_conversation):
+    llm = QueueLLM(LLMResponse(text="read it"))
+    conversation = workspace_conversation(llm)
+    spec = "requirement line\n" * 2_000
+    conversation.send_message(spec)
+    conversation.run()
+
+    assert any(m.get("content") == spec for m in llm.seen[-1])
+
+
+def test_a_steering_message_gets_a_fresh_step_budget(tmp_path):
+    from tests.test_queue_steer import SteeringProbe
+
+    llm = QueueLLM(
+        LLMResponse(tool_calls=[ToolCall(id="p1", name="probe", arguments={})]),
+        _terminal("t1", "ls"),
+        LLMResponse(text="README updated"),
+    )
+    conversation = Conversation(
+        agent=Agent(llm=llm, tools=ToolRegistry([SteeringProbe(), TerminalTool(), FinishTool()]), policy=SafePolicy()),
+        sandbox=LocalSandbox(str(tmp_path)),
+        confirm_policy=ConfirmPolicy("full"),
+        stuck_detection=False,
+        max_iterations=2,
+    )
+    conversation.send_message("fix the bug")
+    try:
+        conversation.run()
+    finally:
+        conversation.agent.close()
+
+    assert not conversation.hit_step_limit
+    assert conversation.events[-1].text == "README updated"
+
+
+def test_one_empty_reply_is_retried_before_it_counts_as_an_error(workspace_conversation):
+    llm = QueueLLM(LLMResponse(), LLMResponse(text="here it is"))
+    conversation = workspace_conversation(llm)
+    conversation.send_message("answer")
+    conversation.run()
+
+    assert conversation.status == Status.IDLE
+    assert conversation.events[-1].text == "here it is"

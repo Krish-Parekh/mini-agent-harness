@@ -20,7 +20,7 @@ class NudgeLLM:
     def count_tokens(self, messages, tools=None) -> int:
         return 0
 
-    def complete(self, messages, tools=None, phase="agent"):
+    def complete(self, messages, tools=None, phase="agent", tool_choice="auto"):
         self.phases.append(phase)
         self.seen.append(messages)
         return self.responses.pop(0)

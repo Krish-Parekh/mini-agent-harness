@@ -48,7 +48,7 @@ def test_a_failed_step_records_the_typed_failure_without_secrets():
     from tests.test_agent_history import QueueLLM, _conversation
 
     class LimitedLLM(QueueLLM):
-        def complete(self, messages, tools=None, phase="agent"):
+        def complete(self, messages, tools=None, phase="agent", tool_choice="auto"):
             raise litellm.RateLimitError(
                 "limit for key sk-ant-api03-SECRETSECRET", "anthropic", "claude", response=_response(429)
             )

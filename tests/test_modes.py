@@ -47,7 +47,7 @@ class TablePolicy:
 
 
 class ScriptLLM(QueueLLM):
-    def complete(self, messages, tools=None, phase="agent"):
+    def complete(self, messages, tools=None, phase="agent", tool_choice="auto"):
         step = super().complete(messages, tools, phase)
         return step() if callable(step) else step
 

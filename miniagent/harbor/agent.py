@@ -9,6 +9,8 @@ from harbor.agents.capabilities import AgentCapabilities
 from harbor.agents.options import AgentOptions
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
+from harbor.models.task.config import TaskConfig
+from harbor.models.task.paths import TaskPaths
 from harbor.models.trajectories import Agent as TrajectoryAgent
 from harbor.models.trajectories import FinalMetrics
 from harbor.utils.trajectory_utils import format_trajectory_json
@@ -28,18 +30,24 @@ _FIND_PACKAGE_MANAGER = (
     'if command -v "$manager" >/dev/null 2>&1; then printf "%s" "$manager"; break; fi; '
     "done"
 )
+_TOOLS_PRESENT = (
+    "command -v rg >/dev/null && command -v tmux >/dev/null && "
+    "ps --version 2>/dev/null | grep -q procps"
+)
 _INSTALL_TOOLS = {
-    "apt-get": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ripgrep tmux",
-    "dnf": "dnf install -y ripgrep tmux",
-    "yum": "yum install -y ripgrep tmux",
-    "apk": "apk add --no-cache ripgrep tmux",
+    "apt-get": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ripgrep tmux procps",
+    "dnf": "dnf install -y ripgrep tmux procps-ng",
+    "yum": "yum install -y ripgrep tmux procps-ng",
+    "apk": "apk add --no-cache ripgrep tmux procps-ng",
 }
 
 
 class MiniAgentOptions(AgentOptions):
     max_iterations: int = Field(default=200, description="Maximum agent steps.")
     timeout_sec: int | None = Field(
-        default=None, description="Time budget the agent sees as elapsed / remaining each step."
+        default=None,
+        description="Time budget the agent sees as elapsed / remaining each step. "
+        "Defaults to the task's agent timeout from task.toml.",
     )
 
 
@@ -56,27 +64,26 @@ class MiniAgent(BaseAgent):
         return version("mini-agent")
 
     async def setup(self, environment: BaseEnvironment) -> None:
-        present = await environment.exec(
-            "command -v rg >/dev/null && command -v tmux >/dev/null", user="root"
-        )
+        present = await environment.exec(_TOOLS_PRESENT, user="root")
         if present.return_code != 0:
             found = await environment.exec(_FIND_PACKAGE_MANAGER, user="root")
             manager = (found.stdout or "").strip()
             if manager not in _INSTALL_TOOLS:
-                raise RuntimeError("no apt-get, dnf, yum or apk to install ripgrep and tmux")
+                raise RuntimeError("no apt-get, dnf, yum or apk to install ripgrep, tmux and procps")
             installed = await environment.exec(_INSTALL_TOOLS[manager], user="root")
             if installed.return_code != 0:
                 raise RuntimeError(
-                    f"installing ripgrep and tmux failed: {installed.stdout}{installed.stderr}"
+                    f"installing ripgrep, tmux and procps failed: {installed.stdout}{installed.stderr}"
                 )
         self._sandbox = await HarborSandbox.connect(environment)
+        self._timeout_sec = self.options.timeout_sec or _task_timeout(environment)
 
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
         settings = Settings(model=self.model_name) if self.model_name else Settings()
         export_provider_keys(settings)
-        budget = TimeBudget(self.options.timeout_sec) if self.options.timeout_sec else None
+        budget = TimeBudget(int(self._timeout_sec)) if self._timeout_sec else None
         lock = threading.Lock()
 
         def record() -> None:
@@ -125,3 +132,10 @@ class MiniAgent(BaseAgent):
         (self.logs_dir / "trajectory.json").write_text(
             format_trajectory_json(trajectory.to_json_dict())
         )
+
+
+def _task_timeout(environment: BaseEnvironment) -> float | None:
+    """Harbor hands the agent timeout only to its oracle agent, so read it from
+    the task's own config: the environment is built from <task>/environment."""
+    config = TaskPaths(environment.environment_dir.parent).config_path
+    return TaskConfig.model_validate_toml(config.read_text()).agent.timeout_sec

@@ -80,6 +80,7 @@ class Conversation:
         self.refuse_confirmations = refuse_confirmations
         self.workers = WorkerPool()
         self.hit_step_limit = False
+        self.output_limit_streak = 0
         self.agent = agent
         self.sandbox = sandbox
         self.on_event = on_event or (lambda event: None)
@@ -153,13 +154,16 @@ class Conversation:
                 return True
         return self.workers.has_results()
 
-    def _take_steering(self) -> None:
+    def _take_steering(self) -> bool:
+        """Add waiting steering messages and worker results; True when the user
+        said something new."""
         with self._steering_lock:
             pending, self._steering = self._steering, []
         for message in pending:
             self.add_event(message)
         for worker in self.workers.take():
             self.add_event(worker.deliver())
+        return bool(pending)
 
     @property
     def status(self) -> Status:
@@ -449,13 +453,16 @@ class Conversation:
                 "Not executed: the previous run stopped before this call ran."
             )
         self.status = Status.RUNNING
-        for _ in range(self.max_iterations):
+        steps = 0
+        while steps < self.max_iterations:
             # Cooperative stop: a step runs to completion (the current LLM call
             # or tool can't be interrupted), then we bail before the next one.
             if self.cancelled:
                 self.status = Status.IDLE
                 return
-            self._take_steering()
+            if self._take_steering():
+                steps = 0
+            steps += 1
             if self._stuck_detector is not None:
                 reason = self._stuck_detector.reason()
                 if reason is not None:

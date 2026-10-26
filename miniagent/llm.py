@@ -10,11 +10,11 @@ import logfire
 from litellm import ModelResponse
 from pydantic import BaseModel, ConfigDict, Field
 from tenacity import (
+    RetryCallState,
     Retrying,
     before_sleep_log,
     retry_if_exception_type,
     stop_after_attempt,
-    wait_random_exponential,
 )
 
 from miniagent.config import ReasoningEffort
@@ -63,6 +63,7 @@ class LLMResponse(BaseModel):
     tool_calls: list[ToolCall] = Field(default_factory=list)
     usage: TokenUsage = Field(default_factory=TokenUsage)
     cost: float = 0.0
+    truncated: bool = False
 
 
 StructuredResponse = TypeVar("StructuredResponse", bound=BaseModel)
@@ -76,7 +77,6 @@ _TRANSIENT = (
     litellm.Timeout,
 )
 
-_MAX_BACKOFF = 30.0
 DEFAULT_CONTEXT_WINDOW = 128_000
 CACHE_BREAKPOINTS = [
     {"location": "message", "role": "system"},
@@ -122,11 +122,12 @@ class LLM:
         messages: list[dict],
         tools: list[Tool] | None = None,
         phase: str = "agent",
+        tool_choice: str = "auto",
     ) -> LLMResponse:
         kwargs = self._completion_kwargs(messages)
         if tools:
             kwargs["tools"] = [to_openai_schema(t) for t in tools]
-            kwargs["tool_choice"] = "auto"
+            kwargs["tool_choice"] = tool_choice
         if self.prompt_caching and len(messages) > 2:
             kwargs["cache_control_injection_points"] = CACHE_BREAKPOINTS
 
@@ -219,25 +220,37 @@ class LLM:
         return kwargs
 
     def _call_with_retry(self, kwargs: dict[str, Any]) -> ModelResponse:
-        """Call the model, retrying transient failures with jittered backoff.
+        """Call the model, retrying transient failures.
 
         ``num_retries`` is retries beyond the first attempt (``num_retries + 1``
         total). Only ``_TRANSIENT`` errors retry; anything else raises at once.
-        ``reraise=True`` surfaces the original exception after the final attempt
-        rather than tenacity's ``RetryError``, so callers see the real cause.
+        Waits come from litellm's own ``calculate_retry_after``, as its router
+        uses: the provider's ``retry-after`` when it gives one, else jittered
+        exponential backoff. ``reraise=True`` surfaces the original exception
+        after the final attempt rather than tenacity's ``RetryError``.
         """
         retryer = Retrying(
             stop=stop_after_attempt(self.num_retries + 1),
-            wait=wait_random_exponential(multiplier=self.backoff, max=_MAX_BACKOFF),
+            wait=self._retry_wait,
             retry=retry_if_exception_type(_TRANSIENT),
             before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
         )
         return retryer(litellm.completion, **kwargs)
 
+    def _retry_wait(self, state: RetryCallState) -> float:
+        error = state.outcome.exception() if state.outcome else None
+        headers = getattr(getattr(error, "response", None), "headers", None)
+        return self.backoff * litellm.calculate_retry_after(
+            remaining_retries=self.num_retries - state.attempt_number + 1,
+            max_retries=self.num_retries,
+            response_headers=headers,
+        )
+
     @staticmethod
     def _parse(response: ModelResponse) -> LLMResponse:
-        message = response.choices[0].message
+        choice = response.choices[0]
+        message = choice.message
         text = message.content or None
 
         tool_calls: list[ToolCall] = []
@@ -268,6 +281,7 @@ class LLM:
             tool_calls=tool_calls,
             usage=LLM._usage(response),
             cost=LLM._cost(response),
+            truncated=choice.finish_reason == "length",
         )
 
     @staticmethod
