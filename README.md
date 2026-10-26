@@ -14,6 +14,17 @@ One task from prompt to pull request: the agent reads the repository, adds a `GE
 
 https://github.com/user-attachments/assets/52948164-f927-4c39-ba31-a04f34f150e0
 
+## Terminal-Bench 2.0
+
+In its first full run, MiniAgent with Claude Sonnet 5.5 solved **62 of the 89 tasks (69.7%)**, one attempt per task.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/terminal-bench-dark.png">
+  <img alt="Terminal-Bench 2.0 resolution rate: MiniAgent with Sonnet 5.5 at 69.7%, then the published Sonnet entries: Simplai Agent 53.4%, CAMEL-AI 46.5%, Goose 43.1%, Terminus 2 42.8%, MAYA-V2 42.7%, OpenHands 42.6%, Mini-SWE-Agent 42.5% and Claude Code 40.1%" src="docs/media/terminal-bench.png">
+</picture>
+
+The gray bars are the Sonnet entries on the [tbench.ai](https://www.tbench.ai/) 2.0 leaderboard. They use older models (Sonnet 4.5 and 4.6) and five attempts per task. No Sonnet 5.5 entry is published yet, so the chart compares the harnesses only roughly. Eight of the failed trials come from one harness bug: an `apt-get` that outlived the agent and locked out the grader. The run, the failure triage and the fix plan are in [`docs/terminal-bench.md`](docs/terminal-bench.md).
+
 ## System
 
 <picture>
